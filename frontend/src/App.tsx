@@ -8,13 +8,32 @@ import { OrdersTable } from "./components/OrdersTable";
 import "./App.css";
 
 const REFRESH_INTERVAL = 30_000;
+const LS_KEY = "watchlist";
+const DEFAULT_WATCHLIST = ["AAPL", "NVDA", "MSFT", "TSLA"];
+
+function loadLocalWatchlist(): string[] {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    return raw ? JSON.parse(raw) : DEFAULT_WATCHLIST;
+  } catch {
+    return DEFAULT_WATCHLIST;
+  }
+}
+
+function saveLocalWatchlist(symbols: string[]) {
+  localStorage.setItem(LS_KEY, JSON.stringify(symbols));
+}
 
 export default function App() {
+  const [watchlist, setWatchlist] = useState<string[]>(loadLocalWatchlist);
   const [account, setAccount] = useState<Account | null>(null);
-  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [quotes, setQuotes] = useState<Quote[]>(() =>
+    loadLocalWatchlist().map((symbol) => ({ symbol, price: 0, prev_close: 0, change_pct: 0, volume: 0, timestamp: "" }))
+  );
   const [positions, setPositions] = useState<Position[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [newSymbol, setNewSymbol] = useState("");
+  const [backendOnline, setBackendOnline] = useState(true);
   const [tab, setTab] = useState<"watchlist" | "positions" | "orders">("watchlist");
   const analysisRef = useRef<Record<string, Analysis>>({});
 
@@ -26,6 +45,7 @@ export default function App() {
         api.getPositions(),
         api.getOrders(),
       ]);
+      setBackendOnline(true);
       setAccount(a);
       setQuotes(q.map((quote) => ({
         ...quote,
@@ -33,8 +53,8 @@ export default function App() {
       })));
       setPositions(p);
       setOrders(o);
-    } catch (e) {
-      console.error("Refresh failed:", e);
+    } catch {
+      setBackendOnline(false);
     }
   }, []);
 
@@ -51,17 +71,31 @@ export default function App() {
     );
   }
 
-  async function handleAddSymbol() {
+  function handleAddSymbol() {
     const s = newSymbol.trim().toUpperCase();
-    if (!s) return;
-    await api.addToWatchlist(s);
+    if (!s || watchlist.includes(s)) return;
+
+    const next = [...watchlist, s];
+    setWatchlist(next);
+    saveLocalWatchlist(next);
+    setQuotes((prev) => [
+      ...prev,
+      { symbol: s, price: 0, prev_close: 0, change_pct: 0, volume: 0, timestamp: "" },
+    ]);
     setNewSymbol("");
-    refresh();
+
+    // sync to backend (best-effort)
+    api.addToWatchlist(s).then(() => refresh()).catch(() => {});
   }
 
-  async function handleRemoveSymbol(symbol: string) {
-    await api.removeFromWatchlist(symbol);
+  function handleRemoveSymbol(symbol: string) {
+    const next = watchlist.filter((s) => s !== symbol);
+    setWatchlist(next);
+    saveLocalWatchlist(next);
     setQuotes((prev) => prev.filter((q) => q.symbol !== symbol));
+
+    // sync to backend (best-effort)
+    api.removeFromWatchlist(symbol).catch(() => {});
   }
 
   return (
@@ -70,6 +104,12 @@ export default function App() {
         <h1>📎 Personal Trading Agent</h1>
         <AccountBar account={account} />
       </header>
+
+      {!backendOnline && (
+        <div className="backend-banner">
+          ⚠ Backend offline — run <code>python main.py</code> to enable live prices &amp; AI analysis
+        </div>
+      )}
 
       <nav className="tab-nav">
         {(["watchlist", "positions", "orders"] as const).map((t) => (
@@ -102,6 +142,7 @@ export default function App() {
                   quote={q}
                   onAnalysisUpdate={handleAnalysisUpdate}
                   onRemove={handleRemoveSymbol}
+                  backendOnline={backendOnline}
                 />
               ))}
             </div>

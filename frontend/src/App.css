@@ -44,6 +44,20 @@ body {
   font-weight: 500;
 }
 
+.backend-banner {
+  background: #2d1f00;
+  color: #fbbf24;
+  border-bottom: 1px solid #92400e44;
+  padding: 8px 24px;
+  font-size: 13px;
+}
+.backend-banner code {
+  background: #3d2900;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
 .tab-nav {
   display: flex;
   gap: 4px;

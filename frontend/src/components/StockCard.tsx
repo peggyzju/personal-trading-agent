@@ -7,9 +7,10 @@ interface Props {
   quote: Quote;
   onAnalysisUpdate: (a: Analysis) => void;
   onRemove: (symbol: string) => void;
+  backendOnline: boolean;
 }
 
-export function StockCard({ quote, onAnalysisUpdate, onRemove }: Props) {
+export function StockCard({ quote, onAnalysisUpdate, onRemove, backendOnline }: Props) {
   const [loading, setLoading] = useState(false);
   const analysis = quote.analysis;
 
@@ -66,7 +67,7 @@ export function StockCard({ quote, onAnalysisUpdate, onRemove }: Props) {
             </div>
           )}
 
-          <button className="analyze-btn" onClick={runAnalysis} disabled={loading}>
+          <button className="analyze-btn" onClick={runAnalysis} disabled={loading || !backendOnline}>
             {loading ? "Analyzing…" : analysis ? "Re-analyze" : "Analyze with AI"}
           </button>
 
