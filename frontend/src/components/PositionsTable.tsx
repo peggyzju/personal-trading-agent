@@ -1,4 +1,4 @@
-import { Position } from "../api/client";
+import type { Position } from "../api/client";
 
 export function PositionsTable({ positions }: { positions: Position[] }) {
   if (positions.length === 0) {

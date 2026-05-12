@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Quote, Analysis, api } from "../api/client";
+import { api } from "../api/client";
+import type { Quote, Analysis } from "../api/client";
 import { AnalysisPanel } from "./AnalysisPanel";
 
 interface Props {

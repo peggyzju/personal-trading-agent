@@ -1,4 +1,4 @@
-import { Order } from "../api/client";
+import type { Order } from "../api/client";
 
 export function OrdersTable({ orders }: { orders: Order[] }) {
   if (orders.length === 0) return null;

@@ -1,4 +1,4 @@
-import { Analysis } from "../api/client";
+import type { Analysis } from "../api/client";
 
 export function AnalysisPanel({ analysis }: { analysis: Analysis }) {
   const signalColor = analysis.signal === "BUY" ? "#22c55e" : analysis.signal === "SELL" ? "#ef4444" : "#f59e0b";

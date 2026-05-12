@@ -1,4 +1,4 @@
-import { Account } from "../api/client";
+import type { Account } from "../api/client";
 
 function fmt(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });

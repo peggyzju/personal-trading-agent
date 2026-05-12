@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, Account, Quote, Position, Order, Analysis } from "./api/client";
+import { api } from "./api/client";
+import type { Account, Quote, Position, Order, Analysis } from "./api/client";
 import { AccountBar } from "./components/AccountBar";
 import { StockCard } from "./components/StockCard";
 import { PositionsTable } from "./components/PositionsTable";
