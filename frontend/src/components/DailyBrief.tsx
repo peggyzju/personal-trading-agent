@@ -13,23 +13,53 @@ interface Props {
 export function DailyBrief({ backendOnline }: Props) {
   const [brief, setBrief] = useState<DailyBriefType | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [hasCache, setHasCache] = useState<boolean | null>(null); // null = not checked yet
 
-  async function load(generate = false) {
+  async function checkCache() {
     if (!backendOnline) return;
-    setLoading(true);
-    setError("");
     try {
-      const result = generate ? await api.generateBrief() : await api.getBrief();
-      setBrief(result);
-    } catch {
-      if (!generate) {
-        // no cached brief — prompt to generate
-        setError("no_cache");
+      const result = await api.getBrief();
+      if ((result as any).status === "running") {
+        setLoading(true);
+        pollUntilDone();
       } else {
-        setError("Failed to generate brief.");
+        setBrief(result);
+        setHasCache(true);
       }
-    } finally {
+    } catch {
+      setHasCache(false); // 404 = no cache
+    }
+  }
+
+  function pollUntilDone() {
+    const poll = setInterval(async () => {
+      try {
+        const result = await api.getBrief();
+        if ((result as any).status === "running") return;
+        clearInterval(poll);
+        setLoading(false);
+        if ((result as any).status === "error") {
+          setHasCache(false);
+        } else {
+          setBrief(result);
+          setHasCache(true);
+        }
+      } catch {
+        clearInterval(poll);
+        setLoading(false);
+        setHasCache(false);
+      }
+    }, 3000);
+    setTimeout(() => { clearInterval(poll); setLoading(false); }, 60_000);
+  }
+
+  async function generate() {
+    setLoading(true);
+    setBrief(null);
+    try {
+      await api.generateBrief();
+      pollUntilDone();
+    } catch {
       setLoading(false);
     }
   }
@@ -42,30 +72,39 @@ export function DailyBrief({ backendOnline }: Props) {
     );
   }
 
-  if (!brief && !loading && error !== "no_cache") {
+  // First visit — haven't checked cache yet
+  if (hasCache === null && !loading && !brief) {
     return (
       <div className="brief-empty">
-        <button className="brief-generate-btn" onClick={() => load(false)}>
+        <button className="brief-generate-btn" onClick={checkCache}>
           Load Today's Brief
         </button>
       </div>
     );
   }
 
-  if (error === "no_cache") {
+  // No cache — show generate button
+  if (hasCache === false && !loading) {
     return (
       <div className="brief-empty">
         <p className="brief-empty-text">No brief generated yet for today.</p>
-        <button className="brief-generate-btn" onClick={() => load(true)} disabled={loading}>
-          {loading ? "Generating…" : "✨ Generate Daily Brief"}
+        <button className="brief-generate-btn" onClick={generate}>
+          ✨ Generate Daily Brief
         </button>
         <p className="brief-disclaimer">Takes ~15–20s — Claude reads all watchlist news + prices</p>
       </div>
     );
   }
 
+  // Loading / generating
   if (loading) {
-    return <div className="brief-loading">Generating market brief… Claude is reading the news.</div>;
+    return (
+      <div className="scan-running">
+        <div className="scan-spinner" />
+        <p>Claude is reading the news and generating your brief…</p>
+        <p className="brief-disclaimer">Usually takes 15–20 seconds</p>
+      </div>
+    );
   }
 
   if (!brief) return null;
@@ -80,7 +119,7 @@ export function DailyBrief({ backendOnline }: Props) {
           </span>
           <span className="brief-date">Generated {brief.generated_at}</span>
         </div>
-        <button className="brief-regenerate-btn" onClick={() => load(true)} disabled={loading}>
+        <button className="brief-regenerate-btn" onClick={generate} disabled={loading}>
           ↺ Refresh
         </button>
       </div>
@@ -88,7 +127,6 @@ export function DailyBrief({ backendOnline }: Props) {
       <p className="brief-summary">{brief.sentiment_summary}</p>
 
       <div className="brief-grid">
-        {/* Top Movers */}
         <section className="brief-section">
           <h3>📈 Top Movers</h3>
           {brief.top_movers.map((m, i) => (
@@ -102,7 +140,6 @@ export function DailyBrief({ backendOnline }: Props) {
           ))}
         </section>
 
-        {/* Key Events */}
         <section className="brief-section">
           <h3>📅 Key Events</h3>
           {brief.key_events.map((e, i) => (
@@ -116,7 +153,6 @@ export function DailyBrief({ backendOnline }: Props) {
           ))}
         </section>
 
-        {/* Trading Opportunities */}
         <section className="brief-section">
           <h3>💡 Opportunities</h3>
           {brief.trading_opportunities.map((o, i) => (
@@ -130,7 +166,6 @@ export function DailyBrief({ backendOnline }: Props) {
           ))}
         </section>
 
-        {/* Risks */}
         <section className="brief-section">
           <h3>⚠ Risks to Watch</h3>
           <ul className="risks-list">

@@ -178,35 +178,48 @@ def get_earnings(symbol: str):
 
 # ── Daily Brief ───────────────────────────────────────────────────────────────
 
-@app.post("/api/brief")
-def generate_brief():
+def _run_brief():
     from datetime import date
     from src.monitor.price_monitor import get_quote as _get_quote
     from src.monitor.news_monitor import get_news
     from src.analysis.daily_brief import generate_daily_brief
 
     today = date.today().isoformat()
+    _brief_cache["status"] = "running"
+    try:
+        watchlist_data = []
+        for symbol in load_watchlist():
+            try:
+                quote = _get_quote(symbol)
+                news = get_news(symbol, limit=5)
+                watchlist_data.append({
+                    "symbol": symbol,
+                    "price": quote["price"],
+                    "change_pct": quote["change_pct"],
+                    "news": news,
+                    "analysis": _analysis_cache.get(symbol),
+                })
+            except Exception:
+                pass
+        result = generate_daily_brief(watchlist_data)
+        result["generated_at"] = today
+        _brief_cache[today] = result
+        _brief_cache["status"] = "done"
+    except Exception as e:
+        _brief_cache["status"] = "error"
+        _brief_cache["error"] = str(e)
+
+
+@app.post("/api/brief")
+def generate_brief(background_tasks: BackgroundTasks):
+    from datetime import date
+    today = date.today().isoformat()
     if today in _brief_cache:
         return _brief_cache[today]
-
-    watchlist_data = []
-    for symbol in load_watchlist():
-        try:
-            quote = _get_quote(symbol)
-            news = get_news(symbol, limit=5)
-            watchlist_data.append({
-                "symbol": symbol,
-                "price": quote["price"],
-                "change_pct": quote["change_pct"],
-                "news": news,
-                "analysis": _analysis_cache.get(symbol),
-            })
-        except Exception:
-            pass
-
-    result = generate_daily_brief(watchlist_data)
-    _brief_cache[today] = result
-    return result
+    if _brief_cache.get("status") == "running":
+        return {"status": "running"}
+    background_tasks.add_task(_run_brief)
+    return {"status": "running"}
 
 
 @app.get("/api/brief")
@@ -215,6 +228,9 @@ def get_brief():
     today = date.today().isoformat()
     if today in _brief_cache:
         return _brief_cache[today]
+    status = _brief_cache.get("status")
+    if status == "running":
+        return {"status": "running"}
     raise HTTPException(status_code=404, detail="No brief yet.")
 
 
