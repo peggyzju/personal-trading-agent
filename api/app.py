@@ -21,8 +21,9 @@ app.add_middleware(
 WATCHLIST_FILE = Path(__file__).parent.parent / "watchlist.json"
 DEFAULT_WATCHLIST = ["AAPL", "NVDA", "MSFT", "TSLA"]
 
-# In-memory cache: symbol -> last analysis result
-_analysis_cache: dict = {}
+_analysis_cache: dict = {}   # symbol -> last analysis
+_news_cache: dict = {}       # symbol -> {items, sentiment, fetched_at}
+_brief_cache: dict = {}      # date -> daily brief
 
 
 def load_watchlist() -> list[str]:
@@ -70,6 +71,7 @@ def get_quotes():
         try:
             q = get_quote(symbol)
             q["analysis"] = _analysis_cache.get(symbol)
+            q["news_sentiment"] = (_news_cache.get(symbol) or {}).get("overall")
             results.append(q)
         except Exception as e:
             results.append({"symbol": symbol, "error": str(e)})
@@ -77,28 +79,31 @@ def get_quotes():
 
 
 @app.get("/api/quotes/{symbol}")
-def get_quote(symbol: str):
+def get_quote_single(symbol: str):
     from src.monitor.price_monitor import get_quote as _get_quote
     try:
         q = _get_quote(symbol.upper())
         q["analysis"] = _analysis_cache.get(symbol.upper())
+        q["news_sentiment"] = (_news_cache.get(symbol.upper()) or {}).get("overall")
         return q
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# ── Analysis ──────────────────────────────────────────────────────────────────
+# ── Analysis (price + news) ───────────────────────────────────────────────────
 
 @app.post("/api/analyze/{symbol}")
 def run_analysis(symbol: str):
     from src.monitor.price_monitor import get_quote as _get_quote, get_ohlcv
+    from src.monitor.news_monitor import get_news
     from src.analysis.ai_analyst import analyze
 
     s = symbol.upper()
     try:
         quote = _get_quote(s)
         ohlcv = get_ohlcv(s)
-        result = analyze(s, ohlcv, quote)
+        news = get_news(s)
+        result = analyze(s, ohlcv, quote, news=news)
         result["symbol"] = s
         result["price"] = quote["price"]
         result["change_pct"] = quote["change_pct"]
@@ -111,6 +116,108 @@ def run_analysis(symbol: str):
 @app.get("/api/analysis/cache")
 def get_cached_analyses():
     return _analysis_cache
+
+
+# ── News & Sentiment ──────────────────────────────────────────────────────────
+
+@app.get("/api/news/{symbol}")
+def get_news_for_symbol(symbol: str):
+    from src.monitor.news_monitor import get_news
+    s = symbol.upper()
+    try:
+        items = get_news(s)
+        _news_cache.setdefault(s, {})["items"] = items
+        return {"symbol": s, "items": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/news/{symbol}/sentiment")
+def analyze_news_sentiment(symbol: str):
+    from src.monitor.news_monitor import get_news
+    from src.monitor.price_monitor import get_quote as _get_quote
+    from src.analysis.sentiment_analyzer import analyze_news_sentiment as _analyze
+
+    s = symbol.upper()
+    try:
+        news = get_news(s)
+        quote = _get_quote(s)
+        result = _analyze(s, news, quote["change_pct"])
+        result["symbol"] = s
+        _news_cache[s] = result
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/news/cache/all")
+def get_news_cache():
+    return _news_cache
+
+
+# ── Market Movers ─────────────────────────────────────────────────────────────
+
+@app.get("/api/movers")
+def get_movers():
+    from src.monitor.market_movers import get_movers as _get_movers
+    try:
+        return _get_movers(load_watchlist())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Earnings Calendar ─────────────────────────────────────────────────────────
+
+@app.get("/api/earnings/{symbol}")
+def get_earnings(symbol: str):
+    from src.monitor.news_monitor import get_earnings_calendar
+    try:
+        return {"symbol": symbol.upper(), "calendar": get_earnings_calendar(symbol.upper())}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Daily Brief ───────────────────────────────────────────────────────────────
+
+@app.post("/api/brief")
+def generate_brief():
+    from datetime import date
+    from src.monitor.price_monitor import get_quote as _get_quote
+    from src.monitor.news_monitor import get_news
+    from src.analysis.daily_brief import generate_daily_brief
+
+    today = date.today().isoformat()
+    if today in _brief_cache:
+        return _brief_cache[today]
+
+    watchlist = load_watchlist()
+    watchlist_data = []
+    for symbol in watchlist:
+        try:
+            quote = _get_quote(symbol)
+            news = get_news(symbol, limit=5)
+            watchlist_data.append({
+                "symbol": symbol,
+                "price": quote["price"],
+                "change_pct": quote["change_pct"],
+                "news": news,
+                "analysis": _analysis_cache.get(symbol),
+            })
+        except Exception:
+            pass
+
+    result = generate_daily_brief(watchlist_data)
+    _brief_cache[today] = result
+    return result
+
+
+@app.get("/api/brief")
+def get_brief():
+    from datetime import date
+    today = date.today().isoformat()
+    if today in _brief_cache:
+        return _brief_cache[today]
+    raise HTTPException(status_code=404, detail="No brief yet. POST /api/brief to generate.")
 
 
 # ── Portfolio / Positions ─────────────────────────────────────────────────────
@@ -136,8 +243,8 @@ def get_account():
 def get_positions():
     from src.trader.alpaca_trader import get_client
     try:
-        api = get_client()
-        positions = api.list_positions()
+        alpaca = get_client()
+        positions = alpaca.list_positions()
         return [
             {
                 "symbol": p.symbol,
@@ -159,8 +266,8 @@ def get_positions():
 def get_orders():
     from src.trader.alpaca_trader import get_client
     try:
-        api = get_client()
-        orders = api.list_orders(status="all", limit=20)
+        alpaca = get_client()
+        orders = alpaca.list_orders(status="all", limit=20)
         return [
             {
                 "id": o.id,

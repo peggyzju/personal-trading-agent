@@ -5,6 +5,7 @@ import { AccountBar } from "./components/AccountBar";
 import { StockCard } from "./components/StockCard";
 import { PositionsTable } from "./components/PositionsTable";
 import { OrdersTable } from "./components/OrdersTable";
+import { DailyBrief } from "./components/DailyBrief";
 import "./App.css";
 
 const REFRESH_INTERVAL = 30_000;
@@ -24,17 +25,21 @@ function saveLocalWatchlist(symbols: string[]) {
   localStorage.setItem(LS_KEY, JSON.stringify(symbols));
 }
 
+type Tab = "brief" | "watchlist" | "positions" | "orders";
+
 export default function App() {
   const [watchlist, setWatchlist] = useState<string[]>(loadLocalWatchlist);
   const [account, setAccount] = useState<Account | null>(null);
   const [quotes, setQuotes] = useState<Quote[]>(() =>
-    loadLocalWatchlist().map((symbol) => ({ symbol, price: 0, prev_close: 0, change_pct: 0, volume: 0, timestamp: "" }))
+    loadLocalWatchlist().map((symbol) => ({
+      symbol, price: 0, prev_close: 0, change_pct: 0, volume: 0, timestamp: "",
+    }))
   );
   const [positions, setPositions] = useState<Position[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [newSymbol, setNewSymbol] = useState("");
   const [backendOnline, setBackendOnline] = useState(true);
-  const [tab, setTab] = useState<"watchlist" | "positions" | "orders">("watchlist");
+  const [tab, setTab] = useState<Tab>("brief");
   const analysisRef = useRef<Record<string, Analysis>>({});
 
   const refresh = useCallback(async () => {
@@ -74,7 +79,6 @@ export default function App() {
   function handleAddSymbol() {
     const s = newSymbol.trim().toUpperCase();
     if (!s || watchlist.includes(s)) return;
-
     const next = [...watchlist, s];
     setWatchlist(next);
     saveLocalWatchlist(next);
@@ -83,8 +87,6 @@ export default function App() {
       { symbol: s, price: 0, prev_close: 0, change_pct: 0, volume: 0, timestamp: "" },
     ]);
     setNewSymbol("");
-
-    // sync to backend (best-effort)
     api.addToWatchlist(s).then(() => refresh()).catch(() => {});
   }
 
@@ -93,10 +95,15 @@ export default function App() {
     setWatchlist(next);
     saveLocalWatchlist(next);
     setQuotes((prev) => prev.filter((q) => q.symbol !== symbol));
-
-    // sync to backend (best-effort)
     api.removeFromWatchlist(symbol).catch(() => {});
   }
+
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "brief", label: "📋 Daily Brief" },
+    { id: "watchlist", label: `Watchlist (${quotes.length})` },
+    { id: "positions", label: `Positions (${positions.length})` },
+    { id: "orders", label: `Orders (${orders.length})` },
+  ];
 
   return (
     <div className="app">
@@ -112,17 +119,17 @@ export default function App() {
       )}
 
       <nav className="tab-nav">
-        {(["watchlist", "positions", "orders"] as const).map((t) => (
-          <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>
-            {t === "watchlist" && `Watchlist (${quotes.length})`}
-            {t === "positions" && `Positions (${positions.length})`}
-            {t === "orders" && `Orders (${orders.length})`}
+        {tabs.map((t) => (
+          <button key={t.id} className={`tab ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
+            {t.label}
           </button>
         ))}
         <span className="refresh-hint">Auto-refreshes every 30s</span>
       </nav>
 
       <main className="app-main">
+        {tab === "brief" && <DailyBrief backendOnline={backendOnline} />}
+
         {tab === "watchlist" && (
           <>
             <div className="add-row">

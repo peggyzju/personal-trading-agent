@@ -2,6 +2,9 @@ import { useState } from "react";
 import { api } from "../api/client";
 import type { Quote, Analysis } from "../api/client";
 import { AnalysisPanel } from "./AnalysisPanel";
+import { NewsPanel } from "./NewsPanel";
+
+const SENTIMENT_COLOR = { BULLISH: "#22c55e", BEARISH: "#ef4444", NEUTRAL: "#f59e0b" };
 
 interface Props {
   quote: Quote;
@@ -39,6 +42,11 @@ export function StockCard({ quote, onAnalysisUpdate, onRemove, backendOnline }: 
               {analysis.signal}
             </span>
           )}
+          {quote.news_sentiment && !analysis && (
+            <span className="signal-badge" style={{ background: SENTIMENT_COLOR[quote.news_sentiment] }}>
+              {quote.news_sentiment}
+            </span>
+          )}
         </div>
         <button className="remove-btn" onClick={() => onRemove(quote.symbol)} title="Remove">✕</button>
       </div>
@@ -67,11 +75,15 @@ export function StockCard({ quote, onAnalysisUpdate, onRemove, backendOnline }: 
             </div>
           )}
 
-          <button className="analyze-btn" onClick={runAnalysis} disabled={loading || !backendOnline}>
-            {loading ? "Analyzing…" : analysis ? "Re-analyze" : "Analyze with AI"}
-          </button>
+          <div className="card-actions">
+            <button className="analyze-btn" onClick={runAnalysis} disabled={loading || !backendOnline}>
+              {loading ? "Analyzing…" : analysis ? "Re-analyze" : "Analyze with AI"}
+            </button>
+          </div>
 
           {analysis && <AnalysisPanel analysis={analysis} />}
+
+          <NewsPanel symbol={quote.symbol} backendOnline={backendOnline} />
         </>
       )}
     </div>
