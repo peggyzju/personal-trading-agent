@@ -1,3 +1,4 @@
+from __future__ import annotations
 import yfinance as yf
 from datetime import datetime, timezone
 

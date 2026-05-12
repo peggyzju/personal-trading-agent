@@ -1,3 +1,4 @@
+from __future__ import annotations
 from src.monitor.price_monitor import get_quote
 
 

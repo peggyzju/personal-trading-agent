@@ -43,24 +43,28 @@ export default function App() {
   const analysisRef = useRef<Record<string, Analysis>>({});
 
   const refresh = useCallback(async () => {
+    // quotes is the health check — only needs yfinance, no Alpaca key
     try {
-      const [a, q, p, o] = await Promise.all([
-        api.getAccount(),
-        api.getQuotes(),
-        api.getPositions(),
-        api.getOrders(),
-      ]);
+      const q = await api.getQuotes();
       setBackendOnline(true);
-      setAccount(a);
       setQuotes(q.map((quote) => ({
         ...quote,
         analysis: analysisRef.current[quote.symbol] ?? quote.analysis,
       })));
-      setPositions(p);
-      setOrders(o);
     } catch {
       setBackendOnline(false);
+      return;
     }
+
+    // Alpaca-dependent endpoints — fail silently if keys not configured
+    const [a, p, o] = await Promise.allSettled([
+      api.getAccount(),
+      api.getPositions(),
+      api.getOrders(),
+    ]);
+    if (a.status === "fulfilled") setAccount(a.value);
+    if (p.status === "fulfilled") setPositions(p.value);
+    if (o.status === "fulfilled") setOrders(o.value);
   }, []);
 
   useEffect(() => {
