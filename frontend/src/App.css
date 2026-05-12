@@ -610,3 +610,118 @@ body {
   border-top: 1px solid var(--border);
   margin-bottom: 8px;
 }
+
+/* ── Backtesting ──────────────────────────────────────────────── */
+.backtest-container { max-width: 1000px; }
+
+.backtest-config {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+.config-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.config-input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  width: 100px;
+}
+.config-input:focus { outline: none; border-color: var(--accent); }
+
+.backtest-stats-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.backtest-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.backtest-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.backtest-kpi-value {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.exit-breakdown {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.exit-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.exit-stop_loss { border-color: #ef444440; color: #ef4444; }
+.exit-target_hit { border-color: #22c55e40; color: #22c55e; }
+.exit-time_exit { border-color: #6366f140; color: #6366f1; }
+
+.backtest-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.equity-curve-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.equity-curve-wrap { position: relative; }
+.equity-svg {
+  width: 100%;
+  height: 120px;
+  display: block;
+}
+.equity-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.backtest-trades-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}

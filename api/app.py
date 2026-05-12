@@ -399,6 +399,58 @@ def get_orders():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Backtesting ───────────────────────────────────────────────────────────────
+
+_backtest_cache: dict = {}
+_backtest_running: bool = False
+
+
+@app.get("/api/backtest")
+def get_backtest():
+    return _backtest_cache.get("result", {"status": "not_run"})
+
+
+@app.post("/api/backtest")
+def trigger_backtest(
+    background_tasks: BackgroundTasks,
+    symbols: str = "",
+    hold_days: int = 10,
+    target_pct: float = 0.08,
+    period: str = "2y",
+):
+    global _backtest_running
+    if _backtest_running:
+        return {"status": "already_running"}
+
+    # Build symbol list: use provided, else fall back to watchlist + scan candidates
+    if symbols:
+        sym_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+    else:
+        sym_list = load_watchlist()
+        scan_candidates = (_scan_cache.get("sp500") or {}).get("candidates", [])
+        sym_list += [c["symbol"] for c in scan_candidates[:10]]
+        sym_list = list(dict.fromkeys(sym_list))  # deduplicate, preserve order
+
+    def _run():
+        global _backtest_running
+        _backtest_running = True
+        _backtest_cache["result"] = {"status": "running", "symbols": sym_list}
+        try:
+            from src.analysis.backtester import run_backtest
+            result = run_backtest(sym_list, period=period, hold_days=hold_days, target_pct=target_pct)
+            result["status"] = "done"
+            result["symbols"] = sym_list
+            result["params"] = {"hold_days": hold_days, "target_pct": target_pct, "period": period}
+            _backtest_cache["result"] = result
+        except Exception as e:
+            _backtest_cache["result"] = {"status": "error", "error": str(e)}
+        finally:
+            _backtest_running = False
+
+    background_tasks.add_task(_run)
+    return {"status": "started", "symbols": sym_list}
+
+
 # ── Serve built React app ─────────────────────────────────────────────────────
 
 frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"

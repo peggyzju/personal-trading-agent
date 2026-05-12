@@ -9,6 +9,7 @@ import { DailyBrief } from "./components/DailyBrief";
 import { BuyCandidates } from "./components/BuyCandidates";
 import { HoldingsMonitor } from "./components/HoldingsMonitor";
 import { BudgetView } from "./components/BudgetView";
+import { BacktestView } from "./components/BacktestView";
 import "./App.css";
 
 const REFRESH_INTERVAL = 30_000;
@@ -28,7 +29,7 @@ function saveLocalWatchlist(symbols: string[]) {
   localStorage.setItem(LS_KEY, JSON.stringify(symbols));
 }
 
-type Tab = "brief" | "watchlist" | "scan" | "holdings" | "budget" | "positions" | "orders";
+type Tab = "brief" | "watchlist" | "scan" | "holdings" | "budget" | "backtest" | "positions" | "orders";
 
 export default function App() {
   const [watchlist, setWatchlist] = useState<string[]>(loadLocalWatchlist);
@@ -110,6 +111,7 @@ export default function App() {
     { id: "scan", label: "🔍 Buy Candidates" },
     { id: "holdings", label: "📉 Holdings" },
     { id: "budget", label: "💰 Budget" },
+    { id: "backtest", label: "📊 Backtest" },
     { id: "watchlist", label: `Watchlist (${quotes.length})` },
     { id: "positions", label: `Positions (${positions.length})` },
     { id: "orders", label: `Orders (${orders.length})` },
@@ -142,6 +144,7 @@ export default function App() {
         {tab === "scan" && <BuyCandidates backendOnline={backendOnline} />}
         {tab === "holdings" && <HoldingsMonitor backendOnline={backendOnline} />}
         {tab === "budget" && <BudgetView backendOnline={backendOnline} />}
+        {tab === "backtest" && <BacktestView backendOnline={backendOnline} />}
 
         {tab === "watchlist" && (
           <>

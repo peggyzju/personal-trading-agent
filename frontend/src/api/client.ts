@@ -160,6 +160,38 @@ export interface BudgetAllocation {
   total_suggested_cost: number;
 }
 
+export interface BacktestTrade {
+  symbol: string;
+  entry_date: string;
+  exit_date: string;
+  entry_price: number;
+  exit_price: number;
+  pnl_pct: number;
+  exit_reason: "stop_loss" | "target_hit" | "time_exit";
+  days_held: number;
+  atr_at_entry: number;
+}
+
+export interface BacktestResult {
+  status: "not_run" | "running" | "done" | "error";
+  total_trades?: number;
+  win_rate?: number;
+  avg_win_pct?: number;
+  avg_loss_pct?: number;
+  profit_factor?: number;
+  total_return_pct?: number;
+  spy_return_pct?: number;
+  alpha_pct?: number;
+  max_drawdown_pct?: number;
+  sharpe_ratio?: number;
+  exit_breakdown?: Record<string, number>;
+  equity_curve?: number[];
+  trades?: BacktestTrade[];
+  symbols?: string[];
+  params?: { hold_days: number; target_pct: number; period: string };
+  error?: string;
+}
+
 export interface DailyBrief {
   headline: string;
   market_mood: "RISK_ON" | "RISK_OFF" | "MIXED";
@@ -205,6 +237,13 @@ export const api = {
   generateBrief: () => post<DailyBrief>("/brief"),
   addToWatchlist: (symbol: string) => post<{ symbols: string[] }>(`/watchlist/${symbol}`),
   removeFromWatchlist: (symbol: string) => del<{ symbols: string[] }>(`/watchlist/${symbol}`),
+  getBacktest: () => get<BacktestResult>("/backtest"),
+  triggerBacktest: (params: { hold_days?: number; target_pct?: number; period?: string }) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])
+    ).toString();
+    return post<{ status: string }>(`/backtest${q ? "?" + q : ""}`);
+  },
   getScan: () => get<ScanResult>("/scan/sp500"),
   triggerScan: () => post<{ status: string }>("/scan/sp500"),
   getHoldings: () => get<HoldingsResult>("/scan/holdings"),
