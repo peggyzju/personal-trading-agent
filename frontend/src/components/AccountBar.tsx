@@ -7,8 +7,6 @@ function fmt(n: number) {
 export function AccountBar({ account }: { account: Account | null }) {
   if (!account) return <div className="account-bar skeleton">Loading account…</div>;
 
-  const dayPL = account.equity - account.portfolio_value + account.cash;
-
   return (
     <div className="account-bar">
       <Stat label="Portfolio Value" value={fmt(account.portfolio_value)} />

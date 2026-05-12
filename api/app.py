@@ -1,9 +1,10 @@
+from __future__ import annotations
 import json
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -21,9 +22,12 @@ app.add_middleware(
 WATCHLIST_FILE = Path(__file__).parent.parent / "watchlist.json"
 DEFAULT_WATCHLIST = ["AAPL", "NVDA", "MSFT", "TSLA"]
 
-_analysis_cache: dict = {}   # symbol -> last analysis
-_news_cache: dict = {}       # symbol -> {items, sentiment, fetched_at}
-_brief_cache: dict = {}      # date -> daily brief
+_analysis_cache: dict = {}
+_news_cache: dict = {}
+_brief_cache: dict = {}
+_scan_cache: dict = {}          # "sp500" -> {candidates, scanned_at, status}
+_holdings_cache: dict = {}      # "sell_signals" -> list, "positions" -> list
+_scan_running: bool = False
 
 
 def load_watchlist() -> list[str]:
@@ -90,7 +94,7 @@ def get_quote_single(symbol: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# ── Analysis (price + news) ───────────────────────────────────────────────────
+# ── Analysis ──────────────────────────────────────────────────────────────────
 
 @app.post("/api/analyze/{symbol}")
 def run_analysis(symbol: str):
@@ -150,11 +154,6 @@ def analyze_news_sentiment(symbol: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/news/cache/all")
-def get_news_cache():
-    return _news_cache
-
-
 # ── Market Movers ─────────────────────────────────────────────────────────────
 
 @app.get("/api/movers")
@@ -166,7 +165,7 @@ def get_movers():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── Earnings Calendar ─────────────────────────────────────────────────────────
+# ── Earnings ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/earnings/{symbol}")
 def get_earnings(symbol: str):
@@ -190,9 +189,8 @@ def generate_brief():
     if today in _brief_cache:
         return _brief_cache[today]
 
-    watchlist = load_watchlist()
     watchlist_data = []
-    for symbol in watchlist:
+    for symbol in load_watchlist():
         try:
             quote = _get_quote(symbol)
             news = get_news(symbol, limit=5)
@@ -217,7 +215,122 @@ def get_brief():
     today = date.today().isoformat()
     if today in _brief_cache:
         return _brief_cache[today]
-    raise HTTPException(status_code=404, detail="No brief yet. POST /api/brief to generate.")
+    raise HTTPException(status_code=404, detail="No brief yet.")
+
+
+# ── S&P 500 Scanner ───────────────────────────────────────────────────────────
+
+def _run_sp500_scan():
+    global _scan_running
+    from datetime import datetime
+    from src.monitor.sp500_scanner import get_sp500_tickers, quick_screen
+    from src.analysis.stock_screener import ai_score_candidates
+
+    _scan_running = True
+    _scan_cache["sp500"] = {"status": "running", "candidates": [], "scanned_at": None}
+    try:
+        print("[scan] Fetching S&P 500 tickers…")
+        tickers = get_sp500_tickers()
+        print(f"[scan] Quick-screening {len(tickers)} tickers…")
+        top_tech = quick_screen(tickers, top_n=25)
+        print(f"[scan] {len(top_tech)} passed technical filter. Running AI scoring…")
+        top_ai = ai_score_candidates(top_tech)
+        _scan_cache["sp500"] = {
+            "status": "done",
+            "candidates": top_ai,
+            "scanned_at": datetime.utcnow().isoformat(),
+            "total_screened": len(tickers),
+            "tech_passed": len(top_tech),
+        }
+        print(f"[scan] Done. Top candidate: {top_ai[0]['symbol'] if top_ai else 'none'}")
+    except Exception as e:
+        _scan_cache["sp500"] = {"status": "error", "error": str(e), "candidates": []}
+    finally:
+        _scan_running = False
+
+
+@app.get("/api/scan/sp500")
+def get_scan():
+    return _scan_cache.get("sp500", {"status": "not_run", "candidates": []})
+
+
+@app.post("/api/scan/sp500")
+def trigger_scan(background_tasks: BackgroundTasks):
+    global _scan_running
+    if _scan_running:
+        return {"status": "already_running"}
+    background_tasks.add_task(_run_sp500_scan)
+    return {"status": "started"}
+
+
+# ── Holdings Monitor ──────────────────────────────────────────────────────────
+
+@app.get("/api/scan/holdings")
+def get_holdings():
+    return {
+        "positions": _holdings_cache.get("positions", []),
+        "analyzed": _holdings_cache.get("analyzed", False),
+    }
+
+
+@app.post("/api/scan/holdings")
+def refresh_holdings(background_tasks: BackgroundTasks):
+    def _run():
+        from src.monitor.holdings_monitor import get_paper_positions, analyze_sell_signals
+        positions = get_paper_positions()
+        _holdings_cache["positions"] = positions
+        _holdings_cache["analyzed"] = False
+        try:
+            enriched = analyze_sell_signals(positions)
+            _holdings_cache["positions"] = enriched
+            _holdings_cache["analyzed"] = True
+        except Exception as e:
+            print(f"[holdings] sell signal analysis error: {e}")
+
+    background_tasks.add_task(_run)
+    return {"status": "started"}
+
+
+# ── Budget / Position Sizing ──────────────────────────────────────────────────
+
+@app.get("/api/budget")
+def get_budget():
+    from src.analysis.position_sizer import build_allocation_summary
+
+    positions = _holdings_cache.get("positions", [])
+    candidates = (_scan_cache.get("sp500") or {}).get("candidates", [])
+
+    # Try real account; fall back to demo values
+    try:
+        from src.trader.alpaca_trader import get_account as _get_account
+        acct = _get_account()
+        portfolio_value = float(acct.portfolio_value)
+        cash = float(acct.cash)
+    except Exception:
+        portfolio_value = 100_000.0
+        cash = 100_000.0 - sum(p.get("market_value", 0) for p in positions)
+
+    return build_allocation_summary(portfolio_value, cash, positions, candidates[:5])
+
+
+@app.get("/api/budget/size/{symbol}")
+def get_position_size(symbol: str, stop_loss: float = 0):
+    from src.monitor.price_monitor import get_quote as _get_quote
+    from src.analysis.position_sizer import size_position
+
+    try:
+        q = _get_quote(symbol.upper())
+        price = q["price"]
+        sl = stop_loss if stop_loss > 0 else price * 0.97
+        try:
+            from src.trader.alpaca_trader import get_account as _get_acct
+            portfolio_value = float(_get_acct().portfolio_value)
+        except Exception:
+            portfolio_value = 100_000.0
+        return {"symbol": symbol.upper(), "price": price, "stop_loss": sl,
+                **size_position(portfolio_value, price, sl)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── Portfolio / Positions ─────────────────────────────────────────────────────

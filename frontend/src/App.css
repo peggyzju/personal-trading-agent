@@ -405,3 +405,208 @@ body {
   line-height: 1.5;
 }
 .risks-list li::before { content: "⚠ "; position: absolute; left: 0; color: #f59e0b; }
+
+/* ── S&P 500 Scanner ──────────────────────────────────────────── */
+.scan-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+  gap: 16px;
+}
+.scan-header h2 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+.scan-meta { font-size: 12px; color: var(--muted); display: block; }
+
+.scan-running {
+  text-align: center;
+  padding: 60px 24px;
+}
+.scan-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto 16px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.scan-running p { color: var(--muted); font-size: 13px; line-height: 1.6; }
+
+.candidates-container, .holdings-container, .budget-container { max-width: 1100px; }
+
+.candidates-grid, .holdings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+}
+
+.candidate-card, .holding-card, .budget-buy-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+.holding-card {
+  border-left: 4px solid var(--border);
+}
+
+.candidate-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.candidate-rank { font-size: 12px; color: var(--muted); min-width: 24px; }
+.candidate-score { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--accent); }
+
+.change { font-size: 13px; font-weight: 600; }
+
+.candidate-technicals {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.tech-stat, .level-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.tech-label, .level-label { font-size: 10px; color: var(--muted); text-transform: uppercase; }
+.tech-value, .level-value { font-size: 12px; font-weight: 500; }
+
+.candidate-reason {
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+
+.candidate-levels {
+  display: flex;
+  gap: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+/* ── Holdings Monitor ─────────────────────────────────────────── */
+.urgency-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.holding-prices {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.holding-price-col { display: flex; flex-direction: column; gap: 2px; }
+.holding-label { font-size: 10px; color: var(--muted); text-transform: uppercase; }
+.holding-val { font-size: 13px; font-weight: 600; }
+
+.suggested-action {
+  font-size: 12px;
+  color: #cbd5e1;
+  background: #1e2130;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
+/* ── Budget View ──────────────────────────────────────────────── */
+.budget-overview {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+.budget-stat-row {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.budget-stat { display: flex; flex-direction: column; gap: 3px; }
+
+.allocation-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--border);
+  margin-bottom: 8px;
+}
+.allocation-fill { height: 100%; transition: width 0.4s; }
+.allocation-fill.invested { background: var(--accent); }
+.allocation-fill.cash { background: #22c55e; }
+
+.allocation-legend {
+  display: flex;
+  gap: 16px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.legend-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.legend-dot.invested { background: var(--accent); }
+.legend-dot.cash { background: #22c55e; }
+
+.budget-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 20px;
+}
+.budget-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+.budget-section h3 { font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+
+.budget-holding-row {
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.budget-holding-row:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+.budget-holding-left, .budget-holding-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.budget-holding-right { justify-content: flex-end; }
+.budget-pct { font-size: 11px; color: var(--muted); }
+.budget-pl { font-size: 12px; font-weight: 600; }
+.budget-bar-wrap { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.budget-pos-bar { height: 100%; background: var(--accent); border-radius: 2px; }
+
+.budget-buy-card { margin-bottom: 12px; }
+.budget-buy-card:last-child { margin-bottom: 0; }
+.budget-sizing-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.budget-levels {
+  display: flex;
+  gap: 16px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  margin-bottom: 8px;
+}

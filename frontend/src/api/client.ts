@@ -78,6 +78,88 @@ export interface Order {
   type: string;
 }
 
+export interface ScanCandidate {
+  symbol: string;
+  price: number;
+  signal: "STRONG_BUY" | "BUY" | "WATCH";
+  ai_score: number;
+  reason: string;
+  entry_note?: string;
+  stop_loss?: number;
+  target_price?: number;
+  timeframe?: string;
+  momentum_5d?: number;
+  volume_ratio?: number;
+  rsi?: number;
+  near_breakout?: boolean;
+}
+
+export interface ScanResult {
+  status: "not_run" | "running" | "done" | "error";
+  candidates: ScanCandidate[];
+  scanned_at?: string;
+  total_screened?: number;
+  tech_passed?: number;
+  error?: string;
+}
+
+export interface HoldingPosition {
+  symbol: string;
+  qty: number;
+  avg_entry_price: number;
+  current_price: number;
+  market_value: number;
+  unrealized_pl: number;
+  unrealized_plpc: number;
+  side: string;
+  sell_signal?: "SELL" | "REDUCE" | "HOLD" | "ADD";
+  urgency?: "HIGH" | "MEDIUM" | "LOW";
+  reason?: string;
+  suggested_action?: string;
+}
+
+export interface HoldingsResult {
+  positions: HoldingPosition[];
+  analyzed: boolean;
+}
+
+export interface BudgetHolding {
+  symbol: string;
+  market_value: number;
+  pct: number;
+  unrealized_pl: number;
+  unrealized_plpc: number;
+}
+
+export interface BudgetBuy {
+  symbol: string;
+  signal: string;
+  ai_score: number;
+  price: number;
+  stop_loss: number;
+  target_price: number;
+  reason: string;
+  shares: number;
+  cost: number;
+  max_loss: number;
+  portfolio_pct: number;
+  risk_pct_actual: number;
+}
+
+export interface BudgetAllocation {
+  portfolio_value: number;
+  cash: number;
+  invested: number;
+  cash_pct: number;
+  invested_pct: number;
+  slots_remaining: number;
+  risk_per_trade_pct: number;
+  max_position_pct: number;
+  holdings: BudgetHolding[];
+  suggested_buys: BudgetBuy[];
+  total_suggested_cost: number;
+}
+
 export interface DailyBrief {
   headline: string;
   market_mood: "RISK_ON" | "RISK_OFF" | "MIXED";
@@ -123,4 +205,9 @@ export const api = {
   generateBrief: () => post<DailyBrief>("/brief"),
   addToWatchlist: (symbol: string) => post<{ symbols: string[] }>(`/watchlist/${symbol}`),
   removeFromWatchlist: (symbol: string) => del<{ symbols: string[] }>(`/watchlist/${symbol}`),
+  getScan: () => get<ScanResult>("/scan/sp500"),
+  triggerScan: () => post<{ status: string }>("/scan/sp500"),
+  getHoldings: () => get<HoldingsResult>("/scan/holdings"),
+  refreshHoldings: () => post<{ status: string }>("/scan/holdings"),
+  getBudget: () => get<BudgetAllocation>("/budget"),
 };
