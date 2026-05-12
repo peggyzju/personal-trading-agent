@@ -33,12 +33,12 @@ def compute_technicals(df: pd.DataFrame) -> dict:
     price_5d = float(closes.iloc[-6]) if len(closes) >= 6 else float(closes.iloc[0])
     momentum_5d = (price_now - price_5d) / price_5d * 100
 
-    # Volume ratio
-    vol_today = float(volumes.iloc[-1])
-    vol_avg = float(volumes.iloc[-21:-1].mean()) if len(volumes) >= 21 else float(volumes.mean())
-    volume_ratio = vol_today / vol_avg if vol_avg > 0 else 1.0
+    # Volume ratio: use previous COMPLETED day (iloc[-2]) to avoid partial intraday bar
+    vol_prev = float(volumes.iloc[-2]) if len(volumes) >= 2 else float(volumes.iloc[-1])
+    vol_avg = float(volumes.iloc[-22:-2].mean()) if len(volumes) >= 22 else float(volumes.iloc[:-1].mean())
+    volume_ratio = vol_prev / vol_avg if vol_avg > 0 else 1.0
 
-    # 20-day breakout
+    # 20-day breakout (use completed bars only)
     high_20d = float(closes.iloc[-21:-1].max()) if len(closes) >= 21 else float(closes.max())
     near_breakout = price_now >= high_20d * 0.98
 
@@ -105,8 +105,9 @@ def quick_screen(tickers: list[str], top_n: int = 25) -> list[dict]:
             tech = compute_technicals(df)
             if not tech:
                 continue
-            # Filter: positive momentum, volume spike, not overbought
-            if tech["momentum_5d"] > 0 and tech["volume_ratio"] > 1.1 and tech["rsi"] < 75:
+            # Filter: positive momentum, not overbought
+            # volume_ratio used for ranking only (last bar may be partial intraday)
+            if tech["momentum_5d"] > 0 and tech["rsi"] < 80:
                 results.append({"symbol": symbol, **tech})
         except Exception:
             continue
