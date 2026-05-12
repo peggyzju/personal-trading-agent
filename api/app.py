@@ -415,6 +415,17 @@ def get_orders():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Portfolio History ─────────────────────────────────────────────────────────
+
+@app.get("/api/portfolio/history")
+def get_portfolio_history():
+    from src.monitor.portfolio_history import get_history
+    try:
+        return get_history()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Backtesting ───────────────────────────────────────────────────────────────
 
 _backtest_cache: dict = {}

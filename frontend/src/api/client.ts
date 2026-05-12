@@ -160,6 +160,22 @@ export interface BudgetAllocation {
   total_suggested_cost: number;
 }
 
+export interface PortfolioDay {
+  date: string;
+  equity: number;
+  daily_pl: number;
+  daily_return_pct: number;
+}
+
+export interface PortfolioHistory {
+  current_equity: number;
+  base_value: number;
+  total_pl: number;
+  total_return_pct: number;
+  days: PortfolioDay[];
+  source: "alpaca" | "demo";
+}
+
 export interface BacktestTrade {
   symbol: string;
   entry_date: string;
@@ -237,6 +253,7 @@ export const api = {
   generateBrief: () => post<DailyBrief>("/brief"),
   addToWatchlist: (symbol: string) => post<{ symbols: string[] }>(`/watchlist/${symbol}`),
   removeFromWatchlist: (symbol: string) => del<{ symbols: string[] }>(`/watchlist/${symbol}`),
+  getPortfolioHistory: () => get<PortfolioHistory>("/portfolio/history"),
   getBacktest: () => get<BacktestResult>("/backtest"),
   triggerBacktest: (params: { hold_days?: number; target_pct?: number; period?: string }) => {
     const q = new URLSearchParams(

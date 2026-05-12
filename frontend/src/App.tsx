@@ -10,6 +10,7 @@ import { BuyCandidates } from "./components/BuyCandidates";
 import { HoldingsMonitor } from "./components/HoldingsMonitor";
 import { BudgetView } from "./components/BudgetView";
 import { BacktestView } from "./components/BacktestView";
+import { PortfolioOverview } from "./components/PortfolioOverview";
 import "./App.css";
 
 const REFRESH_INTERVAL = 30_000;
@@ -129,6 +130,8 @@ export default function App() {
           ⚠ Backend offline — run <code>python main.py</code> to enable live prices &amp; AI analysis
         </div>
       )}
+
+      <PortfolioOverview backendOnline={backendOnline} />
 
       <nav className="tab-nav">
         {tabs.map((t) => (

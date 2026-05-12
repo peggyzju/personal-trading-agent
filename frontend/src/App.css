@@ -406,6 +406,205 @@ body {
 }
 .risks-list li::before { content: "⚠ "; position: absolute; left: 0; color: #f59e0b; }
 
+/* ── Portfolio Overview ───────────────────────────────────────── */
+.portfolio-overview {
+  border-bottom: 1px solid var(--border);
+  padding: 24px 24px 0;
+  background: var(--bg);
+}
+
+.portfolio-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.portfolio-hero-left { display: flex; flex-direction: column; gap: 4px; }
+
+.portfolio-equity {
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.portfolio-return {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.portfolio-period-label {
+  font-size: 13px;
+  font-weight: 400;
+  opacity: 0.7;
+}
+
+.demo-badge {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: #1e2130;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+.sparkline-wrap {
+  width: 100%;
+  height: 72px;
+  margin-bottom: 2px;
+}
+.sparkline-svg {
+  width: 100%;
+  height: 72px;
+  display: block;
+}
+
+.period-pills {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 16px;
+}
+.period-pill {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--muted);
+  padding: 4px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+.period-pill:hover { color: var(--text); }
+.period-pill.active { background: #ffffff0d; font-weight: 700; }
+
+.portfolio-stats-row {
+  display: flex;
+  gap: 0;
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.stat-box {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 16px;
+  border-right: 1px solid var(--border);
+}
+.stat-box:last-child { border-right: none; }
+.stat-box-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.stat-box-value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat-box-sub   { font-size: 12px; font-weight: 500; }
+
+/* Calendar */
+.calendar-wrap {
+  padding-bottom: 20px;
+  position: relative;
+}
+.calendar-title {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 10px;
+}
+.calendar-months {
+  position: relative;
+  height: 16px;
+  margin-bottom: 4px;
+}
+.calendar-month-label {
+  position: absolute;
+  font-size: 10px;
+  color: var(--muted);
+}
+.calendar-grid-wrap {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+}
+.calendar-dow {
+  position: relative;
+  width: 14px;
+  flex-shrink: 0;
+  height: calc(5 * 13px + 4 * 3px);
+}
+.calendar-dow-label {
+  position: absolute;
+  font-size: 9px;
+  color: var(--muted);
+  line-height: 13px;
+}
+.calendar-grid {
+  display: flex;
+  gap: 3px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.calendar-grid::-webkit-scrollbar { height: 3px; }
+.calendar-grid::-webkit-scrollbar-track { background: transparent; }
+.calendar-grid::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.calendar-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.calendar-cell {
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: opacity 0.1s;
+}
+.calendar-cell:hover { opacity: 0.75; }
+.calendar-cell.today { box-shadow: 0 0 0 2px #fff; }
+
+.calendar-legend {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+  padding-left: 18px;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* Tooltip */
+.cal-tooltip {
+  position: absolute;
+  background: #1e2130;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  pointer-events: none;
+  z-index: 100;
+  min-width: 130px;
+  box-shadow: 0 4px 20px #00000060;
+}
+.cal-tooltip-date { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.cal-tooltip-pl   { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cal-tooltip-pl.pos { color: #00C805; }
+.cal-tooltip-pl.neg { color: #FF5000; }
+.cal-tooltip-pct  { font-size: 12px; font-weight: 500; }
+.cal-tooltip-equity { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
 /* ── S&P 500 Scanner ──────────────────────────────────────────── */
 .scan-header {
   display: flex;
