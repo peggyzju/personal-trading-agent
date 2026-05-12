@@ -2,6 +2,7 @@ from __future__ import annotations
 import pandas as pd
 import yfinance as yf
 import numpy as np
+from src.analysis.technical_indicators import compute_all
 
 
 def get_sp500_tickers() -> list[str]:
@@ -20,45 +21,58 @@ def get_sp500_tickers() -> list[str]:
 
 
 def compute_technicals(df: pd.DataFrame) -> dict:
-    """Compute momentum, volume ratio, RSI(14) from OHLCV DataFrame."""
+    """Compute full technical picture from OHLCV DataFrame."""
     closes = df["Close"].dropna()
     volumes = df["Volume"].dropna()
     if len(closes) < 6:
         return {}
 
     price_now = float(closes.iloc[-1])
+
+    # 5-day momentum
     price_5d = float(closes.iloc[-6]) if len(closes) >= 6 else float(closes.iloc[0])
     momentum_5d = (price_now - price_5d) / price_5d * 100
 
+    # Volume ratio
     vol_today = float(volumes.iloc[-1])
     vol_avg = float(volumes.iloc[-21:-1].mean()) if len(volumes) >= 21 else float(volumes.mean())
     volume_ratio = vol_today / vol_avg if vol_avg > 0 else 1.0
 
+    # 20-day breakout
     high_20d = float(closes.iloc[-21:-1].max()) if len(closes) >= 21 else float(closes.max())
     near_breakout = price_now >= high_20d * 0.98
 
-    # RSI(14)
-    delta = closes.diff().dropna()
-    gain = delta.clip(lower=0).rolling(14).mean()
-    loss = (-delta.clip(upper=0)).rolling(14).mean()
-    rs = gain / loss.replace(0, np.nan)
-    rsi = float((100 - 100 / (1 + rs)).iloc[-1]) if not rs.isna().all() else 50.0
+    # Full indicator suite
+    indicators = compute_all(df)
+    rsi = indicators.get("rsi", 50.0)
 
+    # Composite tech score (0–100 scale)
     score = (
-        min(max(momentum_5d, 0), 10) * 0.35
-        + min(max(volume_ratio - 1, 0), 3) * 10 * 0.25
-        + (20 if near_breakout else 0) * 0.25
-        + max(0, (rsi - 50)) * 0.15
+        min(max(momentum_5d, 0), 10) * 3.5          # up to 35 pts
+        + min(max(volume_ratio - 1, 0), 3) * 10 * 0.25  # up to 7.5 pts
+        + (15 if near_breakout else 0)               # 15 pts
+        + (10 if indicators.get("macd_bullish_cross") else 0)  # 10 pts
+        + (10 if indicators.get("bb_pct_b", 0.5) < 0.3 else 0)  # 10 pts: near lower band
+        + (10 if (indicators.get("vs_ma20_pct") or 0) > 0
+                 and (indicators.get("vs_ma50_pct") or 0) > 0 else 0)  # aligned above MAs
+        + max(0, (70 - rsi)) * 0.5                   # reward stocks not yet overbought
     )
 
-    return {
+    result = {
         "price": round(price_now, 2),
         "momentum_5d": round(momentum_5d, 2),
         "volume_ratio": round(volume_ratio, 2),
         "near_breakout": near_breakout,
-        "rsi": round(rsi, 1),
+        "rsi": rsi,
         "tech_score": round(score, 2),
     }
+    # Forward extra indicators useful for AI scoring
+    for key in ("macd_bullish_cross", "macd_bearish_cross", "bb_pct_b",
+                "vs_ma20_pct", "vs_ma50_pct", "vs_ma200_pct",
+                "golden_cross", "atr", "atr_pct"):
+        if key in indicators:
+            result[key] = indicators[key]
+    return result
 
 
 def quick_screen(tickers: list[str], top_n: int = 25) -> list[dict]:
@@ -69,7 +83,7 @@ def quick_screen(tickers: list[str], top_n: int = 25) -> list[dict]:
     try:
         raw = yf.download(
             tickers,
-            period="20d",
+            period="60d",   # need 50d for MA50, 26d for MACD
             group_by="ticker",
             auto_adjust=True,
             threads=True,
