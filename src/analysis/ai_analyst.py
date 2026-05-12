@@ -1,16 +1,17 @@
 from __future__ import annotations
 import json
-import os
 import re
 
 import anthropic
 import pandas as pd
 
 from src.analysis.technical_indicators import compute_all, indicator_summary
+from src.config import get_anthropic_key
 
 
 def analyze(symbol: str, ohlcv: pd.DataFrame, quote: dict, news: list[dict] | None = None) -> dict:
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    client = anthropic.Anthropic(api_key=get_anthropic_key())
+
 
     # Compute full indicator suite
     indicators = compute_all(ohlcv) if len(ohlcv) >= 20 else {}

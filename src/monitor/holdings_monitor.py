@@ -4,6 +4,7 @@ import os
 import re
 
 import anthropic
+from src.config import get_anthropic_key
 
 # Demo paper portfolio when Alpaca keys are not configured
 DEMO_POSITIONS = [
@@ -68,7 +69,7 @@ def analyze_sell_signals(positions: list[dict]) -> list[dict]:
     if not positions:
         return []
 
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    client = anthropic.Anthropic(api_key=get_anthropic_key())
 
     rows = "\n".join(
         f'{i+1}. {p["symbol"]} | entry=${p["avg_entry_price"]:.2f} | '

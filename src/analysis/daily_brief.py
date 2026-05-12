@@ -1,9 +1,9 @@
 from __future__ import annotations
-import os
 import json
 import re
 from datetime import date
 import anthropic
+from src.config import get_anthropic_key
 
 
 def generate_daily_brief(watchlist_data: list[dict]) -> dict:
@@ -11,7 +11,7 @@ def generate_daily_brief(watchlist_data: list[dict]) -> dict:
     watchlist_data: list of {symbol, price, change_pct, news: [...], analysis: {...}}
     Returns a structured daily brief.
     """
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    client = anthropic.Anthropic(api_key=get_anthropic_key())
 
     # Build context summary for Claude
     stock_summaries = []

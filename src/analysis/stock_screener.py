@@ -1,9 +1,9 @@
 from __future__ import annotations
 import json
-import os
 import re
 
 import anthropic
+from src.config import get_anthropic_key
 
 
 def ai_score_candidates(candidates: list[dict]) -> list[dict]:
@@ -14,7 +14,7 @@ def ai_score_candidates(candidates: list[dict]) -> list[dict]:
     if not candidates:
         return []
 
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    client = anthropic.Anthropic(api_key=get_anthropic_key())
 
     rows = "\n".join(
         f'{i+1}. {c["symbol"]} | momentum={c["momentum_5d"]:+.1f}% | '

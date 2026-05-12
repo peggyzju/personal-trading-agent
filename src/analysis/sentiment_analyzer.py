@@ -1,8 +1,8 @@
 from __future__ import annotations
-import os
 import json
 import re
 import anthropic
+from src.config import get_anthropic_key
 
 
 def analyze_news_sentiment(symbol: str, news_items: list[dict], price_change_pct: float) -> dict:
@@ -13,7 +13,7 @@ def analyze_news_sentiment(symbol: str, news_items: list[dict], price_change_pct
     if not news_items:
         return {"overall": "NEUTRAL", "items": [], "key_insight": "No recent news."}
 
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    client = anthropic.Anthropic(api_key=get_anthropic_key())
 
     headlines = "\n".join(
         f'{i+1}. [{item["source"] or "News"}] {item["title"]}'
