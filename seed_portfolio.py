@@ -1,42 +1,59 @@
 """
-Seed Alpaca paper account with your real Robinhood positions.
+Seed Alpaca paper account with your real Robinhood positions + match your actual equity.
 
 HOW TO USE
 ──────────
-1. Open Robinhood app → Portfolio → note each position's symbol and share count.
-2. Edit the ROBINHOOD_POSITIONS list below.
-3. Run:  python3 seed_portfolio.py --dry-run    (preview, no orders placed)
-        python3 seed_portfolio.py               (places real paper orders)
+Step 1: Open Robinhood app and note:
+        - Each position: symbol + number of shares
+        - Your total portfolio value (Investing + Cash)
+        - Your cash balance (uninvested cash)
 
-WHAT THIS DOES
-──────────────
-- Places a market BUY order for each position in your Alpaca PAPER account.
-- Orders fill at today's market price (cost basis won't match Robinhood).
-- P&L tracking in this agent starts from today's entry price.
-- Requires enough virtual cash ($100k default). If your Robinhood portfolio
-  is larger, reduce quantities proportionally or reset your paper account
-  at https://app.alpaca.markets → Paper Trading → Reset Account.
+Step 2: Fill in ROBINHOOD_TOTAL_EQUITY, ROBINHOOD_CASH, and ROBINHOOD_POSITIONS below.
+
+Step 3: python3 seed_portfolio.py --dry-run    ← preview, no orders placed
+        python3 seed_portfolio.py               ← execute
+
+MATCHING EQUITY
+───────────────
+Alpaca paper starts at $100k. This script checks if your Robinhood total equity
+differs and tells you exactly how to reset Alpaca to the right amount before placing
+orders. The reset is a one-click step at: https://app.alpaca.markets (Paper → Settings)
 
 NOTES
 ─────
-- Only run ONCE. Re-running will double your positions.
-- Fractional shares: Alpaca paper supports fractional qty (e.g. 1.5 shares).
-- Skips symbols already held in Alpaca to avoid doubling.
+- Run ONCE. Re-running will double your positions.
+- Fractional shares supported (e.g. qty: 1.5).
+- Skips symbols already held in Alpaca.
+- Positions enter at TODAY's market price (cost basis ≠ Robinhood's).
 """
 from __future__ import annotations
 import argparse
 import sys
 import time
 
-# ── ✏️  EDIT THIS LIST with your actual Robinhood positions ──────────────────
+# ══════════════════════════════════════════════════════════════════
+#  ✏️  FILL IN YOUR ROBINHOOD ACCOUNT VALUES
+# ══════════════════════════════════════════════════════════════════
+
+# Your total Robinhood portfolio value (Investing + Cash combined).
+# Found in Robinhood app → Portfolio screen, the large number at the top.
+# Set to 0 to skip the equity-matching step.
+ROBINHOOD_TOTAL_EQUITY: float = 0     # e.g. 73_450.00
+
+# Your uninvested cash in Robinhood (the "Buying Power" or "Cash" line).
+# Used to calculate how much cash to leave in Alpaca after seeding positions.
+ROBINHOOD_CASH: float = 0             # e.g. 8_200.00
+
+# Your positions (symbol + number of shares).
 ROBINHOOD_POSITIONS: list[dict] = [
     # {"symbol": "AAPL",  "qty": 10},
     # {"symbol": "GOOGL", "qty": 5},
     # {"symbol": "TSLA",  "qty": 3},
     # {"symbol": "NVDA",  "qty": 2},
-    # Add your positions here ↑
+    # ↑ add all your positions here
 ]
-# ─────────────────────────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════
 
 
 def main():
@@ -45,7 +62,8 @@ def main():
     args = parser.parse_args()
 
     if not ROBINHOOD_POSITIONS:
-        print("❌  ROBINHOOD_POSITIONS is empty. Edit seed_portfolio.py and add your holdings.")
+        print("❌  ROBINHOOD_POSITIONS is empty.")
+        print("    Edit seed_portfolio.py and add your holdings, then re-run.")
         sys.exit(1)
 
     from dotenv import load_dotenv
@@ -54,57 +72,93 @@ def main():
     from src.monitor.price_monitor import get_quote
     from src.trader.alpaca_trader import get_client, get_account
 
-    api = get_client()
-    acct = get_account()
-    cash = float(acct.cash)
-    print(f"\nAlpaca paper account: equity=${float(acct.equity):,.0f}  cash=${cash:,.0f}")
+    api    = get_client()
+    acct   = get_account()
+    alpaca_equity = float(acct.equity)
+    alpaca_cash   = float(acct.cash)
 
-    # Get existing positions to skip duplicates
+    print("\n" + "═" * 58)
+    print("  Robinhood → Alpaca Paper Account Seeder")
+    print("═" * 58)
+    print(f"\n  Alpaca paper now:   equity=${alpaca_equity:>12,.2f}   cash=${alpaca_cash:>12,.2f}")
+    if ROBINHOOD_TOTAL_EQUITY:
+        print(f"  Robinhood target:   equity=${ROBINHOOD_TOTAL_EQUITY:>12,.2f}   cash=${ROBINHOOD_CASH:>12,.2f}")
+
+    # ── Step 1: equity mismatch check ─────────────────────────────────────────
+    if ROBINHOOD_TOTAL_EQUITY and ROBINHOOD_TOTAL_EQUITY > 0:
+        diff = abs(alpaca_equity - ROBINHOOD_TOTAL_EQUITY)
+        if diff > 100:   # more than $100 off
+            print(f"\n  ⚠️   Equity mismatch: Alpaca=${alpaca_equity:,.0f}  Robinhood=${ROBINHOOD_TOTAL_EQUITY:,.0f}")
+            print(f"       Difference: ${diff:,.0f}\n")
+            print("  ── ACTION REQUIRED before placing orders ─────────────────")
+            print(f"  1. Go to:  https://app.alpaca.markets")
+            print(f"  2. Click:  Paper Trading → top-right gear icon → Reset Account")
+            print(f"  3. Enter:  ${ROBINHOOD_TOTAL_EQUITY:,.2f}  as the new starting equity")
+            print(f"  4. Confirm reset, then re-run:  python3 seed_portfolio.py\n")
+            if not args.dry_run:
+                print("  Aborting — reset Alpaca equity first, then re-run.\n")
+                sys.exit(1)
+            print("  [DRY RUN] Continuing preview despite mismatch…\n")
+        else:
+            print(f"  ✅  Equity close enough (diff=${diff:,.0f}) — no reset needed")
+
+    # ── Step 2: get existing Alpaca positions ──────────────────────────────────
     existing = {p.symbol for p in api.list_positions()}
     if existing:
-        print(f"Already held: {', '.join(sorted(existing))}")
+        print(f"\n  Already held in Alpaca: {', '.join(sorted(existing))}")
 
-    print(f"\n{'DRY RUN — ' if args.dry_run else ''}Seeding {len(ROBINHOOD_POSITIONS)} positions:\n")
-
+    # ── Step 3: price-check each position ─────────────────────────────────────
+    print(f"\n  {'DRY RUN — ' if args.dry_run else ''}Positions to seed:\n")
     total_cost = 0.0
-    orders = []
+    orders     = []
 
     for pos in ROBINHOOD_POSITIONS:
         symbol = pos["symbol"].upper()
-        qty = float(pos["qty"])
+        qty    = float(pos["qty"])
 
         if symbol in existing:
             print(f"  ⏭️   {symbol:<8} — already held, skipped")
             continue
 
         try:
-            q = get_quote(symbol)
-            price = q["price"]
-            est_cost = round(price * qty, 2)
+            q         = get_quote(symbol)
+            price     = q["price"]
+            est_cost  = round(price * qty, 2)
             total_cost += est_cost
             orders.append({"symbol": symbol, "qty": qty, "price": price, "est_cost": est_cost})
-            print(f"  📋  {symbol:<8} {qty:>6} shares × ${price:>8.2f} = ${est_cost:>10,.2f}")
+            print(f"  📋  {symbol:<8}  {qty:>8.4g} shares  ×  ${price:>9.2f}  =  ${est_cost:>11,.2f}")
         except Exception as e:
             print(f"  ❌  {symbol:<8} — price fetch failed: {e}")
 
-    print(f"\n  Estimated total cost: ${total_cost:,.2f}")
-    print(f"  Available cash:       ${cash:,.2f}")
+    # ── Step 4: cash summary ───────────────────────────────────────────────────
+    effective_cash = ROBINHOOD_TOTAL_EQUITY if ROBINHOOD_TOTAL_EQUITY else alpaca_cash
+    remaining_cash = effective_cash - total_cost
+    print(f"\n  {'─'*46}")
+    print(f"  Positions total:     ${total_cost:>12,.2f}")
+    print(f"  Available cash:      ${effective_cash:>12,.2f}")
+    print(f"  Cash after seeding:  ${remaining_cash:>12,.2f}", end="")
+    if ROBINHOOD_CASH and abs(remaining_cash - ROBINHOOD_CASH) < effective_cash * 0.05:
+        print("  ✅  (~matches Robinhood cash)")
+    else:
+        print()
 
-    if total_cost > cash:
-        shortage = total_cost - cash
-        print(f"\n  ⚠️   Insufficient cash by ${shortage:,.2f}.")
-        print("  Options:")
-        print("    1. Reduce qty proportionally (multiply all qtys by {:.2f})".format(cash / total_cost))
-        print("    2. Reset paper account at https://app.alpaca.markets to get $100k fresh")
+    if total_cost > (ROBINHOOD_TOTAL_EQUITY or alpaca_cash):
+        shortage = total_cost - (ROBINHOOD_TOTAL_EQUITY or alpaca_cash)
+        print(f"\n  ⚠️   Over budget by ${shortage:,.2f}.")
+        if ROBINHOOD_TOTAL_EQUITY:
+            scale = (ROBINHOOD_TOTAL_EQUITY - ROBINHOOD_CASH) / total_cost
+            print(f"  Suggestion: multiply all qtys by {scale:.3f} to fit within invested portion")
         if not args.dry_run:
-            print("\n  Aborting — run with reduced positions or reset account first.")
+            print("  Aborting.\n")
             sys.exit(1)
 
     if args.dry_run:
-        print("\n  [DRY RUN] No orders placed. Remove --dry-run to execute.")
+        print("\n  [DRY RUN] No orders placed.")
+        print("  Remove --dry-run to execute.\n")
         return
 
-    print(f"\nPlacing {len(orders)} orders…\n")
+    # ── Step 5: place orders ───────────────────────────────────────────────────
+    print(f"\n  Placing {len(orders)} market orders…\n")
     placed = 0
     for o in orders:
         try:
@@ -115,14 +169,15 @@ def main():
                 type="market",
                 time_in_force="day",
             )
-            print(f"  ✅  {o['symbol']:<8} {o['qty']} shares — order id={order.id}")
+            print(f"  ✅  {o['symbol']:<8}  {o['qty']} shares  →  order id={order.id}")
             placed += 1
-            time.sleep(0.3)   # avoid rate limiting
+            time.sleep(0.3)
         except Exception as e:
-            print(f"  ❌  {o['symbol']:<8} — order failed: {e}")
+            print(f"  ❌  {o['symbol']:<8}  order failed: {e}")
 
-    print(f"\n✅  Done — {placed}/{len(orders)} orders placed in Alpaca paper account.")
-    print("Wait 1–2 minutes for fills, then refresh the Holdings tab in the UI.\n")
+    print(f"\n{'═'*58}")
+    print(f"  ✅  Done — {placed}/{len(orders)} orders placed.")
+    print(f"  Wait ~1 min for fills, then refresh the Holdings tab.\n")
 
 
 if __name__ == "__main__":
