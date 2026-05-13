@@ -303,7 +303,16 @@ def _run_sp500_scan():
 
 @app.get("/api/scan/sp500")
 def get_scan():
-    return _scan_cache.get("sp500", {"status": "not_run", "candidates": []})
+    result = dict(_scan_cache.get("sp500", {"status": "not_run", "candidates": []}))
+    # Filter out symbols already held — no point recommending what you own
+    try:
+        from src.trader.alpaca_trader import get_client
+        owned = {p.symbol for p in get_client().list_positions()}
+        if owned and result.get("candidates"):
+            result["candidates"] = [c for c in result["candidates"] if c["symbol"] not in owned]
+    except Exception:
+        pass
+    return result
 
 
 @app.post("/api/scan/sp500")
