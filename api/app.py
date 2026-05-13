@@ -244,14 +244,14 @@ def get_brief():
 def _run_sp500_scan():
     global _scan_running
     from datetime import datetime
-    from src.monitor.sp500_scanner import get_sp500_tickers, quick_screen
+    from src.monitor.sp500_scanner import get_scan_universe, quick_screen
     from src.analysis.stock_screener import ai_score_candidates
 
     _scan_running = True
     _scan_cache["sp500"] = {"status": "running", "candidates": [], "scanned_at": None}
     try:
-        print("[scan] Fetching S&P 500 tickers…")
-        tickers = get_sp500_tickers()
+        print("[scan] Building scan universe (S&P 500 + NASDAQ-100 + Layer 2)…")
+        tickers = get_scan_universe()
         print(f"[scan] Quick-screening {len(tickers)} tickers…")
         top_tech = quick_screen(tickers, top_n=25)
         print(f"[scan] {len(top_tech)} passed technical filter. Running AI scoring…")
@@ -619,7 +619,7 @@ def seed_portfolio(req: SeedRequest):
                 qty=qty,
                 side="buy",
                 type="market",
-                time_in_force="day",
+                time_in_force="gtc",
             )
             placed.append({"symbol": symbol, "qty": qty, "price": price, "order_id": order.id})
             _time.sleep(0.2)

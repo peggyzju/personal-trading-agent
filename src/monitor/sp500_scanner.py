@@ -5,12 +5,13 @@ import numpy as np
 from src.analysis.technical_indicators import compute_all
 
 
+# ── Stock Universe ────────────────────────────────────────────────────────────
+
 def get_sp500_tickers() -> list[str]:
     try:
         table = pd.read_html("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")[0]
         return table["Symbol"].str.replace(".", "-", regex=False).tolist()
     except Exception:
-        # fallback: a representative subset
         return [
             "AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","BRK-B","UNH","JPM",
             "V","XOM","LLY","JNJ","MA","AVGO","PG","HD","MRK","COST","ABBV","CVX",
@@ -19,6 +20,103 @@ def get_sp500_tickers() -> list[str]:
             "AMD","SPGI","AMGN","HON","CAT","SBUX","LOW","GS","BA","ELV","AXP",
         ]
 
+
+def get_nasdaq100_tickers() -> list[str]:
+    """Fetch NASDAQ-100 components from Wikipedia. Adds tech/growth coverage beyond S&P 500."""
+    try:
+        table = pd.read_html("https://en.wikipedia.org/wiki/Nasdaq-100")[4]
+        # Column name varies — try common ones
+        for col in ("Ticker", "Symbol", "Ticker symbol"):
+            if col in table.columns:
+                return table[col].str.replace(".", "-", regex=False).tolist()
+    except Exception:
+        pass
+    # Static fallback — key NASDAQ-100 names (most overlap with S&P 500; duplicates handled in universe)
+    return [
+        "AAPL","MSFT","NVDA","AMZN","META","TSLA","GOOGL","GOOG","AVGO","COST",
+        "NFLX","AMD","ADBE","QCOM","INTU","CSCO","AMAT","MU","MRVL","KLAC",
+        "LRCX","CDNS","SNPS","MELI","ASML","ABNB","DDOG","CRWD","PANW","ZS",
+        "TEAM","WDAY","SNOW","OKTA","DOCU","ZM","SPLK","VEEV","TTD","NTNX",
+        "PSTG","EXPE","SGEN","ILMN","BIIB","GILD","REGN","VRTX","IDXX","ALGN",
+        "DLTR","KDP","MNST","PAYX","FAST","ODFL","CSGP","ANSS","ENPH","FSLR",
+    ]
+
+
+# ── Layer 2: High-growth mid-caps outside typical S&P 500 / NASDAQ-100 coverage
+# Focus: AI infrastructure, semis, defense tech, fintech, biotech, energy transition
+# These are liquid (>$3/share, avg vol >300k) but smaller/newer than large-cap indices.
+LAYER2_TICKERS: list[str] = [
+    # AI & next-gen compute
+    "SOUN",   # SoundHound AI — voice AI platform
+    "IONQ",   # IonQ — quantum computing hardware
+    "BBAI",   # BigBear.ai — defense/intelligence AI
+    "RKLB",   # Rocket Lab — small satellite launch + space systems
+    "LUNR",   # Intuitive Machines — lunar logistics
+    "BTDR",   # Bitdeer — AI datacenter/mining infra
+
+    # Semiconductors (mid-cap)
+    "WOLF",   # Wolfspeed — silicon carbide (EV/power semis)
+    "ACLS",   # Axcelis Technologies — ion implant systems
+    "ONTO",   # Onto Innovation — semiconductor metrology
+    "AEHR",   # Aehr Test Systems — wafer-level burn-in
+    "FORM",   # FormFactor — probe cards
+
+    # Defense & aerospace (beyond major primes)
+    "KTOS",   # Kratos Defense — drones, satellites, missiles
+    "CACI",   # CACI International — defense IT & intelligence
+
+    # High-growth SaaS / platforms
+    "GTLB",   # GitLab — DevSecOps platform
+    "MNDY",   # Monday.com — work OS
+    "BILL",   # Bill.com — SMB financial automation
+
+    # Fintech / crypto-adjacent
+    "AFRM",   # Affirm — BNPL / payments
+    "UPST",   # Upstart — AI lending platform
+    "SOFI",   # SoFi Technologies — neobank
+    "HOOD",   # Robinhood Markets — retail brokerage
+    "MSTR",   # MicroStrategy — BTC treasury / BI
+
+    # Biotech (gene editing & AI drug discovery)
+    "RXRX",   # Recursion Pharmaceuticals — AI drug discovery
+    "CRSP",   # CRISPR Therapeutics — gene editing
+    "BEAM",   # Beam Therapeutics — base editing
+
+    # Energy transition & cleantech
+    "ARRY",   # Array Technologies — solar tracker systems
+    "CHPT",   # ChargePoint — EV charging network
+    "EVGO",   # EVgo — fast-charge EV network
+
+    # Consumer / other high-growth
+    "CAVA",   # CAVA Group — Mediterranean fast-casual chain
+    "MOD",    # Modine Manufacturing — thermal management (user holding)
+    "ARM",    # Arm Holdings — CPU IP licensing (fabless semis)
+]
+
+
+def get_scan_universe() -> list[str]:
+    """
+    Combined scan universe: S&P 500 + NASDAQ-100 + Layer 2 curated mid-caps.
+    Deduplicates while preserving order (S&P 500 first for priority).
+    Returns ~600-700 tickers.
+    """
+    sp500   = get_sp500_tickers()
+    ndq100  = get_nasdaq100_tickers()
+    layer2  = LAYER2_TICKERS
+
+    seen: set[str] = set()
+    combined: list[str] = []
+    for sym in sp500 + ndq100 + layer2:
+        if sym not in seen:
+            seen.add(sym)
+            combined.append(sym)
+
+    print(f"[scanner] Universe: {len(sp500)} S&P500 + {len([s for s in ndq100 if s not in set(sp500)])} NDQ100-unique "
+          f"+ {len([s for s in layer2 if s not in seen - set(layer2)])} Layer2-unique = {len(combined)} total")
+    return combined
+
+
+# ── Technical scoring ─────────────────────────────────────────────────────────
 
 def compute_technicals(df: pd.DataFrame) -> dict:
     """Compute full technical picture from OHLCV DataFrame."""
@@ -48,14 +146,14 @@ def compute_technicals(df: pd.DataFrame) -> dict:
 
     # Composite tech score (0–100 scale)
     score = (
-        min(max(momentum_5d, 0), 10) * 3.5          # up to 35 pts
-        + min(max(volume_ratio - 1, 0), 3) * 10 * 0.25  # up to 7.5 pts
-        + (15 if near_breakout else 0)               # 15 pts
-        + (10 if indicators.get("macd_bullish_cross") else 0)  # 10 pts
-        + (10 if indicators.get("bb_pct_b", 0.5) > 0.55 else 0)  # 10 pts: price above BB midline (bullish momentum)
+        min(max(momentum_5d, 0), 10) * 3.5               # up to 35 pts: 5-day momentum
+        + min(max(volume_ratio - 1, 0), 3) * 10 * 0.25   # up to 7.5 pts: volume surge
+        + (15 if near_breakout else 0)                    # 15 pts: near 20-day high
+        + (10 if indicators.get("macd_bullish_cross") else 0)   # 10 pts: MACD bullish cross
+        + (10 if indicators.get("bb_pct_b", 0.5) > 0.55 else 0)  # 10 pts: above BB midline
         + (10 if (indicators.get("vs_ma20_pct") or 0) > 0
-                 and (indicators.get("vs_ma50_pct") or 0) > 0 else 0)  # aligned above MAs
-        + max(0, (70 - rsi)) * 0.5                   # reward stocks not yet overbought
+                 and (indicators.get("vs_ma50_pct") or 0) > 0 else 0)  # 10 pts: aligned above MAs
+        + max(0, (70 - rsi)) * 0.5                        # up to 10 pts: not overbought
     )
 
     result = {
@@ -66,7 +164,6 @@ def compute_technicals(df: pd.DataFrame) -> dict:
         "rsi": rsi,
         "tech_score": round(score, 2),
     }
-    # Forward extra indicators useful for AI scoring
     for key in ("macd_bullish_cross", "macd_bearish_cross", "bb_pct_b",
                 "vs_ma20_pct", "vs_ma50_pct", "vs_ma200_pct",
                 "golden_cross", "atr", "atr_pct"):
@@ -77,40 +174,43 @@ def compute_technicals(df: pd.DataFrame) -> dict:
 
 def quick_screen(tickers: list[str], top_n: int = 25) -> list[dict]:
     """
-    Batch-download 20 days OHLCV for all tickers, compute technicals,
+    Batch-download 60d OHLCV for all tickers, compute technicals,
     return top_n ranked by tech_score.
+    Handles large universes (600+ tickers) by chunking the download.
     """
-    try:
-        raw = yf.download(
-            tickers,
-            period="60d",   # need 50d for MA50, 26d for MACD
-            group_by="ticker",
-            auto_adjust=True,
-            threads=True,
-            progress=False,
-        )
-    except Exception as e:
-        print(f"[scanner] batch download error: {e}")
-        return []
+    CHUNK = 500   # yfinance is stable up to ~500 tickers per call
+    all_results: list[dict] = []
 
-    results = []
-    for symbol in tickers:
+    chunks = [tickers[i:i + CHUNK] for i in range(0, len(tickers), CHUNK)]
+    for chunk in chunks:
         try:
-            if len(tickers) == 1:
-                df = raw
-            else:
-                df = raw[symbol] if symbol in raw.columns.get_level_values(0) else pd.DataFrame()
-            if df.empty or len(df) < 5:
-                continue
-            tech = compute_technicals(df)
-            if not tech:
-                continue
-            # Filter: positive momentum, not overbought
-            # volume_ratio used for ranking only (last bar may be partial intraday)
-            if tech["momentum_5d"] > 0 and tech["rsi"] < 75:   # 75 = standard overbought threshold
-                results.append({"symbol": symbol, **tech})
-        except Exception:
+            raw = yf.download(
+                chunk,
+                period="60d",
+                group_by="ticker",
+                auto_adjust=True,
+                threads=True,
+                progress=False,
+            )
+        except Exception as e:
+            print(f"[scanner] batch download error (chunk {len(chunk)} tickers): {e}")
             continue
 
-    results.sort(key=lambda x: x["tech_score"], reverse=True)
-    return results[:top_n]
+        for symbol in chunk:
+            try:
+                if len(chunk) == 1:
+                    df = raw
+                else:
+                    df = raw[symbol] if symbol in raw.columns.get_level_values(0) else pd.DataFrame()
+                if df.empty or len(df) < 5:
+                    continue
+                tech = compute_technicals(df)
+                if not tech:
+                    continue
+                if tech["momentum_5d"] > 0 and tech["rsi"] < 75:
+                    all_results.append({"symbol": symbol, **tech})
+            except Exception:
+                continue
+
+    all_results.sort(key=lambda x: x["tech_score"], reverse=True)
+    return all_results[:top_n]
