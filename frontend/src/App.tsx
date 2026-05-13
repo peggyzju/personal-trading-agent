@@ -23,21 +23,14 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("portfolio");
 
   const refresh = useCallback(async () => {
-    // Health check — quotes endpoint only needs yfinance
-    try {
-      await api.getQuotes();
-      setBackendOnline(true);
-    } catch {
-      setBackendOnline(false);
-      return;
-    }
-
-    // Alpaca-dependent endpoints — fail silently if keys not configured
-    const [a, p, o] = await Promise.allSettled([
+    // All endpoints in parallel — health check and Alpaca data are independent
+    const [q, a, p, o] = await Promise.allSettled([
+      api.getQuotes(),
       api.getAccount(),
       api.getPositions(),
       api.getOrders(),
     ]);
+    setBackendOnline(q.status === "fulfilled");
     if (a.status === "fulfilled") setAccount(a.value);
     if (p.status === "fulfilled") setPositions(p.value);
     if (o.status === "fulfilled") setOrders(o.value);
