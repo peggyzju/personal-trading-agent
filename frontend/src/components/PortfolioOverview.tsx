@@ -106,7 +106,7 @@ function Sparkline({ days, positive }: { days: PortfolioDay[]; positive: boolean
 
 // ── Calendar Heatmap ──────────────────────────────────────────────────────────
 
-function CalendarHeatmap({ days }: { days: PortfolioDay[] }) {
+export function CalendarHeatmap({ days }: { days: PortfolioDay[] }) {
   const [tooltip, setTooltip] = useState<{ day: PortfolioDay; x: number; y: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 

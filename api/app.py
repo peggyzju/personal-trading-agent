@@ -5,6 +5,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, BackgroundTasks
+from pydantic import BaseModel
+from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -22,11 +24,12 @@ app.add_middleware(
 WATCHLIST_FILE = Path(__file__).parent.parent / "watchlist.json"
 DEFAULT_WATCHLIST = ["AAPL", "NVDA", "MSFT", "TSLA"]
 
-_analysis_cache: dict = {}
+_analysis_cache: dict = {}           # symbol -> analysis dict
+_analysis_timestamps: dict = {}      # symbol -> unix timestamp of last update
 _news_cache: dict = {}
 _brief_cache: dict = {}
-_scan_cache: dict = {}          # "sp500" -> {candidates, scanned_at, status}
-_holdings_cache: dict = {}      # "sell_signals" -> list, "positions" -> list
+_scan_cache: dict = {}               # "sp500" -> {candidates, scanned_at, status}
+_holdings_cache: dict = {}           # "sell_signals" -> list, "positions" -> list
 _scan_running: bool = False
 
 
@@ -111,7 +114,9 @@ def run_analysis(symbol: str):
         result["symbol"] = s
         result["price"] = quote["price"]
         result["change_pct"] = quote["change_pct"]
+        import time as _time
         _analysis_cache[s] = result
+        _analysis_timestamps[s] = _time.time()
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -415,6 +420,159 @@ def get_orders():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Trading ───────────────────────────────────────────────────────────────────
+
+class TradeRequest(BaseModel):
+    symbol: str
+    side: str                             # "buy" | "sell"
+    qty: Optional[float] = None           # number of shares
+    notional: Optional[float] = None      # dollar amount (alternative to qty)
+    order_type: str = "market"            # "market" | "limit" | "stop" | "stop_limit"
+    limit_price: Optional[float] = None
+    stop_price: Optional[float] = None
+
+
+@app.post("/api/trade")
+def place_trade(req: TradeRequest):
+    from src.trader.alpaca_trader import place_order
+    if req.qty is None and req.notional is None:
+        raise HTTPException(status_code=400, detail="Provide either qty or notional.")
+    if req.side not in ("buy", "sell"):
+        raise HTTPException(status_code=400, detail="side must be 'buy' or 'sell'.")
+    try:
+        order = place_order(
+            symbol=req.symbol.upper(),
+            side=req.side,
+            qty=req.qty,
+            notional=req.notional,
+            order_type=req.order_type,
+            limit_price=req.limit_price,
+            stop_price=req.stop_price,
+        )
+        return {
+            "id": order.id,
+            "symbol": order.symbol,
+            "side": order.side,
+            "qty": order.qty,
+            "notional": getattr(order, "notional", None),
+            "type": order.type,
+            "status": order.status,
+            "created_at": str(order.created_at),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/positions/{symbol}")
+def close_position_endpoint(symbol: str):
+    from src.trader.alpaca_trader import close_position
+    try:
+        order = close_position(symbol.upper())
+        return {"status": "submitted", "symbol": symbol.upper(), "order_id": order.id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/orders/{order_id}")
+def cancel_order_endpoint(order_id: str):
+    from src.trader.alpaca_trader import cancel_order
+    try:
+        cancel_order(order_id)
+        return {"status": "cancelled", "order_id": order_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Trade Agent ───────────────────────────────────────────────────────────────
+
+@app.get("/api/agent/pending")
+def get_pending_trades():
+    from src.trader.trade_agent import get_pending_trades, get_agent_log
+    return {
+        "trades": get_pending_trades(),
+        "log": get_agent_log(),
+    }
+
+
+@app.post("/api/agent/run")
+def run_agent(background_tasks: BackgroundTasks):
+    """Manually trigger the signal engine."""
+    def _run():
+        from src.trader.trade_agent import run_agent as _run_agent
+        portfolio_value = 100_000.0
+        try:
+            from src.trader.alpaca_trader import get_account as _get_acct
+            portfolio_value = float(_get_acct().portfolio_value)
+        except Exception:
+            pass
+        _run_agent(
+            scan_cache=_scan_cache,
+            holdings_cache=_holdings_cache,
+            watchlist=load_watchlist(),
+            portfolio_value=portfolio_value,
+            analysis_cache=_analysis_cache,
+        )
+
+    background_tasks.add_task(_run)
+    return {"status": "started"}
+
+
+@app.get("/api/market/regime")
+def get_regime():
+    """Current market regime (BULL/NEUTRAL/CAUTION/BEAR) based on SPY."""
+    from src.monitor.market_regime import get_market_regime
+    try:
+        return get_market_regime()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agent/sync-fills")
+def trigger_fill_sync():
+    """Manually trigger order fill status sync with Alpaca."""
+    from src.trader.trade_agent import sync_fills
+    try:
+        changed = sync_fills()
+        return {"status": "ok", "updated": len(changed), "trade_ids": changed}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agent/pending/{trade_id}/approve")
+def approve_trade(trade_id: str):
+    from src.trader.trade_agent import approve_trade as _approve
+    try:
+        trade = _approve(trade_id)
+        return trade
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/agent/pending/{trade_id}/reject")
+def reject_trade(trade_id: str):
+    from src.trader.trade_agent import reject_trade as _reject
+    try:
+        return _reject(trade_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── Circuit Breaker ───────────────────────────────────────────────────────────
+
+@app.get("/api/circuit-breaker")
+def get_circuit_breaker():
+    """Return current portfolio circuit breaker state."""
+    from src.monitor.circuit_breaker import get_circuit_breaker_state
+    return get_circuit_breaker_state()
+
+
+@app.post("/api/circuit-breaker/reset")
+def reset_circuit_breaker():
+    """Manually reset the circuit breaker (re-enable buys)."""
+    from src.monitor.circuit_breaker import reset_breaker
+    return reset_breaker()
+
+
 # ── Portfolio History ─────────────────────────────────────────────────────────
 
 @app.get("/api/portfolio/history")
@@ -430,6 +588,7 @@ def get_portfolio_history():
 
 _backtest_cache: dict = {}
 _backtest_running: bool = False
+_review_cache: dict = {}     # date -> review dict
 
 
 @app.get("/api/backtest")
@@ -465,7 +624,10 @@ def trigger_backtest(
         try:
             from src.analysis.backtester import run_backtest
             result = run_backtest(sym_list, period=period, hold_days=hold_days, target_pct=target_pct)
-            result["status"] = "done"
+            if "error" in result:
+                result["status"] = "error"
+            else:
+                result["status"] = "done"
             result["symbols"] = sym_list
             result["params"] = {"hold_days": hold_days, "target_pct": target_pct, "period": period}
             _backtest_cache["result"] = result
@@ -476,6 +638,95 @@ def trigger_backtest(
 
     background_tasks.add_task(_run)
     return {"status": "started", "symbols": sym_list}
+
+
+# ── Strategy Review ──────────────────────────────────────────────────────────
+
+def _run_strategy_review():
+    """Generate end-of-day strategy review and optionally email it."""
+    from datetime import date
+    from src.analysis.strategy_reviewer import generate_strategy_review
+    from src.monitor.portfolio_history import get_history
+    from src.trader.trade_agent import get_pending_trades, get_agent_log
+
+    today = date.today().isoformat()
+    print(f"[review] Generating strategy review for {today}…")
+    _review_cache["status"] = "running"
+    try:
+        history = get_history()
+        agent_state_trades = get_pending_trades()   # includes all statuses
+        agent_log   = get_agent_log()
+        scan_result = _scan_cache.get("sp500", {})
+
+        # Today's executed Alpaca orders
+        executed_orders: list = []
+        try:
+            from src.trader.alpaca_trader import get_client
+            alpaca = get_client()
+            raw_orders = alpaca.list_orders(status="closed", limit=50)
+            executed_orders = [
+                {
+                    "symbol": o.symbol,
+                    "side": o.side,
+                    "qty": float(o.qty),
+                    "filled_qty": float(o.filled_qty) if o.filled_qty else 0,
+                    "filled_avg_price": float(o.filled_avg_price) if o.filled_avg_price else None,
+                    "status": o.status,
+                }
+                for o in raw_orders
+                if str(o.created_at)[:10] == today
+            ]
+        except Exception as e:
+            print(f"[review] Could not fetch orders: {e}")
+
+        review = generate_strategy_review(
+            portfolio_history=history,
+            executed_orders=executed_orders,
+            agent_log=agent_log,
+            agent_trades=agent_state_trades,
+            scan_result=scan_result,
+        )
+
+        _review_cache[today] = review
+        _review_cache["latest"] = review
+        _review_cache["status"] = "done"
+        print(f"[review] Done: {review.get('one_line_summary','')}")
+
+
+    except Exception as e:
+        _review_cache["status"] = "error"
+        _review_cache["error"] = str(e)
+        print(f"[review] Error: {e}")
+
+
+@app.get("/api/strategy/review")
+def get_strategy_review():
+    from datetime import date
+    today = date.today().isoformat()
+    if today in _review_cache:
+        return _review_cache[today]
+    if _review_cache.get("latest"):
+        return _review_cache["latest"]
+    status = _review_cache.get("status")
+    if status == "running":
+        return {"status": "running"}
+    raise HTTPException(status_code=404, detail="No review yet. POST /api/strategy/review to generate.")
+
+
+@app.get("/api/strategy/reviews")
+def get_all_reviews():
+    """Return all cached daily reviews (chronological)."""
+    skip = {"status", "error", "latest"}
+    reviews = [v for k, v in _review_cache.items() if k not in skip and isinstance(v, dict) and "date" in v]
+    return sorted(reviews, key=lambda r: r["date"], reverse=True)
+
+
+@app.post("/api/strategy/review")
+def trigger_strategy_review(background_tasks: BackgroundTasks):
+    if _review_cache.get("status") == "running":
+        return {"status": "already_running"}
+    background_tasks.add_task(_run_strategy_review)
+    return {"status": "started"}
 
 
 # ── Serve built React app ─────────────────────────────────────────────────────

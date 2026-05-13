@@ -25,7 +25,7 @@ def run_analysis_cycle():
     from src.monitor.news_monitor import get_news
     from src.analysis.ai_analyst import analyze
     from src.alerts.notifier import console_alert
-    from api.app import _analysis_cache
+    from api.app import _analysis_cache, _analysis_timestamps
 
     wl_file = Path("watchlist.json")
     watchlist = json.loads(wl_file.read_text()) if wl_file.exists() else WATCHLIST_DEFAULT
@@ -39,6 +39,7 @@ def run_analysis_cycle():
             result = analyze(symbol, ohlcv, quote, news=news)
             result.update({"symbol": symbol, "price": quote["price"], "change_pct": quote["change_pct"]})
             _analysis_cache[symbol] = result
+            import time as _t; _analysis_timestamps[symbol] = _t.time()
 
             console_alert(symbol, result.get("signal", "HOLD"), quote["price"], result.get("reasoning", ""))
 
@@ -80,6 +81,50 @@ def run_holdings_refresh():
         print(f"[scheduler] holdings error: {e}")
 
 
+def sync_order_fills():
+    """Poll Alpaca every 5 min during market hours for fill status updates."""
+    from src.trader.trade_agent import sync_fills
+    changed = sync_fills()
+    if changed:
+        print(f"[scheduler] Fill sync: {len(changed)} order(s) updated")
+
+
+def run_daily_review():
+    """Generate end-of-day strategy review. 4:15 PM ET = UTC 20:15."""
+    from api.app import _run_strategy_review
+    print("[scheduler] Generating daily strategy review…")
+    _run_strategy_review()
+
+
+def run_trade_agent():
+    """After analysis cycle — run signal engine and queue pending trades."""
+    import json
+    from pathlib import Path
+    from api.app import _scan_cache, _holdings_cache, _analysis_cache, _analysis_timestamps
+    from src.trader.trade_agent import run_agent
+
+    wl_file = Path("watchlist.json")
+    watchlist = json.loads(wl_file.read_text()) if wl_file.exists() else WATCHLIST_DEFAULT
+
+    portfolio_value = 100_000.0
+    try:
+        from src.trader.alpaca_trader import get_account
+        portfolio_value = float(get_account().portfolio_value)
+    except Exception:
+        pass
+
+    print("[scheduler] Running trade agent signal scan…")
+    summary = run_agent(
+        scan_cache=_scan_cache,
+        holdings_cache=_holdings_cache,
+        watchlist=watchlist,
+        portfolio_value=portfolio_value,
+        analysis_cache=_analysis_cache,
+        analysis_timestamps=_analysis_timestamps,
+    )
+    print(f"[scheduler] Agent done — {summary.get('trades_queued', 0)} trades queued")
+
+
 if __name__ == "__main__":
     print("📎 Personal Trading Agent")
     print(f"   Auto-trade: {AUTO_TRADE} (paper trading)")
@@ -94,8 +139,22 @@ if __name__ == "__main__":
     scheduler.add_job(run_analysis_cycle, "cron", day_of_week="mon-fri", hour="9-15", minute="*/30")
     scheduler.add_job(run_holdings_refresh, "cron", day_of_week="mon-fri", hour="9-15", minute="*/30")
 
+    # Trade agent: pre-market 8:30 AM ET (UTC 12:30) — 1 hour before open
+    scheduler.add_job(run_trade_agent, "cron", day_of_week="mon-fri", hour=12, minute=30,
+                      id="agent_premarket", name="Pre-market agent scan (8:30 AM ET)")
+    # Trade agent: runs after analysis cycle (offset by 2 min) + after scan
+    scheduler.add_job(run_trade_agent, "cron", day_of_week="mon-fri", hour="9-15", minute="2,32")
+    scheduler.add_job(run_trade_agent, "cron", day_of_week="mon-fri", hour=13, minute=40)  # after daily scan
+
+    # Order fill sync: every 5 min during market hours
+    scheduler.add_job(sync_order_fills, "cron", day_of_week="mon-fri", hour="9-16", minute="*/5")
+
+    # Daily strategy review + email: 4:15 PM ET Mon–Fri (UTC 20:15)
+    scheduler.add_job(run_daily_review, "cron", day_of_week="mon-fri", hour=20, minute=15,
+                      id="daily_review", name="Daily strategy review (4:15 PM ET)")
+
     scheduler.start()
-    print("[scheduler] Started (S&P scan 9:31 AM ET | analysis every 30 min)\n")
+    print("[scheduler] Started (pre-market agent 8:30 AM ET | S&P scan 9:31 AM ET | analysis every 30 min | review 4:15 PM ET)\n")
 
     from api.app import app
     uvicorn.run(app, host="0.0.0.0", port=8000)

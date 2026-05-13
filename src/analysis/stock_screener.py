@@ -23,27 +23,33 @@ def ai_score_candidates(candidates: list[dict]) -> list[dict]:
         for i, c in enumerate(candidates)
     )
 
-    prompt = f"""You are a professional equity analyst. These S&P 500 stocks passed technical screening today.
+    prompt = f"""You are a professional equity analyst. These S&P 500 stocks passed a technical momentum screen today. Rate each one objectively — some may be worth buying, others may be overextended or lacking conviction.
 
 {rows}
 
-Select the best 10 for a US retail trader to consider buying today. For each pick return a JSON object:
+For each of the {len(candidates)} stocks, return a JSON object with an honest assessment:
 {{
   "symbol": "...",
   "ai_score": 1-10,
-  "signal": "STRONG_BUY" | "BUY" | "WATCH",
-  "reason": "one sentence: why this stock is compelling TODAY",
-  "entry_note": "at market" | "on pullback to $X" | "on breakout above $X",
+  "signal": "STRONG_BUY" | "BUY" | "HOLD" | "SELL",
+  "reason": "one sentence: the key factor driving your rating (positive OR negative)",
+  "entry_note": "at market" | "on pullback to $X" | "on breakout above $X" | "avoid for now",
   "stop_loss_pct": suggested stop-loss % below current price (number, e.g. 3.5),
-  "target_pct": suggested upside target % above current price (number),
-  "timeframe": "intraday" | "swing_2_5d" | "positional_1_2w"
+  "target_pct": suggested upside target % above current price (number, 0 if SELL),
+  "timeframe": "intraday" | "swing_2_5d" | "positional_1_2w" | "n/a"
 }}
 
-Return ONLY a JSON array of exactly 10 objects, best first."""
+Guidelines:
+- STRONG_BUY: strong momentum, volume confirmation, not overbought, clear catalyst
+- BUY: decent setup but less conviction — one concern (e.g. high RSI, thin volume)
+- HOLD: mixed signals — passed the screen but risk/reward is unclear right now
+- SELL: technically extended, RSI >75, weak volume, or breakout looks exhausted
+
+Return ONLY a JSON array of exactly {len(candidates)} objects, one per stock."""
 
     msg = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=2048,
+        max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
     )
 
@@ -60,13 +66,19 @@ Return ONLY a JSON array of exactly 10 objects, best first."""
     for a in ai_results:
         sym = a.get("symbol", "")
         tech = tech_map.get(sym, {})
+        if not tech:
+            continue
         price = tech.get("price", 0)
         stop_pct = a.get("stop_loss_pct", 3.0)
-        target_pct = a.get("target_pct", 6.0)
+        target_pct = a.get("target_pct", 0.0)
         merged.append({
             **tech,
             **a,
-            "stop_loss": round(price * (1 - stop_pct / 100), 2),
-            "target_price": round(price * (1 + target_pct / 100), 2),
+            "stop_loss": round(price * (1 - stop_pct / 100), 2) if stop_pct else None,
+            "target_price": round(price * (1 + target_pct / 100), 2) if target_pct else None,
         })
+
+    # sort: STRONG_BUY > BUY > HOLD > SELL, then by ai_score desc
+    signal_rank = {"STRONG_BUY": 0, "BUY": 1, "HOLD": 2, "SELL": 3}
+    merged.sort(key=lambda x: (signal_rank.get(x.get("signal", "HOLD"), 2), -x.get("ai_score", 0)))
     return merged

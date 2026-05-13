@@ -46,3 +46,51 @@ def get_earnings_calendar(symbol: str) -> dict | None:
     except Exception:
         pass
     return None
+
+
+def earnings_within_days(symbol: str, days: int = 3) -> tuple[bool, str]:
+    """
+    Returns (True, date_str) if the stock has earnings within `days` calendar days.
+    Returns (False, "") otherwise.
+
+    Use before queuing a buy trade to avoid holding through earnings surprise.
+    """
+    from datetime import date, timedelta
+    try:
+        ticker = yf.Ticker(symbol)
+        cal = ticker.calendar
+        if cal is None:
+            return False, ""
+
+        # yfinance returns calendar as dict with "Earnings Date" key
+        # The value can be a list of dates or a single date
+        earnings_date = None
+        if isinstance(cal, dict):
+            ed = cal.get("Earnings Date")
+            if ed is None:
+                ed = cal.get("earningsDate")
+            if isinstance(ed, list) and len(ed) > 0:
+                # Take the nearest upcoming date
+                today = date.today()
+                upcoming = [d for d in ed if hasattr(d, "date") and d.date() >= today]
+                if not upcoming:
+                    upcoming = [d for d in ed if isinstance(d, date) and d >= today]
+                earnings_date = min(upcoming) if upcoming else None
+            elif ed is not None:
+                earnings_date = ed
+
+        if earnings_date is None:
+            return False, ""
+
+        # Normalise to date object
+        if hasattr(earnings_date, "date"):
+            earnings_date = earnings_date.date()
+
+        today = date.today()
+        delta = (earnings_date - today).days
+        if 0 <= delta <= days:
+            return True, str(earnings_date)
+        return False, ""
+
+    except Exception:
+        return False, ""

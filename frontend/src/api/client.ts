@@ -78,10 +78,31 @@ export interface Order {
   type: string;
 }
 
+export interface TradeRequest {
+  symbol: string;
+  side: "buy" | "sell";
+  qty?: number;
+  notional?: number;
+  order_type?: "market" | "limit" | "stop" | "stop_limit";
+  limit_price?: number;
+  stop_price?: number;
+}
+
+export interface TradeResult {
+  id: string;
+  symbol: string;
+  side: string;
+  qty: string | null;
+  notional: string | null;
+  type: string;
+  status: string;
+  created_at: string;
+}
+
 export interface ScanCandidate {
   symbol: string;
   price: number;
-  signal: "STRONG_BUY" | "BUY" | "WATCH";
+  signal: "STRONG_BUY" | "BUY" | "HOLD" | "SELL" | "WATCH";
   ai_score: number;
   reason: string;
   entry_note?: string;
@@ -219,6 +240,34 @@ export interface DailyBrief {
   generated_at: string;
 }
 
+export interface StrategyIterationOp {
+  title: string;
+  description: string;
+  priority: "HIGH" | "MEDIUM" | "LOW";
+  expected_impact: string;
+}
+
+export interface StrategyReview {
+  date: string;
+  generated_at: string;
+  one_line_summary: string;
+  market_context: string;
+  core_strategy_assessment: string;
+  what_worked: string[];
+  what_didnt: string[];
+  monthly_progress_note: string;
+  iteration_opportunities: StrategyIterationOp[];
+  tomorrow_focus: string;
+  performance: {
+    daily_pl: number;
+    daily_return_pct: number;
+    monthly_return_pct: number;
+    target_monthly_pct: number;
+    target_gap: number;
+    current_equity: number;
+  };
+}
+
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`);
   if (!r.ok) throw new Error(await r.text());
@@ -234,6 +283,52 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   return r.json();
 }
 
+export interface PendingTrade {
+  id: string;
+  symbol: string;
+  side: "buy" | "sell";
+  notional: number | null;
+  qty: number | null;
+  signal: string;
+  confidence: number;
+  reason: string;
+  source: "scanner" | "watchlist" | "holdings";
+  stop_loss: number | null;
+  target_price: number | null;
+  price: number | null;
+  status: "pending" | "approved" | "rejected" | "executed" | "expired" | "error";
+  created_at: string;
+  expires_at: string;
+  executed_order_id: string | null;
+  error: string | null;
+}
+
+export interface AgentState {
+  trades: PendingTrade[];
+  log: { run_at: string; signals_found: number; trades_queued: number; sources: string[]; status: string; regime?: string; regime_reason?: string; error?: string }[];
+}
+
+export interface MarketRegime {
+  regime: "BULL" | "NEUTRAL" | "CAUTION" | "BEAR";
+  spy_price: number;
+  spy_change_pct: number;
+  spy_vs_ma20: number;
+  spy_vs_ma50: number;
+  min_ai_score: number;
+  size_factor: number;
+  block_buys: boolean;
+  reason: string;
+  fetched_at: number;
+}
+
+export interface CircuitBreaker {
+  triggered: boolean;
+  reason: string;
+  triggered_at: string | null;
+  daily_loss_pct: number;
+  date: string;
+}
+
 async function del<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`, { method: "DELETE" });
   if (!r.ok) throw new Error(await r.text());
@@ -242,6 +337,7 @@ async function del<T>(path: string): Promise<T> {
 
 export const api = {
   getQuotes: () => get<Quote[]>("/quotes"),
+  getQuoteSingle: (symbol: string) => get<Quote>(`/quotes/${symbol}`),
   getAccount: () => get<Account>("/account"),
   getPositions: () => get<Position[]>("/positions"),
   getOrders: () => get<Order[]>("/orders"),
@@ -266,4 +362,17 @@ export const api = {
   getHoldings: () => get<HoldingsResult>("/scan/holdings"),
   refreshHoldings: () => post<{ status: string }>("/scan/holdings"),
   getBudget: () => get<BudgetAllocation>("/budget"),
+  placeTrade: (req: TradeRequest) => post<TradeResult>("/trade", req),
+  closePosition: (symbol: string) => del<{ status: string; order_id: string }>(`/positions/${symbol}`),
+  cancelOrder: (orderId: string) => del<{ status: string }>(`/orders/${orderId}`),
+  getAgentState: () => get<AgentState>("/agent/pending"),
+  runAgent: () => post<{ status: string }>("/agent/run"),
+  approveTrade: (id: string) => post<PendingTrade>(`/agent/pending/${id}/approve`),
+  rejectTrade: (id: string) => post<PendingTrade>(`/agent/pending/${id}/reject`),
+  getMarketRegime: () => get<MarketRegime>("/market/regime"),
+  getCircuitBreaker: () => get<CircuitBreaker>("/circuit-breaker"),
+  resetCircuitBreaker: () => post<CircuitBreaker>("/circuit-breaker/reset"),
+  getStrategyReview: () => get<StrategyReview | { status: string }>("/strategy/review"),
+  getStrategyReviews: () => get<StrategyReview[]>("/strategy/reviews"),
+  generateStrategyReview: () => post<{ status: string }>("/strategy/review"),
 };

@@ -1,11 +1,20 @@
 import { useState, useEffect } from "react";
 import { api } from "../api/client";
 import type { ScanResult, ScanCandidate } from "../api/client";
+import { TradeModal } from "./TradeModal";
 
 const SIGNAL_COLOR: Record<string, string> = {
   STRONG_BUY: "#16a34a",
   BUY: "#22c55e",
-  WATCH: "#f59e0b",
+  HOLD: "#f59e0b",
+  SELL: "#ef4444",
+};
+
+const SIGNAL_LABEL: Record<string, string> = {
+  STRONG_BUY: "STRONG BUY",
+  BUY: "BUY",
+  HOLD: "HOLD",
+  SELL: "SELL",
 };
 
 interface Props {
@@ -85,7 +94,7 @@ export function BuyCandidates({ backendOnline }: Props) {
     <div className="candidates-container">
       <div className="scan-header">
         <div>
-          <h2>🔍 Buy Candidates — S&P 500 Scan</h2>
+          <h2>🔍 S&P 500 Scan — AI Ratings</h2>
           <span className="scan-meta">
             {scan.total_screened} screened → {scan.tech_passed} passed technical filter →
             {" "}{scan.candidates.length} AI-scored
@@ -110,13 +119,25 @@ export function BuyCandidates({ backendOnline }: Props) {
 
 function CandidateCard({ rank, candidate: c }: { rank: number; candidate: ScanCandidate }) {
   const signalColor = SIGNAL_COLOR[c.signal] ?? "#f59e0b";
+  const [showModal, setShowModal] = useState(false);
+  const canBuy = c.signal === "STRONG_BUY" || c.signal === "BUY";
 
   return (
     <div className="candidate-card">
+      {showModal && (
+        <TradeModal
+          symbol={c.symbol}
+          side="buy"
+          suggestedPrice={c.price}
+          stopLoss={c.stop_loss}
+          targetPrice={c.target_price}
+          onClose={() => setShowModal(false)}
+        />
+      )}
       <div className="candidate-header">
         <span className="candidate-rank">#{rank}</span>
         <span className="symbol">{c.symbol}</span>
-        <span className="signal-badge" style={{ background: signalColor }}>{c.signal?.replace("_", " ")}</span>
+        <span className="signal-badge" style={{ background: signalColor }}>{SIGNAL_LABEL[c.signal] ?? c.signal?.replace("_", " ")}</span>
         <span className="candidate-score">AI {c.ai_score}/10</span>
       </div>
 
@@ -141,6 +162,12 @@ function CandidateCard({ rank, candidate: c }: { rank: number; candidate: ScanCa
         <LevelStat label="Stop" value={c.stop_loss ? `$${c.stop_loss.toFixed(2)}` : "—"} color="#ef4444" />
         <LevelStat label="Target" value={c.target_price ? `$${c.target_price.toFixed(2)}` : "—"} color="#22c55e" />
       </div>
+
+      {canBuy && (
+        <button className="trade-btn buy-btn" onClick={() => setShowModal(true)}>
+          ＋ Buy {c.symbol}
+        </button>
+      )}
     </div>
   );
 }

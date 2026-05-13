@@ -138,9 +138,9 @@ function BacktestStats({ data }: { data: BacktestResult }) {
           color={(data.profit_factor ?? 0) >= 1.5 ? "#22c55e" : "#f59e0b"} />
         <KPI label="Strategy Return" value={`${(data.total_return_pct ?? 0) >= 0 ? "+" : ""}${data.total_return_pct ?? 0}%`}
           color={(data.total_return_pct ?? 0) >= 0 ? "#22c55e" : "#ef4444"} />
-        <KPI label="SPY Buy&Hold" value={`${(data.spy_return_pct ?? 0) >= 0 ? "+" : ""}${data.spy_return_pct}%`} />
-        <KPI label="Alpha vs SPY" value={`${(data.alpha_pct ?? 0) >= 0 ? "+" : ""}${data.alpha_pct}%`} color={alphaColor} />
-        <KPI label="Max Drawdown" value={`-${data.max_drawdown_pct}%`} color={ddColor} />
+        <KPI label="SPY Buy&Hold" value={`${(data.spy_return_pct ?? 0) >= 0 ? "+" : ""}${data.spy_return_pct ?? 0}%`} />
+        <KPI label="Alpha vs SPY" value={`${(data.alpha_pct ?? 0) >= 0 ? "+" : ""}${data.alpha_pct ?? 0}%`} color={alphaColor} />
+        <KPI label="Max Drawdown" value={`-${data.max_drawdown_pct ?? 0}%`} color={ddColor} />
         <KPI label="Sharpe Ratio" value={String(data.sharpe_ratio)} color={sharpeColor} />
       </div>
 

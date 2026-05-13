@@ -93,27 +93,26 @@ export function BudgetView({ backendOnline }: Props) {
       </div>
 
       <div className="budget-grid">
-        {/* Current holdings */}
+        {/* Compact allocation breakdown — no P&L, that belongs in Holdings tab */}
         {data.holdings.length > 0 && (
           <div className="budget-section">
-            <h3>Current Holdings</h3>
-            {data.holdings.map((h) => (
-              <div key={h.symbol} className="budget-holding-row">
-                <div className="budget-holding-left">
-                  <span className="symbol">{h.symbol}</span>
+            <h3>已投资分布</h3>
+            <div className="budget-slots-row">
+              {data.holdings.map((h) => (
+                <div key={h.symbol} className="budget-slot-chip">
+                  <span className="symbol" style={{ fontSize: 13 }}>{h.symbol}</span>
                   <span className="budget-pct">{h.pct}%</span>
                 </div>
-                <div className="budget-holding-right">
-                  <span className="holding-val">${h.market_value.toLocaleString()}</span>
-                  <span className={`budget-pl ${h.unrealized_pl >= 0 ? "up" : "down"}`}>
-                    {h.unrealized_pl >= 0 ? "+" : ""}${h.unrealized_pl.toFixed(0)} ({h.unrealized_plpc >= 0 ? "+" : ""}{h.unrealized_plpc.toFixed(1)}%)
-                  </span>
+              ))}
+              {Array.from({ length: data.slots_remaining }).map((_, i) => (
+                <div key={`empty-${i}`} className="budget-slot-chip budget-slot-empty">
+                  <span style={{ color: "var(--muted)", fontSize: 12 }}>空仓位</span>
                 </div>
-                <div className="budget-bar-wrap">
-                  <div className="budget-pos-bar" style={{ width: `${Math.min(h.pct * 10, 100)}%` }} />
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
+            <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>
+              持仓详情 & 卖出信号 → 查看 📉 Holdings 标签
+            </p>
           </div>
         )}
 
