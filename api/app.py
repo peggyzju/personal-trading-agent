@@ -494,7 +494,7 @@ def get_pending_trades():
     }
 
 
-SCAN_MAX_AGE_HOURS = 4   # auto-rescan if data is older than this
+SCAN_MAX_AGE_HOURS = 6   # auto-rescan if data is older than this
 
 @app.post("/api/agent/run")
 def run_agent(background_tasks: BackgroundTasks):

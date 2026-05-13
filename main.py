@@ -119,8 +119,9 @@ if __name__ == "__main__":
     ET = "America/New_York"
     scheduler = BackgroundScheduler(timezone=ET)
 
-    # S&P 500 scan: 9:31 AM ET Mon–Fri (just after market open)
+    # S&P 500 scan: 9:31 AM ET (market open) + 12:30 PM ET (midday refresh)
     scheduler.add_job(run_sp500_scan, "cron", day_of_week="mon-fri", hour=9, minute=31)
+    scheduler.add_job(run_sp500_scan, "cron", day_of_week="mon-fri", hour=12, minute=30)
 
     # Analysis cycle + holdings: every 30 min during market hours Mon–Fri (9 AM–3 PM ET)
     scheduler.add_job(run_analysis_cycle, "cron", day_of_week="mon-fri", hour="9-15", minute="*/30")
@@ -142,7 +143,7 @@ if __name__ == "__main__":
 
     scheduler.start()
     print("[scheduler] Started — timezone: US/Eastern")
-    print("  8:30 AM  pre-market agent | 9:31 AM S&P scan | every 30 min analysis | 4:15 PM review\n")
+    print("  8:30 AM  pre-market agent | 9:31 AM scan | every 30 min analysis | 12:30 PM scan | 4:15 PM review\n")
 
     from api.app import app
     uvicorn.run(app, host="0.0.0.0", port=8000)
