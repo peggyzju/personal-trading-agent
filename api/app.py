@@ -16,7 +16,7 @@ app = FastAPI(title="Personal Trading Agent")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://localhost:5174"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -286,6 +286,20 @@ def trigger_scan(background_tasks: BackgroundTasks):
 
 # ── Holdings Monitor ──────────────────────────────────────────────────────────
 
+def _refresh_holdings():
+    """Background task: re-fetch positions + sell signals after any trade action."""
+    from src.monitor.holdings_monitor import get_paper_positions, analyze_sell_signals
+    positions = get_paper_positions()
+    _holdings_cache["positions"] = positions
+    _holdings_cache["analyzed"] = False
+    try:
+        enriched = analyze_sell_signals(positions)
+        _holdings_cache["positions"] = enriched
+        _holdings_cache["analyzed"] = True
+    except Exception as e:
+        print(f"[holdings] auto-refresh error: {e}")
+
+
 @app.get("/api/scan/holdings")
 def get_holdings():
     return {
@@ -464,10 +478,11 @@ def place_trade(req: TradeRequest):
 
 
 @app.delete("/api/positions/{symbol}")
-def close_position_endpoint(symbol: str):
+def close_position_endpoint(symbol: str, background_tasks: BackgroundTasks):
     from src.trader.alpaca_trader import close_position
     try:
         order = close_position(symbol.upper())
+        background_tasks.add_task(_refresh_holdings)
         return {"status": "submitted", "symbol": symbol.upper(), "order_id": order.id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -582,10 +597,11 @@ def trigger_fill_sync():
 
 
 @app.post("/api/agent/pending/{trade_id}/approve")
-def approve_trade(trade_id: str):
+def approve_trade(trade_id: str, background_tasks: BackgroundTasks):
     from src.trader.trade_agent import approve_trade as _approve
     try:
         trade = _approve(trade_id)
+        background_tasks.add_task(_refresh_holdings)
         return trade
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
