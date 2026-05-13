@@ -128,7 +128,7 @@ Return valid JSON only (no markdown):
 
     client = anthropic.Anthropic(api_key=get_anthropic_key())
     msg = client.messages.create(
-        model="claude-opus-4-5",
+        model="claude-sonnet-4-6",
         max_tokens=1500,
         messages=[{"role": "user", "content": prompt}],
     )
