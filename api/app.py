@@ -592,6 +592,8 @@ def run_agent(background_tasks: BackgroundTasks):
             analysis_cache=_analysis_cache,
             analysis_timestamps=_analysis_timestamps,
         )
+        # Auto-clean stale sell signals after agent run
+        _refresh_holdings()
 
     background_tasks.add_task(_run)
     return {"status": "started"}
