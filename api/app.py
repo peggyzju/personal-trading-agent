@@ -259,6 +259,18 @@ def get_brief():
 
 # ── S&P 500 Scanner ───────────────────────────────────────────────────────────
 
+def _sanitize_floats(obj):
+    """Recursively replace NaN/Inf with None so JSON serialization never fails."""
+    import math
+    if isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_floats(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_floats(v) for v in obj]
+    return obj
+
+
 def _run_sp500_scan():
     global _scan_running
     from datetime import datetime
@@ -273,7 +285,7 @@ def _run_sp500_scan():
         print(f"[scan] Quick-screening {len(tickers)} tickers…")
         top_tech = quick_screen(tickers, top_n=25)
         print(f"[scan] {len(top_tech)} passed technical filter. Running AI scoring…")
-        top_ai = ai_score_candidates(top_tech)
+        top_ai = _sanitize_floats(ai_score_candidates(top_tech))
         _scan_cache["sp500"] = {
             "status": "done",
             "candidates": top_ai,
