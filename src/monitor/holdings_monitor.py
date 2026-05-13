@@ -8,11 +8,17 @@ from src.config import get_anthropic_key
 
 # Demo paper portfolio when Alpaca keys are not configured
 DEMO_POSITIONS = [
-    {"symbol": "AAPL", "qty": 5,  "avg_entry_price": 180.0, "current_price": 0, "market_value": 0,
+    {"symbol": "NVDA", "qty": 1,  "avg_entry_price": 220.0, "current_price": 0, "market_value": 0,
      "unrealized_pl": 0, "unrealized_plpc": 0, "side": "long"},
-    {"symbol": "NVDA", "qty": 2,  "avg_entry_price": 200.0, "current_price": 0, "market_value": 0,
+    {"symbol": "APP",  "qty": 1,  "avg_entry_price": 300.0, "current_price": 0, "market_value": 0,
      "unrealized_pl": 0, "unrealized_plpc": 0, "side": "long"},
-    {"symbol": "TSLA", "qty": 3,  "avg_entry_price": 420.0, "current_price": 0, "market_value": 0,
+    {"symbol": "MOD",  "qty": 1,  "avg_entry_price": 100.0, "current_price": 0, "market_value": 0,
+     "unrealized_pl": 0, "unrealized_plpc": 0, "side": "long"},
+    {"symbol": "VRT",  "qty": 1,  "avg_entry_price": 150.0, "current_price": 0, "market_value": 0,
+     "unrealized_pl": 0, "unrealized_plpc": 0, "side": "long"},
+    {"symbol": "GOOG", "qty": 1,  "avg_entry_price": 170.0, "current_price": 0, "market_value": 0,
+     "unrealized_pl": 0, "unrealized_plpc": 0, "side": "long"},
+    {"symbol": "AAPL", "qty": 1,  "avg_entry_price": 200.0, "current_price": 0, "market_value": 0,
      "unrealized_pl": 0, "unrealized_plpc": 0, "side": "long"},
 ]
 
