@@ -557,6 +557,71 @@ def reject_trade(trade_id: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ── Portfolio Seeder (one-time Robinhood import) ──────────────────────────────
+
+class SeedPosition(BaseModel):
+    symbol: str
+    qty: float
+
+class SeedRequest(BaseModel):
+    positions: list[SeedPosition]
+
+@app.post("/api/seed-portfolio")
+def seed_portfolio(req: SeedRequest):
+    """
+    Place market buy orders for a list of positions in the Alpaca paper account.
+    Skips symbols already held. Returns summary of placed / skipped / failed orders.
+    """
+    import time as _time
+    from src.trader.alpaca_trader import get_client, get_account
+    from src.monitor.price_monitor import get_quote
+
+    api = get_client()
+    acct = get_account()
+    existing = {p.symbol for p in api.list_positions()}
+
+    placed, skipped, failed = [], [], []
+
+    for pos in req.positions:
+        symbol = pos.symbol.upper()
+        qty = pos.qty
+
+        if symbol in existing:
+            skipped.append({"symbol": symbol, "reason": "already held"})
+            continue
+
+        try:
+            q = get_quote(symbol)
+            price = q["price"]
+            order = api.submit_order(
+                symbol=symbol,
+                qty=qty,
+                side="buy",
+                type="market",
+                time_in_force="day",
+            )
+            placed.append({"symbol": symbol, "qty": qty, "price": price, "order_id": order.id})
+            _time.sleep(0.2)
+        except Exception as e:
+            failed.append({"symbol": symbol, "error": str(e)})
+
+    # Refresh holdings cache
+    try:
+        from src.monitor.holdings_monitor import get_paper_positions
+        _holdings_cache["positions"] = get_paper_positions()
+    except Exception:
+        pass
+
+    return {
+        "status": "ok",
+        "placed": placed,
+        "skipped": skipped,
+        "failed": failed,
+        "account_equity": float(acct.equity),
+        "account_cash": float(acct.cash),
+    }
+
+
 # ── Circuit Breaker ───────────────────────────────────────────────────────────
 
 @app.get("/api/circuit-breaker")

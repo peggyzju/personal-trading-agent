@@ -38,19 +38,20 @@ import time
 # Your total Robinhood portfolio value (Investing + Cash combined).
 # Found in Robinhood app → Portfolio screen, the large number at the top.
 # Set to 0 to skip the equity-matching step.
-ROBINHOOD_TOTAL_EQUITY: float = 0     # e.g. 73_450.00
+ROBINHOOD_TOTAL_EQUITY: float = 58_468.92
 
 # Your uninvested cash in Robinhood (the "Buying Power" or "Cash" line).
 # Used to calculate how much cash to leave in Alpaca after seeding positions.
-ROBINHOOD_CASH: float = 0             # e.g. 8_200.00
+ROBINHOOD_CASH: float = 20_847.33
 
 # Your positions (symbol + number of shares).
 ROBINHOOD_POSITIONS: list[dict] = [
-    # {"symbol": "AAPL",  "qty": 10},
-    # {"symbol": "GOOGL", "qty": 5},
-    # {"symbol": "TSLA",  "qty": 3},
-    # {"symbol": "NVDA",  "qty": 2},
-    # ↑ add all your positions here
+    {"symbol": "NVDA", "qty": 50},
+    {"symbol": "AAPL", "qty": 14},   # Note: AAPL not APPL
+    {"symbol": "APP",  "qty": 15},
+    {"symbol": "MOD",  "qty": 20},
+    {"symbol": "VRT",  "qty": 15},
+    {"symbol": "PM",   "qty": 20},
 ]
 
 # ══════════════════════════════════════════════════════════════════
@@ -84,23 +85,15 @@ def main():
     if ROBINHOOD_TOTAL_EQUITY:
         print(f"  Robinhood target:   equity=${ROBINHOOD_TOTAL_EQUITY:>12,.2f}   cash=${ROBINHOOD_CASH:>12,.2f}")
 
-    # ── Step 1: equity mismatch check ─────────────────────────────────────────
+    # ── Step 1: equity mismatch check (informational only) ────────────────────
     if ROBINHOOD_TOTAL_EQUITY and ROBINHOOD_TOTAL_EQUITY > 0:
         diff = abs(alpaca_equity - ROBINHOOD_TOTAL_EQUITY)
-        if diff > 100:   # more than $100 off
-            print(f"\n  ⚠️   Equity mismatch: Alpaca=${alpaca_equity:,.0f}  Robinhood=${ROBINHOOD_TOTAL_EQUITY:,.0f}")
-            print(f"       Difference: ${diff:,.0f}\n")
-            print("  ── ACTION REQUIRED before placing orders ─────────────────")
-            print(f"  1. Go to:  https://app.alpaca.markets")
-            print(f"  2. Click:  Paper Trading → top-right gear icon → Reset Account")
-            print(f"  3. Enter:  ${ROBINHOOD_TOTAL_EQUITY:,.2f}  as the new starting equity")
-            print(f"  4. Confirm reset, then re-run:  python3 seed_portfolio.py\n")
-            if not args.dry_run:
-                print("  Aborting — reset Alpaca equity first, then re-run.\n")
-                sys.exit(1)
-            print("  [DRY RUN] Continuing preview despite mismatch…\n")
+        if diff > 100:
+            print(f"\n  ℹ️   Equity difference: Alpaca=${alpaca_equity:,.0f}  Robinhood=${ROBINHOOD_TOTAL_EQUITY:,.0f}  (diff=${diff:,.0f})")
+            print(f"  ℹ️   This is fine — same share quantities means identical % P&L tracking.")
+            print(f"       Extra cash (${alpaca_equity - ROBINHOOD_TOTAL_EQUITY:+,.0f}) acts as additional buying power.\n")
         else:
-            print(f"  ✅  Equity close enough (diff=${diff:,.0f}) — no reset needed")
+            print(f"  ✅  Equity close enough (diff=${diff:,.0f}) — no reset needed\n")
 
     # ── Step 2: get existing Alpaca positions ──────────────────────────────────
     existing = {p.symbol for p in api.list_positions()}
@@ -142,12 +135,10 @@ def main():
     else:
         print()
 
-    if total_cost > (ROBINHOOD_TOTAL_EQUITY or alpaca_cash):
-        shortage = total_cost - (ROBINHOOD_TOTAL_EQUITY or alpaca_cash)
-        print(f"\n  ⚠️   Over budget by ${shortage:,.2f}.")
-        if ROBINHOOD_TOTAL_EQUITY:
-            scale = (ROBINHOOD_TOTAL_EQUITY - ROBINHOOD_CASH) / total_cost
-            print(f"  Suggestion: multiply all qtys by {scale:.3f} to fit within invested portion")
+    if total_cost > alpaca_cash:
+        shortage = total_cost - alpaca_cash
+        print(f"\n  ⚠️   Over Alpaca cash by ${shortage:,.2f} — orders may be rejected.")
+        print(f"       Reset Alpaca paper account first (adds $100k fresh cash).")
         if not args.dry_run:
             print("  Aborting.\n")
             sys.exit(1)
