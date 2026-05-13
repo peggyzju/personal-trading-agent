@@ -113,34 +113,36 @@ def run_trade_agent():
 
 if __name__ == "__main__":
     print("📎 Personal Trading Agent")
-    print(f"   Auto-trade: {AUTO_TRADE} (paper trading)")
     print("   API: http://localhost:8000  |  Docs: http://localhost:8000/docs\n")
 
-    scheduler = BackgroundScheduler()
+    # All cron times are US/Eastern — explicit timezone avoids DST/UTC confusion
+    ET = "America/New_York"
+    scheduler = BackgroundScheduler(timezone=ET)
 
-    # S&P 500 scan: 9:31 AM ET Mon–Fri (convert to UTC: ET+4 = 13:31)
-    scheduler.add_job(run_sp500_scan, "cron", day_of_week="mon-fri", hour=13, minute=31)
+    # S&P 500 scan: 9:31 AM ET Mon–Fri (just after market open)
+    scheduler.add_job(run_sp500_scan, "cron", day_of_week="mon-fri", hour=9, minute=31)
 
-    # Analysis cycle + holdings: every 30 min during market hours Mon–Fri
+    # Analysis cycle + holdings: every 30 min during market hours Mon–Fri (9 AM–3 PM ET)
     scheduler.add_job(run_analysis_cycle, "cron", day_of_week="mon-fri", hour="9-15", minute="*/30")
     scheduler.add_job(run_holdings_refresh, "cron", day_of_week="mon-fri", hour="9-15", minute="*/30")
 
-    # Trade agent: pre-market 8:30 AM ET (UTC 12:30) — 1 hour before open
-    scheduler.add_job(run_trade_agent, "cron", day_of_week="mon-fri", hour=12, minute=30,
+    # Trade agent: pre-market 8:30 AM ET — 1 hour before open (uses cached scan + analysis)
+    scheduler.add_job(run_trade_agent, "cron", day_of_week="mon-fri", hour=8, minute=30,
                       id="agent_premarket", name="Pre-market agent scan (8:30 AM ET)")
-    # Trade agent: runs after analysis cycle (offset by 2 min) + after scan
+    # Trade agent: after each analysis cycle (offset by 2 min) + after daily scan
     scheduler.add_job(run_trade_agent, "cron", day_of_week="mon-fri", hour="9-15", minute="2,32")
-    scheduler.add_job(run_trade_agent, "cron", day_of_week="mon-fri", hour=13, minute=40)  # after daily scan
+    scheduler.add_job(run_trade_agent, "cron", day_of_week="mon-fri", hour=9, minute=40)  # after daily scan
 
     # Order fill sync: every 5 min during market hours
     scheduler.add_job(sync_order_fills, "cron", day_of_week="mon-fri", hour="9-16", minute="*/5")
 
-    # Daily strategy review + email: 4:15 PM ET Mon–Fri (UTC 20:15)
-    scheduler.add_job(run_daily_review, "cron", day_of_week="mon-fri", hour=20, minute=15,
+    # Daily strategy review: 4:15 PM ET Mon–Fri (after market close)
+    scheduler.add_job(run_daily_review, "cron", day_of_week="mon-fri", hour=16, minute=15,
                       id="daily_review", name="Daily strategy review (4:15 PM ET)")
 
     scheduler.start()
-    print("[scheduler] Started (pre-market agent 8:30 AM ET | S&P scan 9:31 AM ET | analysis every 30 min | review 4:15 PM ET)\n")
+    print("[scheduler] Started — timezone: US/Eastern")
+    print("  8:30 AM  pre-market agent | 9:31 AM S&P scan | every 30 min analysis | 4:15 PM review\n")
 
     from api.app import app
     uvicorn.run(app, host="0.0.0.0", port=8000)

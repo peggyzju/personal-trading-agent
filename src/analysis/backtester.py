@@ -62,9 +62,10 @@ def _buy_signal(row: pd.Series) -> bool:
     """True if all buy conditions are met at this row."""
     try:
         return (
-            row["rsi"] < 60                    # not overbought
+            row["rsi"] < 75                    # not overbought (matches live scanner threshold)
             and row["macd_hist"] > 0           # bullish momentum
-            and row["bb_pct_b"] < 0.85         # not at upper band
+            and row["bb_pct_b"] > 0.55         # above BB midline — momentum continuation (matches scanner)
+            and row["bb_pct_b"] < 0.90         # not at extreme upper band (avoid chasing)
             and row["Close"] > row["ma20"]     # above short-term trend
             and row["vol_ratio"] > 1.05        # slight volume confirmation
             and row["mom5"] > 0                # positive recent momentum
@@ -180,8 +181,10 @@ def _compute_stats(trades: list[dict], spy_return: float) -> dict:
     # Sharpe (annualise assuming ~252 trading days / year, avg hold ~hold_days)
     if len(pnls) > 1:
         returns_arr = np.array(pnls)
+        avg_hold = float(np.mean([t["days_held"] for t in trades])) if trades else 10.0
+        ann_factor = np.sqrt(252 / max(avg_hold, 1))   # annualise using actual avg hold period
         sharpe = float(
-            np.mean(returns_arr) / np.std(returns_arr) * np.sqrt(252 / 10)
+            np.mean(returns_arr) / np.std(returns_arr) * ann_factor
         ) if np.std(returns_arr) > 0 else 0.0
     else:
         sharpe = 0.0
