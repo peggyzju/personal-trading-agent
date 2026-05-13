@@ -56,13 +56,32 @@ def place_order(
     if order_type in ("stop", "stop_limit") and stop_price:
         kwargs["stop_price"] = str(round(stop_price, 2))
 
-    # Bracket order: attach stop-loss and/or take-profit legs
+    # Bracket order: attach stop-loss and/or take-profit legs.
+    # Alpaca requires qty (not notional) for bracket orders — convert if needed.
     if stop_loss or take_profit:
-        kwargs["order_class"] = "bracket"
-        if stop_loss:
-            kwargs["stop_loss"] = {"stop_price": str(round(stop_loss, 2))}
-        if take_profit:
-            kwargs["take_profit"] = {"limit_price": str(round(take_profit, 2))}
+        if kwargs.get("notional") is not None:
+            # Convert dollar notional → whole share qty using current price
+            notional_val = kwargs.pop("notional")
+            try:
+                import yfinance as yf
+                live_price = yf.Ticker(symbol).fast_info.last_price or 0
+            except Exception:
+                live_price = 0
+            if live_price > 0:
+                import math
+                computed_qty = math.floor(notional_val / live_price)
+                kwargs["qty"] = max(1, computed_qty)
+            else:
+                # Can't determine price — fall back to plain market order without bracket
+                stop_loss = None
+                take_profit = None
+
+        if stop_loss or take_profit:
+            kwargs["order_class"] = "bracket"
+            if stop_loss:
+                kwargs["stop_loss"] = {"stop_price": str(round(stop_loss, 2))}
+            if take_profit:
+                kwargs["take_profit"] = {"limit_price": str(round(take_profit, 2))}
 
     return api.submit_order(**kwargs)
 

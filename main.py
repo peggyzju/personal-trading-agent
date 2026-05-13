@@ -13,9 +13,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 load_dotenv()
 
 WATCHLIST_DEFAULT = ["AAPL", "NVDA", "MSFT", "TSLA"]
-CONFIDENCE_THRESHOLD = 0.75
-MAX_SHARES = 1
-AUTO_TRADE = os.getenv("AUTO_TRADE", "false").lower() == "true"
 
 
 def run_analysis_cycle():
@@ -42,19 +39,8 @@ def run_analysis_cycle():
             import time as _t; _analysis_timestamps[symbol] = _t.time()
 
             console_alert(symbol, result.get("signal", "HOLD"), quote["price"], result.get("reasoning", ""))
-
-            if AUTO_TRADE:
-                confidence = result.get("confidence", 0)
-                signal = result.get("signal", "HOLD")
-                if confidence >= CONFIDENCE_THRESHOLD and signal != "HOLD":
-                    from src.trader.alpaca_trader import place_order, get_account
-                    acct = get_account()
-                    if signal == "BUY" and float(acct.buying_power) > quote["price"] * MAX_SHARES:
-                        order = place_order(symbol, "buy", MAX_SHARES)
-                        print(f"  [ORDER] BUY {MAX_SHARES} {symbol} — id={order.id}")
-                    elif signal == "SELL":
-                        order = place_order(symbol, "sell", MAX_SHARES)
-                        print(f"  [ORDER] SELL {MAX_SHARES} {symbol} — id={order.id}")
+            # Note: actual order placement is handled exclusively by trade_agent (with
+            # full risk controls: regime gate, circuit breaker, sector limit, etc.)
         except Exception as e:
             print(f"  [ERROR] {symbol}: {e}")
 

@@ -298,13 +298,14 @@ def run_agent(
         cash = portfolio_value   # fallback
         owned_symbols: set[str] = set()
         slots_remaining = 10    # fallback
+        alpaca_positions: list = []
         try:
             from src.trader.alpaca_trader import get_client, get_account
             acct = get_account()
             cash = float(acct.cash)
-            positions = get_client().list_positions()
-            owned_symbols = {p.symbol for p in positions}
-            slots_remaining = max(0, 10 - len(positions))
+            alpaca_positions = get_client().list_positions()   # fetch ONCE
+            owned_symbols = {p.symbol for p in alpaca_positions}
+            slots_remaining = max(0, 10 - len(alpaca_positions))
         except Exception as e:
             print(f"[agent] account check failed: {e}")
             # fall back: use holdings_cache
@@ -333,10 +334,10 @@ def run_agent(
         from src.monitor.news_monitor import earnings_within_days
         from src.monitor.sector_checker import check_sector_limit
 
-        # Current positions for sector check (already fetched above)
+        # Reuse already-fetched positions list for sector check
         current_positions = [
             {"symbol": p.symbol, "market_value": float(p.market_value)}
-            for p in (get_client().list_positions() if can_buy else [])
+            for p in alpaca_positions
         ] if can_buy else []
 
         def _earnings_safe(symbol: str) -> bool:
