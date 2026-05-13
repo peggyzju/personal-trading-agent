@@ -320,6 +320,7 @@ def trigger_scan(background_tasks: BackgroundTasks):
 def _refresh_holdings():
     """Background task: re-fetch positions + sell signals after any trade action."""
     from src.monitor.holdings_monitor import get_paper_positions, analyze_sell_signals
+    from src.trader.trade_agent import reject_trade, get_pending_trades
     positions = get_paper_positions()
     _holdings_cache["positions"] = positions
     _holdings_cache["analyzed"] = False
@@ -329,6 +330,16 @@ def _refresh_holdings():
         _holdings_cache["analyzed"] = True
     except Exception as e:
         print(f"[holdings] auto-refresh error: {e}")
+
+    # Auto-reject pending sell/reduce trades for symbols no longer held
+    held = {p["symbol"] for p in positions}
+    for trade in get_pending_trades():
+        if trade["status"] == "pending" and trade["side"] == "sell" and trade["symbol"] not in held:
+            try:
+                reject_trade(trade["id"])
+                print(f"[holdings] auto-rejected stale sell for {trade['symbol']} (position closed)")
+            except Exception:
+                pass
 
 
 @app.get("/api/scan/holdings")
