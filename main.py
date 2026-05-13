@@ -15,8 +15,12 @@ load_dotenv()
 WATCHLIST_DEFAULT = ["AAPL", "NVDA", "MSFT", "TSLA"]
 
 
+ANALYSIS_MAX_AGE_HOURS = 2    # re-analyze if cache older than this
+ANALYSIS_MOVE_THRESHOLD = 1.5  # re-analyze if price moved more than this %
+
 def run_analysis_cycle():
     import json
+    import time as _t
     from pathlib import Path
     from src.monitor.price_monitor import get_quote, get_ohlcv
     from src.monitor.news_monitor import get_news
@@ -28,19 +32,30 @@ def run_analysis_cycle():
     watchlist = json.loads(wl_file.read_text()) if wl_file.exists() else WATCHLIST_DEFAULT
 
     print(f"\n--- Analysis cycle: {watchlist} ---")
+    now = _t.time()
     for symbol in watchlist:
         try:
             quote = get_quote(symbol)
+            current_price = quote["price"]
+
+            # Skip if cache is fresh AND price hasn't moved significantly
+            last_ts = _analysis_timestamps.get(symbol, 0)
+            last_price = (_analysis_cache.get(symbol) or {}).get("price", 0)
+            age_hours = (now - last_ts) / 3600
+            price_move = abs(current_price - last_price) / last_price * 100 if last_price else 999
+
+            if age_hours < ANALYSIS_MAX_AGE_HOURS and price_move < ANALYSIS_MOVE_THRESHOLD:
+                print(f"  {symbol}: skip (age={age_hours:.1f}h, move={price_move:.2f}%)")
+                continue
+
             ohlcv = get_ohlcv(symbol)
             news = get_news(symbol)
             result = analyze(symbol, ohlcv, quote, news=news)
-            result.update({"symbol": symbol, "price": quote["price"], "change_pct": quote["change_pct"]})
+            result.update({"symbol": symbol, "price": current_price, "change_pct": quote["change_pct"]})
             _analysis_cache[symbol] = result
-            import time as _t; _analysis_timestamps[symbol] = _t.time()
+            _analysis_timestamps[symbol] = now
 
-            console_alert(symbol, result.get("signal", "HOLD"), quote["price"], result.get("reasoning", ""))
-            # Note: actual order placement is handled exclusively by trade_agent (with
-            # full risk controls: regime gate, circuit breaker, sector limit, etc.)
+            console_alert(symbol, result.get("signal", "HOLD"), current_price, result.get("reasoning", ""))
         except Exception as e:
             print(f"  [ERROR] {symbol}: {e}")
 
