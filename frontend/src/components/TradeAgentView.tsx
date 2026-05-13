@@ -95,7 +95,7 @@ export function TradeAgentView({ backendOnline }: Props) {
           </span>
           {lastRun && (
             <span className="scan-meta">
-              {" · 上次运行: "}{new Date(lastRun.run_at + (lastRun.run_at.endsWith("Z") ? "" : "Z")).toLocaleTimeString()}
+              {" · 上次运行: "}{new Date(lastRun.run_at).toLocaleTimeString()}
               {" · "}{lastRun.trades_queued} 个信号入队
             </span>
           )}
@@ -151,7 +151,7 @@ export function TradeAgentView({ backendOnline }: Props) {
                 {history.map(t => (
                   <tr key={t.id} style={{ opacity: t.status === "expired" ? 0.5 : 1 }}>
                     <td style={{ fontSize: 11, color: "var(--muted)" }}>
-                      {new Date(t.created_at + (t.created_at.endsWith("Z") ? "" : "Z")).toLocaleTimeString()}
+                      {new Date(t.created_at).toLocaleTimeString()}
                     </td>
                     <td style={{ fontSize: 11 }}>{SOURCE_LABEL[t.source] ?? t.source}</td>
                     <td>
@@ -186,7 +186,7 @@ export function TradeAgentView({ backendOnline }: Props) {
             {state!.log.map((l, i) => (
               <div key={i} className="agent-log-row">
                 <span style={{ color: "var(--muted)", fontSize: 11 }}>
-                  {new Date(l.run_at + (l.run_at.endsWith("Z") ? "" : "Z")).toLocaleTimeString()}
+                  {new Date(l.run_at).toLocaleTimeString()}
                 </span>
                 <span style={{ fontSize: 12 }}>
                   发现 <strong>{l.signals_found}</strong> 个信号，入队 <strong>{l.trades_queued}</strong> 笔

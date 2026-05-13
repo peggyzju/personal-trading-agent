@@ -220,9 +220,7 @@ export function PortfolioCommandCenter({ backendOnline }: Props) {
             {data.agent?.log[0] && (
               <span className="pcc-last-run">
                 上次运行&nbsp;
-                {new Date(
-                  data.agent.log[0].run_at + (data.agent.log[0].run_at.endsWith("Z") ? "" : "Z")
-                ).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                {new Date(data.agent.log[0].run_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                 {" · "}
                 {data.agent.log[0].trades_queued} 个信号
                 {(data.agent.log[0] as any).auto_approved
