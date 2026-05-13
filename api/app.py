@@ -494,10 +494,32 @@ def get_pending_trades():
     }
 
 
+SCAN_MAX_AGE_HOURS = 4   # auto-rescan if data is older than this
+
 @app.post("/api/agent/run")
 def run_agent(background_tasks: BackgroundTasks):
-    """Manually trigger the signal engine."""
+    """Manually trigger the signal engine. Auto-runs scan first if data is missing or stale (>4h)."""
     def _run():
+        from datetime import datetime
+
+        # ── Auto-scan if missing or stale ────────────────────────────────────
+        scan_data = _scan_cache.get("sp500", {})
+        scanned_at = scan_data.get("scanned_at")
+        needs_scan = True
+        if scanned_at:
+            try:
+                age_hours = (datetime.utcnow() - datetime.fromisoformat(scanned_at)).total_seconds() / 3600
+                needs_scan = age_hours > SCAN_MAX_AGE_HOURS
+            except Exception:
+                needs_scan = True
+
+        if needs_scan:
+            print(f"[agent] Scan data {'missing' if not scanned_at else 'stale (>{:.1f}h)'.format(age_hours if scanned_at else 0)} — running scan first…")
+            _run_sp500_scan()
+        else:
+            print(f"[agent] Using cached scan data (age={age_hours:.1f}h < {SCAN_MAX_AGE_HOURS}h)")
+
+        # ── Run agent ─────────────────────────────────────────────────────────
         from src.trader.trade_agent import run_agent as _run_agent
         portfolio_value = 100_000.0
         try:
