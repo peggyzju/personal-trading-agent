@@ -355,13 +355,19 @@ def run_agent(
                 print(f"[agent] Skip {symbol} — sector limit: {reason}")
             return allowed
 
-        # ── 1. S&P 500 Scanner: STRONG_BUY, ai_score >= regime threshold ─────
+        # ── 1. S&P 500 Scanner: STRONG_BUY >= min_score OR BUY >= min_score+1 ──
         scan = scan_cache.get("sp500", {})
         if scan.get("status") == "done" and can_buy:
             scanner_added = 0
             for c in scan.get("candidates", []):
-                # Use regime-adjusted minimum score
-                if not (c.get("signal") == "STRONG_BUY" and (c.get("ai_score") or 0) >= min_ai_score):
+                signal   = c.get("signal", "")
+                ai_score = c.get("ai_score") or 0
+                # STRONG_BUY: regime threshold (7 in BULL) | BUY: stricter (+1)
+                if signal == "STRONG_BUY" and ai_score >= min_ai_score:
+                    pass   # allowed
+                elif signal == "BUY" and ai_score >= min_ai_score + 1:
+                    pass   # allowed (higher bar for BUY)
+                else:
                     continue
                 # Problem 4: skip if earnings this week
                 if not _earnings_safe(c["symbol"]):
