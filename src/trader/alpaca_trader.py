@@ -44,7 +44,7 @@ def place_order(
         "symbol": symbol,
         "side": side,
         "type": order_type,
-        "time_in_force": "day",
+        "time_in_force": "gtc",   # gtc works pre/post market; "day" rejects pre-open orders
     }
     if notional is not None:
         kwargs["notional"] = round(notional, 2)

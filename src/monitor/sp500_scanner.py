@@ -52,7 +52,7 @@ def compute_technicals(df: pd.DataFrame) -> dict:
         + min(max(volume_ratio - 1, 0), 3) * 10 * 0.25  # up to 7.5 pts
         + (15 if near_breakout else 0)               # 15 pts
         + (10 if indicators.get("macd_bullish_cross") else 0)  # 10 pts
-        + (10 if indicators.get("bb_pct_b", 0.5) < 0.3 else 0)  # 10 pts: near lower band
+        + (10 if indicators.get("bb_pct_b", 0.5) > 0.55 else 0)  # 10 pts: price above BB midline (bullish momentum)
         + (10 if (indicators.get("vs_ma20_pct") or 0) > 0
                  and (indicators.get("vs_ma50_pct") or 0) > 0 else 0)  # aligned above MAs
         + max(0, (70 - rsi)) * 0.5                   # reward stocks not yet overbought
@@ -107,7 +107,7 @@ def quick_screen(tickers: list[str], top_n: int = 25) -> list[dict]:
                 continue
             # Filter: positive momentum, not overbought
             # volume_ratio used for ranking only (last bar may be partial intraday)
-            if tech["momentum_5d"] > 0 and tech["rsi"] < 80:
+            if tech["momentum_5d"] > 0 and tech["rsi"] < 75:   # 75 = standard overbought threshold
                 results.append({"symbol": symbol, **tech})
         except Exception:
             continue

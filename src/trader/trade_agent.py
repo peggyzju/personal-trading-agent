@@ -263,6 +263,7 @@ def run_agent(
         "sources": [],
         "status": "ok",
     }
+    _new_trade_ids: set[str] = set()   # track only trades queued in THIS run
 
     try:
         risk_pct      = 0.02
@@ -390,6 +391,7 @@ def run_agent(
                     summary["signals_found"] += 1
                     summary["trades_queued"] += 1
                     scanner_added += 1
+                    _new_trade_ids.add(trade["id"])
             if scanner_added:
                 summary["sources"].append("scanner")
 
@@ -464,6 +466,7 @@ def run_agent(
                         summary["signals_found"] += 1
                         summary["trades_queued"] += 1
                         wl_added += 1
+                        _new_trade_ids.add(trade["id"])
             if wl_added:
                 summary["sources"].append("watchlist")
 
@@ -494,15 +497,19 @@ def run_agent(
                 summary["signals_found"] += 1
                 summary["trades_queued"] += 1
                 holdings_added += 1
+                _new_trade_ids.add(trade["id"])
 
         if holdings_added:
             summary["sources"].append("holdings")
 
-        # ── Auto-approve: execute high-confidence trades without human review ──
+        # ── Auto-approve: execute high-confidence trades from THIS run only ──
+        # Only auto-approves trades queued in this run — not stale ones from prior runs.
         auto_threshold = _get_auto_approve_threshold()
         if auto_threshold is not None and auto_threshold > 0:
             auto_approved = 0
             for trade in list(_pending.values()):
+                if trade["id"] not in _new_trade_ids:
+                    continue   # only act on trades queued this run
                 if trade["status"] != "pending":
                     continue
                 if trade["confidence"] >= auto_threshold:
