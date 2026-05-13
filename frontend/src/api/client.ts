@@ -369,6 +369,9 @@ export const api = {
   runAgent: () => post<{ status: string }>("/agent/run"),
   approveTrade: (id: string) => post<PendingTrade>(`/agent/pending/${id}/approve`),
   rejectTrade: (id: string) => post<PendingTrade>(`/agent/pending/${id}/reject`),
+  getAutoApprove: () => get<{ enabled: boolean; threshold: number }>("/agent/auto-approve"),
+  setAutoApprove: (enabled: boolean, threshold: number) =>
+    post<{ enabled: boolean; threshold: number }>("/agent/auto-approve", { enabled, threshold }),
   getMarketRegime: () => get<MarketRegime>("/market/regime"),
   getCircuitBreaker: () => get<CircuitBreaker>("/circuit-breaker"),
   resetCircuitBreaker: () => post<CircuitBreaker>("/circuit-breaker/reset"),

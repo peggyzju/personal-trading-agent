@@ -29,6 +29,8 @@ export function PortfolioCommandCenter({ backendOnline }: Props) {
   const [resettingBreaker, setResettingBreaker] = useState(false);
   const [agentRunning, setAgentRunning] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [autoApprove, setAutoApproveState] = useState<{ enabled: boolean; threshold: number }>({ enabled: false, threshold: 0.80 });
+  const [autoApproveLoading, setAutoApproveLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!backendOnline) return;
@@ -52,6 +54,12 @@ export function PortfolioCommandCenter({ backendOnline }: Props) {
       regime: regime.status === "fulfilled" ? regime.value : null,
       breaker: breaker.status === "fulfilled" ? breaker.value : null,
     });
+  }, [backendOnline]);
+
+  useEffect(() => {
+    if (backendOnline) {
+      api.getAutoApprove().then(setAutoApproveState).catch(() => {});
+    }
   }, [backendOnline]);
 
   useEffect(() => {
@@ -85,6 +93,16 @@ export function PortfolioCommandCenter({ backendOnline }: Props) {
       }, 3000);
       setTimeout(() => { clearInterval(poll); setScanning(false); }, 120_000);
     } catch { setScanning(false); }
+  }
+
+  async function toggleAutoApprove() {
+    setAutoApproveLoading(true);
+    try {
+      const next = !autoApprove.enabled;
+      const cfg = await api.setAutoApprove(next, autoApprove.threshold);
+      setAutoApproveState(cfg);
+    } catch { /* ignore */ }
+    finally { setAutoApproveLoading(false); }
   }
 
   async function resetBreaker() {
@@ -181,9 +199,24 @@ export function PortfolioCommandCenter({ backendOnline }: Props) {
         {data.breaker && <CircuitBreakerBadge breaker={data.breaker} onReset={resetBreaker} resetting={resettingBreaker} />}
         <div className="pcc-actions">
           <div className="pcc-agent-block">
-            <button className="brief-generate-btn" onClick={runAgent} disabled={agentRunning}>
-              {agentRunning ? "分析中…" : "🤖 运行 Agent"}
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button className="brief-generate-btn" onClick={runAgent} disabled={agentRunning}>
+                {agentRunning ? "分析中…" : "🤖 运行 Agent"}
+              </button>
+              {/* Auto-approve toggle */}
+              <button
+                className={`pcc-auto-approve-btn${autoApprove.enabled ? " active" : ""}`}
+                onClick={toggleAutoApprove}
+                disabled={autoApproveLoading}
+                title={autoApprove.enabled
+                  ? `自动执行已开启 (置信度 ≥ ${Math.round(autoApprove.threshold * 100)}%)，点击关闭`
+                  : "点击开启自动执行高置信度交易"}
+              >
+                {autoApprove.enabled
+                  ? `⚡ 自动执行 ≥${Math.round(autoApprove.threshold * 100)}%`
+                  : "⚡ 手动审批"}
+              </button>
+            </div>
             {data.agent?.log[0] && (
               <span className="pcc-last-run">
                 上次运行&nbsp;
@@ -192,6 +225,8 @@ export function PortfolioCommandCenter({ backendOnline }: Props) {
                 ).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                 {" · "}
                 {data.agent.log[0].trades_queued} 个信号
+                {(data.agent.log[0] as any).auto_approved
+                  ? ` · ⚡${(data.agent.log[0] as any).auto_approved} 自动执行` : ""}
               </span>
             )}
             {!data.agent?.log[0] && (

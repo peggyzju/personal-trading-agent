@@ -511,10 +511,31 @@ def run_agent(background_tasks: BackgroundTasks):
             watchlist=load_watchlist(),
             portfolio_value=portfolio_value,
             analysis_cache=_analysis_cache,
+            analysis_timestamps=_analysis_timestamps,
         )
 
     background_tasks.add_task(_run)
     return {"status": "started"}
+
+
+# ── Auto-approve config ───────────────────────────────────────────────────────
+
+@app.get("/api/agent/auto-approve")
+def get_auto_approve():
+    """Return current auto-approve config."""
+    from src.trader.trade_agent import get_auto_approve_config
+    return get_auto_approve_config()
+
+
+class AutoApproveRequest(BaseModel):
+    enabled: bool
+    threshold: Optional[float] = 0.80
+
+@app.post("/api/agent/auto-approve")
+def set_auto_approve(req: AutoApproveRequest):
+    """Enable or disable auto-approve with a confidence threshold."""
+    from src.trader.trade_agent import set_auto_approve as _set
+    return _set(req.enabled, req.threshold or 0.80)
 
 
 @app.get("/api/market/regime")

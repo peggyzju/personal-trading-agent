@@ -1491,6 +1491,29 @@ body {
   font-style: italic;
 }
 
+.pcc-auto-approve-btn {
+  font-size: 11px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #1e2130;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.pcc-auto-approve-btn:hover:not(:disabled) {
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+.pcc-auto-approve-btn.active {
+  background: #f59e0b18;
+  border-color: #f59e0b80;
+  color: #f59e0b;
+  font-weight: 600;
+}
+.pcc-auto-approve-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* ══════════════════════════════════════════════════════════
    Strategy Review (StrategyReview.tsx)
 ════════════════════════════════════════════════════════════ */

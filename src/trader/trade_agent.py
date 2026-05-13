@@ -498,6 +498,24 @@ def run_agent(
         if holdings_added:
             summary["sources"].append("holdings")
 
+        # ── Auto-approve: execute high-confidence trades without human review ──
+        auto_threshold = _get_auto_approve_threshold()
+        if auto_threshold is not None and auto_threshold > 0:
+            auto_approved = 0
+            for trade in list(_pending.values()):
+                if trade["status"] != "pending":
+                    continue
+                if trade["confidence"] >= auto_threshold:
+                    try:
+                        approve_trade(trade["id"])
+                        auto_approved += 1
+                        print(f"[agent] Auto-approved {trade['side'].upper()} {trade['symbol']} "
+                              f"(conf={trade['confidence']:.2f} ≥ {auto_threshold})")
+                    except Exception as e:
+                        print(f"[agent] Auto-approve failed for {trade['id']}: {e}")
+            if auto_approved:
+                summary["auto_approved"] = auto_approved
+
     except Exception as e:
         summary["status"] = "error"
         summary["error"] = str(e)
@@ -510,3 +528,42 @@ def run_agent(
         _run_log.pop(0)
 
     return summary
+
+
+# ── Auto-approve config ───────────────────────────────────────────────────────
+
+_AUTO_APPROVE_FILE = Path(__file__).parent.parent.parent / "data" / "auto_approve.json"
+
+def _get_auto_approve_threshold() -> Optional[float]:
+    """
+    Returns the auto-approve confidence threshold, or None if disabled.
+    Config stored in data/auto_approve.json: {"enabled": true, "threshold": 0.80}
+    """
+    try:
+        if _AUTO_APPROVE_FILE.exists():
+            cfg = json.loads(_AUTO_APPROVE_FILE.read_text())
+            if cfg.get("enabled") and cfg.get("threshold"):
+                return float(cfg["threshold"])
+    except Exception:
+        pass
+    return None  # disabled by default
+
+
+def set_auto_approve(enabled: bool, threshold: float = 0.80) -> dict:
+    """Enable or disable auto-approve. Persisted to disk."""
+    cfg = {"enabled": enabled, "threshold": round(threshold, 2)}
+    _AUTO_APPROVE_FILE.parent.mkdir(exist_ok=True)
+    _AUTO_APPROVE_FILE.write_text(json.dumps(cfg))
+    status = f"Auto-approve {'ENABLED' if enabled else 'DISABLED'} (threshold={threshold})"
+    print(f"[agent] {status}")
+    return cfg
+
+
+def get_auto_approve_config() -> dict:
+    """Return current auto-approve config."""
+    try:
+        if _AUTO_APPROVE_FILE.exists():
+            return json.loads(_AUTO_APPROVE_FILE.read_text())
+    except Exception:
+        pass
+    return {"enabled": False, "threshold": 0.80}
