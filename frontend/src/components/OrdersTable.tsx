@@ -5,20 +5,26 @@ import type { Order } from "../api/client";
 const CANCELLABLE = new Set(["new", "partially_filled", "held", "accepted", "pending_new"]);
 
 export function OrdersTable({ orders, onRefresh }: { orders: Order[]; onRefresh?: () => void }) {
-  if (orders.length === 0) return null;
+  if (orders.length === 0) {
+    return (
+      <div className="empty-positions">
+        暂无订单记录。
+      </div>
+    );
+  }
 
   return (
     <div className="positions-table-wrap">
       <table className="positions-table">
         <thead>
           <tr>
-            <th>Symbol</th>
-            <th>Side</th>
-            <th>Qty</th>
-            <th>Filled</th>
-            <th>Avg Price</th>
-            <th>Status</th>
-            <th>Time</th>
+            <th>股票</th>
+            <th>方向</th>
+            <th>数量</th>
+            <th>已成交</th>
+            <th>均价</th>
+            <th>状态</th>
+            <th>时间</th>
             <th></th>
           </tr>
         </thead>
@@ -64,7 +70,7 @@ function OrderRow({ order: o, onRefresh }: { order: Order; onRefresh?: () => voi
       <td>
         {CANCELLABLE.has(o.status) && !cancelled && (
           <button className="cancel-small-btn" onClick={handleCancel} disabled={loading}>
-            {loading ? "…" : "✕ Cancel"}
+            {loading ? "…" : "✕ 撤单"}
           </button>
         )}
       </td>

@@ -41,7 +41,7 @@ export function BacktestView({ backendOnline }: Props) {
   }
 
   if (!backendOnline) {
-    return <div className="brief-offline">Start the backend to run backtests.</div>;
+    return <div className="brief-offline">启动后端服务以运行回测。</div>;
   }
 
   return (

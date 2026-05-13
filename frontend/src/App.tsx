@@ -50,13 +50,13 @@ export default function App() {
   }, [refresh]);
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: "portfolio", label: "📊 Portfolio" },
-    { id: "research", label: "🔬 Research" },
-    { id: "review",   label: "📈 策略复盘" },
-    { id: "brief",    label: "📋 Daily Brief" },
-    { id: "backtest", label: "📈 Backtest" },
-    { id: "positions", label: `Positions (${positions.length})` },
-    { id: "orders", label: `Orders (${orders.length})` },
+    { id: "portfolio",  label: "📊 组合" },
+    { id: "research",   label: "🔬 选股" },
+    { id: "review",     label: "📈 策略复盘" },
+    { id: "brief",      label: "📋 每日简报" },
+    { id: "backtest",   label: "🧪 回测" },
+    { id: "positions",  label: `📂 仓位 (${positions.length})` },
+    { id: "orders",     label: `📑 订单 (${orders.length})` },
   ];
 
   return (
@@ -82,7 +82,7 @@ export default function App() {
             {t.label}
           </button>
         ))}
-        <span className="refresh-hint">Auto-refreshes every 30s</span>
+        <span className="refresh-hint">每 30 秒自动刷新</span>
       </nav>
 
       <main className="app-main">
@@ -94,14 +94,14 @@ export default function App() {
 
         {tab === "positions" && (
           <section>
-            <h2>Open Positions</h2>
+            <h2>仓位详情</h2>
             <PositionsTable positions={positions} onRefresh={refresh} />
           </section>
         )}
 
         {tab === "orders" && (
           <section>
-            <h2>Recent Orders</h2>
+            <h2>订单记录</h2>
             <OrdersTable orders={orders} onRefresh={refresh} />
           </section>
         )}

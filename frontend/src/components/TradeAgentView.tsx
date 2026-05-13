@@ -77,7 +77,7 @@ export function TradeAgentView({ backendOnline }: Props) {
   }
 
   if (!backendOnline) {
-    return <div className="brief-offline">Start the backend to use the Trade Agent.</div>;
+    return <div className="brief-offline">启动后端服务以使用交易 Agent。</div>;
   }
 
   const pending = state?.trades.filter(t => t.status === "pending") ?? [];
@@ -259,9 +259,9 @@ function PendingCard({
                 style={{ width: "auto", margin: 0, padding: "6px 14px", background: t.side === "buy" ? "#16a34a" : "#ef4444" }}
                 onClick={() => setConfirming(true)}
               >
-                Approve
+                批准
               </button>
-              <button className="cancel-small-btn" onClick={onReject}>Reject</button>
+              <button className="cancel-small-btn" onClick={onReject}>拒绝</button>
             </>
           )}
         </div>

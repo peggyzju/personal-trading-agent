@@ -69,7 +69,7 @@ export function StrategyReviewPanel({ backendOnline }: Props) {
     : review;
 
   if (!backendOnline) {
-    return <div className="brief-offline">Start the backend to view strategy reviews.</div>;
+    return <div className="brief-offline">启动后端服务以查看策略复盘。</div>;
   }
 
   return (
@@ -78,7 +78,7 @@ export function StrategyReviewPanel({ backendOnline }: Props) {
       <div className="sr-header">
         <div>
           <h2 className="sr-title">📈 每日策略复盘</h2>
-          <p className="sr-subtitle">收盘后自动生成 · 追踪 15%/月目标进度 · 每日邮件发送</p>
+          <p className="sr-subtitle">收盘后自动生成 · 追踪 15%/月目标进度</p>
         </div>
         <button
           className="brief-generate-btn"

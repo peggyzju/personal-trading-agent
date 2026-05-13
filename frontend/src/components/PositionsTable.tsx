@@ -6,7 +6,7 @@ export function PositionsTable({ positions, onRefresh }: { positions: Position[]
   if (positions.length === 0) {
     return (
       <div className="empty-positions">
-        No open positions. Run an analysis and place a paper trade to see them here.
+        暂无持仓。运行 Agent 并批准交易后在此查看仓位。
       </div>
     );
   }
@@ -16,13 +16,13 @@ export function PositionsTable({ positions, onRefresh }: { positions: Position[]
       <table className="positions-table">
         <thead>
           <tr>
-            <th>Symbol</th>
-            <th>Qty</th>
-            <th>Avg Cost</th>
-            <th>Current</th>
-            <th>Market Value</th>
-            <th>Unrealized P&L</th>
-            <th>% Change</th>
+            <th>股票</th>
+            <th>数量</th>
+            <th>持仓成本</th>
+            <th>现价</th>
+            <th>市值</th>
+            <th>未实现盈亏</th>
+            <th>涨跌幅</th>
             <th></th>
           </tr>
         </thead>
@@ -76,7 +76,7 @@ function PositionRow({ position: p, onRefresh }: { position: Position; onRefresh
           onClick={handleClose}
           disabled={loading}
         >
-          {loading ? "…" : confirming ? "Confirm Close" : "Close"}
+          {loading ? "…" : confirming ? "确认平仓" : "平仓"}
         </button>
         {confirming && !loading && (
           <button className="cancel-small-btn" onClick={() => setConfirming(false)}>✕</button>
