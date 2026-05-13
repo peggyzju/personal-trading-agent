@@ -23,14 +23,32 @@ app.add_middleware(
 
 WATCHLIST_FILE = Path(__file__).parent.parent / "watchlist.json"
 DEFAULT_WATCHLIST = ["AAPL", "NVDA", "MSFT", "TSLA"]
+_SCAN_CACHE_FILE = Path(__file__).parent.parent / "data" / "scan_cache.json"
 
 _analysis_cache: dict = {}           # symbol -> analysis dict
 _analysis_timestamps: dict = {}      # symbol -> unix timestamp of last update
 _news_cache: dict = {}
 _brief_cache: dict = {}
-_scan_cache: dict = {}               # "sp500" -> {candidates, scanned_at, status}
 _holdings_cache: dict = {}           # "sell_signals" -> list, "positions" -> list
 _scan_running: bool = False
+
+
+def _load_scan_cache() -> dict:
+    try:
+        if _SCAN_CACHE_FILE.exists():
+            return json.loads(_SCAN_CACHE_FILE.read_text())
+    except Exception:
+        pass
+    return {}
+
+def _save_scan_cache(cache: dict):
+    try:
+        _SCAN_CACHE_FILE.parent.mkdir(exist_ok=True)
+        _SCAN_CACHE_FILE.write_text(json.dumps(cache))
+    except Exception as e:
+        print(f"[scan] cache save error: {e}")
+
+_scan_cache: dict = _load_scan_cache()   # restore from disk on startup
 
 
 def load_watchlist() -> list[str]:
@@ -263,6 +281,7 @@ def _run_sp500_scan():
             "total_screened": len(tickers),
             "tech_passed": len(top_tech),
         }
+        _save_scan_cache(_scan_cache)
         print(f"[scan] Done. Top candidate: {top_ai[0]['symbol'] if top_ai else 'none'}")
     except Exception as e:
         _scan_cache["sp500"] = {"status": "error", "error": str(e), "candidates": []}
