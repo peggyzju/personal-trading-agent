@@ -438,7 +438,9 @@ def run_agent(
 
                 sig  = cached.get("signal")
                 conf = cached.get("confidence", 0)
-                if sig == "BUY" and conf >= 0.7:
+                # Adapt confidence threshold to market regime (mirrors scanner ai_score gate)
+                wl_min_conf = 0.75 if regime.get("regime") == "CAUTION" else 0.70
+                if sig == "BUY" and conf >= wl_min_conf:
                     # Problem 4: skip if earnings this week
                     if not _earnings_safe(symbol):
                         summary["signals_found"] += 1

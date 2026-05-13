@@ -26,7 +26,7 @@ def generate_strategy_review(
     agent_log: list[dict],        # trade agent run log
     agent_trades: list[dict],     # all agent trades (any status)
     scan_result: dict,            # latest S&P scan
-    monthly_target_pct: float = 15.0,
+    monthly_target_pct: float = 10.0,
 ) -> dict:
     """Call Claude to generate a structured end-of-day strategy review."""
     from src.config import get_anthropic_key
@@ -74,7 +74,7 @@ def generate_strategy_review(
     ) or "  No orders today"
 
     prompt = f"""You are a professional trading coach helping a retail investor build an automated trading agent.
-The investor's goal is 15% monthly return. Today is {today_str}.
+The investor's goal is {monthly_target_pct}% monthly return (~120% annualised). Today is {today_str}.
 
 === TODAY'S PERFORMANCE ===
 Daily P&L: ${daily_pl:+,.0f} ({daily_ret:+.2f}%)
@@ -93,7 +93,7 @@ Executed: {len(executed_today)} | Rejected: {len(rejected_today)} | Expired: {le
 {candidates_txt}
 
 Please generate a structured daily strategy review. Be specific, quantitative, and actionable.
-Focus on what changes would actually move the needle toward the 15% monthly target.
+Focus on what changes would actually move the needle toward the {monthly_target_pct}% monthly target.
 
 Return valid JSON only (no markdown):
 {{

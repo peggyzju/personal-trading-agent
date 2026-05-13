@@ -81,7 +81,7 @@ def _simulate_symbol(
     df: pd.DataFrame,
     hold_days: int,
     target_pct: float,
-    slippage_pct: float = 0.001,
+    slippage_pct: float = 0.003,   # 0.3% — realistic for liquid mid/large caps (was 0.1%)
 ) -> list[dict]:
     """Walk-forward simulation for one symbol. Returns list of trade dicts."""
     df = _precompute_signals(df)
