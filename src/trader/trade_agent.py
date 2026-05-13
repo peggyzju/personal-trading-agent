@@ -479,6 +479,10 @@ def run_agent(
             sell_signal = pos.get("sell_signal")
             if sell_signal not in ("SELL", "REDUCE"):
                 continue
+            # Skip if position no longer exists in Alpaca (already closed)
+            if pos["symbol"] not in owned_symbols:
+                print(f"[agent] skip {pos['symbol']} sell — position already closed")
+                continue
             qty = float(pos.get("qty", 0))
             if sell_signal == "REDUCE":
                 close_qty = max(1, math.floor(qty * 0.5))
