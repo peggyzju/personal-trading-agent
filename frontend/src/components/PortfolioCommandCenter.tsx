@@ -331,7 +331,7 @@ export function PortfolioCommandCenter({ backendOnline }: Props) {
                 🔍 S&P 500 扫描 — Top {buySignals.length}
                 {data.scan?.scanned_at && (
                   <span className="pcc-scan-time">
-                    {new Date(data.scan.scanned_at + "Z").toLocaleTimeString()}
+                    {new Date(data.scan.scanned_at).toLocaleTimeString()}
                   </span>
                 )}
               </h3>

@@ -554,7 +554,7 @@ export function StockResearch({ backendOnline }: Props) {
                 : "点击运行扫描获取推荐"}
               {scan?.scanned_at && (
                 <span style={{ marginLeft: 8, color: "var(--muted)" }}>
-                  {new Date(scan.scanned_at + "Z").toLocaleTimeString()}
+                  {new Date(scan.scanned_at).toLocaleTimeString()}
                 </span>
               )}
             </span>

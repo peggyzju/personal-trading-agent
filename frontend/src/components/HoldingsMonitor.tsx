@@ -51,7 +51,7 @@ export function HoldingsMonitor({ backendOnline }: Props) {
   }
 
   if (!backendOnline) {
-    return <div className="brief-offline">Start the backend to monitor holdings.</div>;
+    return <div className="brief-offline">启动后端服务以监控持仓。</div>;
   }
 
   const positions = data?.positions ?? [];
@@ -60,24 +60,24 @@ export function HoldingsMonitor({ backendOnline }: Props) {
     <div className="holdings-container">
       <div className="scan-header">
         <div>
-          <h2>📉 Holdings Monitor</h2>
+          <h2>📉 持仓监控</h2>
           <span className="scan-meta">
-            {positions.length} position{positions.length !== 1 ? "s" : ""} · paper trading
-            {data?.analyzed && " · sell signals analyzed"}
+            {positions.length} 个持仓 · 模拟交易
+            {data?.analyzed && " · 已完成卖出信号分析"}
           </span>
         </div>
         <button className="brief-regenerate-btn" onClick={refresh} disabled={loading}>
-          {loading ? "Refreshing…" : "↺ Refresh + Analyze"}
+          {loading ? "分析中…" : "↺ 刷新 + 分析"}
         </button>
       </div>
 
       {positions.length === 0 ? (
         <div className="brief-empty">
-          <p className="brief-empty-text">No positions found.</p>
+          <p className="brief-empty-text">暂无持仓数据。</p>
           <button className="brief-generate-btn" onClick={refresh} disabled={loading}>
-            {loading ? "Loading…" : "Load Paper Portfolio"}
+            {loading ? "加载中…" : "加载模拟仓位"}
           </button>
-          <p className="brief-disclaimer">Uses demo paper portfolio if Alpaca keys not configured</p>
+          <p className="brief-disclaimer">未配置 Alpaca 密钥时使用演示仓位</p>
         </div>
       ) : (
         <div className="holdings-grid">
@@ -109,15 +109,15 @@ function HoldingCard({ position: p }: { position: HoldingPosition }) {
 
       <div className="holding-prices">
         <div className="holding-price-col">
-          <span className="holding-label">Entry</span>
+          <span className="holding-label">成本价</span>
           <span className="holding-val">${p.avg_entry_price?.toFixed(2)}</span>
         </div>
         <div className="holding-price-col">
-          <span className="holding-label">Now</span>
+          <span className="holding-label">现价</span>
           <span className="holding-val">${p.current_price?.toFixed(2)}</span>
         </div>
         <div className="holding-price-col">
-          <span className="holding-label">Qty</span>
+          <span className="holding-label">数量</span>
           <span className="holding-val">{p.qty}</span>
         </div>
         <div className="holding-price-col">

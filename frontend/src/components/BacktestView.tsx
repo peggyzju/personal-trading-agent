@@ -48,9 +48,9 @@ export function BacktestView({ backendOnline }: Props) {
     <div className="backtest-container">
       <div className="scan-header">
         <div>
-          <h2>📊 Backtesting</h2>
+          <h2>📊 策略回测</h2>
           <span className="scan-meta">
-            Walk-forward simulation on watchlist + scan candidates · no lookahead bias
+            基于自选股 + 扫描候选股做前向模拟 · 无未来数据泄漏
           </span>
         </div>
       </div>
@@ -58,7 +58,7 @@ export function BacktestView({ backendOnline }: Props) {
       {/* Config row */}
       <div className="backtest-config">
         <label className="config-label">
-          Hold (days)
+          持仓天数
           <input
             type="number" min={3} max={30} value={holdDays}
             onChange={(e) => setHoldDays(Number(e.target.value))}
@@ -66,7 +66,7 @@ export function BacktestView({ backendOnline }: Props) {
           />
         </label>
         <label className="config-label">
-          Target (%)
+          目标涨幅 (%)
           <input
             type="number" min={2} max={30} value={targetPct}
             onChange={(e) => setTargetPct(Number(e.target.value))}
@@ -74,29 +74,29 @@ export function BacktestView({ backendOnline }: Props) {
           />
         </label>
         <label className="config-label">
-          Period
+          回测周期
           <select value={period} onChange={(e) => setPeriod(e.target.value as "1y" | "2y")} className="config-input">
-            <option value="1y">1 year</option>
-            <option value="2y">2 years</option>
+            <option value="1y">1 年</option>
+            <option value="2y">2 年</option>
           </select>
         </label>
         <button className="brief-generate-btn" onClick={run} disabled={loading} style={{ alignSelf: "flex-end" }}>
-          {loading ? "Running…" : "▶ Run Backtest"}
+          {loading ? "运行中…" : "▶ 运行回测"}
         </button>
       </div>
 
       {data?.status === "running" && (
         <div className="scan-running">
           <div className="scan-spinner" />
-          <p>Downloading historical data and simulating trades…</p>
-          <p className="brief-disclaimer">Usually takes 15–30 seconds</p>
+          <p>正在下载历史数据并模拟交易…</p>
+          <p className="brief-disclaimer">通常需要 15–30 秒</p>
         </div>
       )}
 
       {data?.status === "error" && (
         <div className="brief-empty">
-          <p className="error-text">Backtest failed: {data.error}</p>
-          <button className="brief-generate-btn" onClick={run}>Retry</button>
+          <p className="error-text">回测失败：{data.error}</p>
+          <button className="brief-generate-btn" onClick={run}>重试</button>
         </div>
       )}
 
@@ -111,7 +111,7 @@ export function BacktestView({ backendOnline }: Props) {
       {(!data || data.status === "not_run") && !loading && (
         <div className="brief-empty" style={{ paddingTop: 40 }}>
           <p className="brief-empty-text">
-            Configure parameters above and run the backtest. Uses your watchlist + latest scan candidates.
+            调整上方参数后点击「运行回测」，将使用自选股 + 最新扫描候选股进行模拟。
           </p>
         </div>
       )}
@@ -129,24 +129,24 @@ function BacktestStats({ data }: { data: BacktestResult }) {
   return (
     <div className="backtest-stats-section">
       <div className="backtest-kpi-grid">
-        <KPI label="Total Trades" value={String(data.total_trades)} />
-        <KPI label="Win Rate" value={`${data.win_rate}%`}
+        <KPI label="总交易次数" value={String(data.total_trades)} />
+        <KPI label="胜率" value={`${data.win_rate}%`}
           color={(data.win_rate ?? 0) >= 55 ? "#22c55e" : (data.win_rate ?? 0) >= 45 ? "#f59e0b" : "#ef4444"} />
-        <KPI label="Avg Win" value={`+${data.avg_win_pct}%`} color="#22c55e" />
-        <KPI label="Avg Loss" value={`${data.avg_loss_pct}%`} color="#ef4444" />
-        <KPI label="Profit Factor" value={String(data.profit_factor)}
+        <KPI label="平均盈利" value={`+${data.avg_win_pct}%`} color="#22c55e" />
+        <KPI label="平均亏损" value={`${data.avg_loss_pct}%`} color="#ef4444" />
+        <KPI label="盈亏比" value={String(data.profit_factor)}
           color={(data.profit_factor ?? 0) >= 1.5 ? "#22c55e" : "#f59e0b"} />
-        <KPI label="Strategy Return" value={`${(data.total_return_pct ?? 0) >= 0 ? "+" : ""}${data.total_return_pct ?? 0}%`}
+        <KPI label="策略收益" value={`${(data.total_return_pct ?? 0) >= 0 ? "+" : ""}${data.total_return_pct ?? 0}%`}
           color={(data.total_return_pct ?? 0) >= 0 ? "#22c55e" : "#ef4444"} />
-        <KPI label="SPY Buy&Hold" value={`${(data.spy_return_pct ?? 0) >= 0 ? "+" : ""}${data.spy_return_pct ?? 0}%`} />
-        <KPI label="Alpha vs SPY" value={`${(data.alpha_pct ?? 0) >= 0 ? "+" : ""}${data.alpha_pct ?? 0}%`} color={alphaColor} />
-        <KPI label="Max Drawdown" value={`-${data.max_drawdown_pct ?? 0}%`} color={ddColor} />
-        <KPI label="Sharpe Ratio" value={String(data.sharpe_ratio)} color={sharpeColor} />
+        <KPI label="SPY 买入持有" value={`${(data.spy_return_pct ?? 0) >= 0 ? "+" : ""}${data.spy_return_pct ?? 0}%`} />
+        <KPI label="超额收益" value={`${(data.alpha_pct ?? 0) >= 0 ? "+" : ""}${data.alpha_pct ?? 0}%`} color={alphaColor} />
+        <KPI label="最大回撤" value={`-${data.max_drawdown_pct ?? 0}%`} color={ddColor} />
+        <KPI label="夏普比率" value={String(data.sharpe_ratio)} color={sharpeColor} />
       </div>
 
       {Object.keys(breakdown).length > 0 && (
         <div className="exit-breakdown">
-          <span className="holding-label">Exit reasons: </span>
+          <span className="holding-label">离场原因：</span>
           {Object.entries(breakdown).map(([reason, count]) => (
             <span key={reason} className="exit-tag">
               {reason.replace("_", " ")} ({count})
@@ -194,7 +194,7 @@ function EquityCurve({ curve }: { curve: number[] }) {
 
   return (
     <div className="equity-curve-section">
-      <h3 className="backtest-section-title">Equity Curve (start = $100)</h3>
+      <h3 className="backtest-section-title">资金曲线（初始 $100）</h3>
       <div className="equity-curve-wrap">
         <svg viewBox={`0 0 ${w} ${h}`} className="equity-svg" preserveAspectRatio="none">
           {/* Baseline at 100 */}
@@ -223,19 +223,19 @@ function TradesTable({ trades }: { trades: BacktestTrade[] }) {
 
   return (
     <div className="backtest-trades-section">
-      <h3 className="backtest-section-title">Trade History ({trades.length} total)</h3>
+      <h3 className="backtest-section-title">交易记录（共 {trades.length} 笔）</h3>
       <div className="positions-table-wrap">
         <table className="positions-table">
           <thead>
             <tr>
-              <th>Symbol</th>
-              <th>Entry</th>
-              <th>Exit</th>
-              <th>Days</th>
-              <th>Entry $</th>
-              <th>Exit $</th>
-              <th>P&L %</th>
-              <th>Exit Reason</th>
+              <th>股票</th>
+              <th>买入日</th>
+              <th>卖出日</th>
+              <th>持仓天</th>
+              <th>买入价</th>
+              <th>卖出价</th>
+              <th>盈亏 %</th>
+              <th>离场原因</th>
             </tr>
           </thead>
           <tbody>
@@ -258,7 +258,7 @@ function TradesTable({ trades }: { trades: BacktestTrade[] }) {
       </div>
       {trades.length > show && (
         <button className="brief-regenerate-btn" onClick={() => setShow(trades.length)} style={{ marginTop: 8 }}>
-          Show all {trades.length} trades
+          显示全部 {trades.length} 笔
         </button>
       )}
     </div>
