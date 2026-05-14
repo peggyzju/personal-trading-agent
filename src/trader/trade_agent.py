@@ -576,26 +576,46 @@ def run_agent(
                 summary["sources"].append("watchlist")
 
         # ── 3. Holdings: SELL / REDUCE ────────────────────────────────────────
-        positions = holdings_cache.get("positions", [])
+        # First pass: hard stop-loss from live Alpaca positions (no cache dependency)
+        HARD_STOP_PCT = -stop_loss_pct * 100   # e.g. -3.0%
         holdings_added = 0
-        for pos in positions:
+        hard_stop_symbols: set[str] = set()
+        for ap in alpaca_positions:
+            plpc = float(ap.unrealized_plpc) * 100   # Alpaca returns as decimal
+            if plpc <= HARD_STOP_PCT:
+                print(f"[agent] Hard stop: {ap.symbol} down {plpc:.1f}% (threshold {HARD_STOP_PCT:.1f}%)")
+                trade = _make_trade(
+                    symbol=ap.symbol, side="sell",
+                    notional=None, qty=None,
+                    signal="SELL",
+                    confidence=0.9,
+                    reason=f"Hard stop: position down {plpc:.1f}% (threshold {HARD_STOP_PCT:.1f}%)",
+                    source="hard_stop",
+                    price=float(ap.current_price),
+                )
+                if _add_trade(trade, owned_symbols):
+                    summary["signals_found"] += 1
+                    summary["trades_queued"] += 1
+                    holdings_added += 1
+                    hard_stop_symbols.add(ap.symbol)
+                    _new_trade_ids.add(trade["id"])
+
+        # Second pass: AI sell signals from holdings cache (skip already handled)
+        for pos in holdings_cache.get("positions", []):
             sell_signal = pos.get("sell_signal")
             if sell_signal not in ("SELL", "REDUCE"):
                 continue
-            # Skip if position no longer exists in Alpaca (already closed)
             if pos["symbol"] not in owned_symbols:
                 print(f"[agent] skip {pos['symbol']} sell — position already closed")
                 continue
+            if pos["symbol"] in hard_stop_symbols:
+                continue   # already queued via hard stop
             qty = float(pos.get("qty", 0))
-            if sell_signal == "REDUCE":
-                close_qty = max(1, math.floor(qty * 0.5))
-            else:
-                close_qty = None   # close entire position
-
+            close_qty = max(1, math.floor(qty * 0.5)) if sell_signal == "REDUCE" else None
             trade = _make_trade(
                 symbol=pos["symbol"], side="sell",
                 notional=None,
-                qty=close_qty if sell_signal == "REDUCE" else None,
+                qty=close_qty,
                 signal=sell_signal,
                 confidence=0.8 if sell_signal == "SELL" else 0.6,
                 reason=pos.get("reason", "Holdings monitor sell signal"),

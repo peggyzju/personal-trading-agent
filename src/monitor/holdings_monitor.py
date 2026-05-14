@@ -172,16 +172,35 @@ Return ONLY a JSON array."""
         messages=[{"role": "user", "content": prompt}],
     )
 
+    HARD_STOP_PCT = -3.0   # hard stop regardless of Claude output
+
+    def _hard_stop_defaults(p: dict) -> dict:
+        """Apply hard stop-loss rule independent of Claude analysis."""
+        plpc = p.get("unrealized_plpc", 0)
+        if plpc <= HARD_STOP_PCT:
+            return {"sell_signal": "SELL", "urgency": "HIGH",
+                    "reason": f"Hard stop: position down {plpc:.1f}% (threshold {HARD_STOP_PCT}%)"}
+        return {"sell_signal": "HOLD", "urgency": "LOW", "reason": ""}
+
     text = msg.content[0].text
-    match = re.search(r"\[.*\]", text, re.DOTALL)
-    if not match:
-        return positions
+    match = re.search(r"\[.*?\]", text, re.DOTALL)
+    sig_map: dict = {}
+    if match:
+        try:
+            signals = json.loads(match.group())
+            sig_map = {s["symbol"]: s for s in signals if isinstance(s, dict)}
+        except Exception:
+            pass
 
-    signals = json.loads(match.group())
-    sig_map = {s["symbol"]: s for s in signals}
-
-    return [
-        # strip internal _tech key before returning
-        {k: v for k, v in {**p, **sig_map.get(p["symbol"], {"sell_signal": "HOLD", "urgency": "LOW", "reason": ""})}.items() if k != "_tech"}
-        for p in enriched
-    ]
+    result = []
+    for p in enriched:
+        default = _hard_stop_defaults(p)
+        ai_sig  = sig_map.get(p["symbol"], {})
+        # Claude overrides hard stop only if it also says SELL/REDUCE
+        merged  = {**default, **ai_sig} if ai_sig.get("sell_signal") in ("SELL", "REDUCE") else {**default, **{k: v for k, v in ai_sig.items() if k != "sell_signal" and k != "urgency"}}
+        # Hard stop always wins when plpc <= threshold
+        if p.get("unrealized_plpc", 0) <= HARD_STOP_PCT:
+            merged["sell_signal"] = "SELL"
+            merged["urgency"]     = "HIGH"
+        result.append({k: v for k, v in {**p, **merged}.items() if k != "_tech"})
+    return result
