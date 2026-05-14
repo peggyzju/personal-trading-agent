@@ -172,6 +172,32 @@ def compute_technicals(df: pd.DataFrame) -> dict:
     return result
 
 
+def enrich_with_fundamentals(candidates: list[dict]) -> list[dict]:
+    """Fetch P/E, market cap, beta, 52w range, company name & sector for top candidates."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def fetch_one(c: dict) -> dict:
+        try:
+            info = yf.Ticker(c["symbol"]).info
+            pe = info.get("trailingPE") or info.get("forwardPE")
+            mc = info.get("marketCap")
+            beta = info.get("beta")
+            c["pe_ratio"]     = round(pe, 1) if pe else None
+            c["market_cap"]   = int(mc) if mc else None
+            c["beta"]         = round(beta, 2) if beta else None
+            c["week52_high"]  = info.get("fiftyTwoWeekHigh")
+            c["week52_low"]   = info.get("fiftyTwoWeekLow")
+            c["company_name"] = info.get("longName") or info.get("shortName") or c["symbol"]
+            c["sector"]       = info.get("sector", "")
+            c["industry"]     = info.get("industry", "")
+        except Exception:
+            pass
+        return c
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        return list(pool.map(fetch_one, candidates))
+
+
 def quick_screen(tickers: list[str], top_n: int = 25) -> list[dict]:
     """
     Batch-download 60d OHLCV for all tickers, compute technicals,

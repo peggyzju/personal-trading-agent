@@ -271,21 +271,83 @@ def _sanitize_floats(obj):
     return obj
 
 
-def _run_sp500_scan():
+def _run_sp500_scan(cascade_agent: bool = False):
+    """Run scan. If cascade_agent=True, auto-trigger agent after scan completes."""
     global _scan_running
     from datetime import datetime
     from src.monitor.sp500_scanner import get_scan_universe, quick_screen
     from src.analysis.stock_screener import ai_score_candidates
+    from src.analysis.market_context import load_market_context
 
     _scan_running = True
     _scan_cache["sp500"] = {"status": "running", "candidates": [], "scanned_at": None}
     try:
+        # Load market context for sector bias adjustment
+        ctx = load_market_context()
+        sector_bias = ctx.get("sector_bias", {})
+
+        # Map sector names to stock symbols for bias lookup
+        SECTOR_MAP = {
+            "tech":          ["AAPL","MSFT","GOOGL","META","NVDA","AMD","AVGO","ORCL"],
+            "semiconductors":["NVDA","AMD","AVGO","QCOM","INTC","MU","AMAT","KLAC","LRCX","MRVL","SOXX"],
+            "healthcare":    ["UNH","JNJ","LLY","ABBV","MRK","TMO","ABT","DHR","ISRG","VRTX"],
+            "energy":        ["XOM","CVX","COP","SLB","EOG","PXD","MPC","VLO","PSX"],
+            "financials":    ["JPM","BAC","WFC","GS","MS","BLK","AXP","SPGI"],
+            "industrials":   ["CAT","HON","UPS","BA","RTX","LMT","DE","MMM","GE"],
+            "consumer":      ["AMZN","TSLA","HD","MCD","NKE","SBUX","TGT","LOW"],
+            "utilities":     ["NEE","DUK","SO","AEP","EXC","SRE"],
+        }
+        # Build symbol → bias dict
+        symbol_bias: dict[str, str] = {}
+        for sector, bias in sector_bias.items():
+            if bias != "neutral":
+                for sym in SECTOR_MAP.get(sector, []):
+                    # positive sector wins over neutral, but negative always overrides
+                    if sym not in symbol_bias or bias == "negative":
+                        symbol_bias[sym] = bias
+
         print("[scan] Building scan universe (S&P 500 + NASDAQ-100 + Layer 2)…")
+        from src.monitor.sp500_scanner import get_sp500_tickers, get_nasdaq100_tickers, LAYER2_TICKERS
         tickers = get_scan_universe()
+        # Build lookup sets for universe tagging
+        _sp500_set   = set(get_sp500_tickers())
+        _nasdaq_set  = set(get_nasdaq100_tickers())
+        _layer2_set  = set(LAYER2_TICKERS)
         print(f"[scan] Quick-screening {len(tickers)} tickers…")
         top_tech = quick_screen(tickers, top_n=25)
-        print(f"[scan] {len(top_tech)} passed technical filter. Running AI scoring…")
+        # Tag each candidate with its primary universe
+        for c in top_tech:
+            sym = c["symbol"]
+            if sym in _sp500_set:
+                c["universe"] = "sp500"
+            elif sym in _nasdaq_set:
+                c["universe"] = "nasdaq100"
+            elif sym in _layer2_set:
+                c["universe"] = "layer2"
+            else:
+                c["universe"] = "other"
+        print(f"[scan] {len(top_tech)} passed technical filter. Enriching with fundamentals…")
+        from src.monitor.sp500_scanner import enrich_with_fundamentals
+        top_tech = enrich_with_fundamentals(top_tech)
+        print(f"[scan] Fundamentals enriched. Running AI scoring…")
         top_ai = _sanitize_floats(ai_score_candidates(top_tech))
+
+        # Apply sector bias: adjust ai_score ±1 based on sector momentum
+        if symbol_bias and top_ai:
+            for c in top_ai:
+                bias = symbol_bias.get(c["symbol"])
+                if bias == "positive" and c.get("ai_score", 0) < 10:
+                    c["ai_score"] = min(10, c["ai_score"] + 1)
+                    c["reason"] = f"[Sector momentum ↑] {c.get('reason','')}"
+                elif bias == "negative" and c.get("ai_score", 0) > 0:
+                    c["ai_score"] = max(0, c["ai_score"] - 1)
+                    c["reason"] = f"[Sector headwind ↓] {c.get('reason','')}"
+            # Re-sort after adjustment
+            top_ai = sorted(top_ai, key=lambda x: (
+                0 if x.get("signal") in ("STRONG_BUY","BUY") else 1,
+                -x.get("ai_score", 0)
+            ))
+
         _scan_cache["sp500"] = {
             "status": "done",
             "candidates": top_ai,
@@ -294,34 +356,180 @@ def _run_sp500_scan():
             "tech_passed": len(top_tech),
         }
         _save_scan_cache(_scan_cache)
-        print(f"[scan] Done. Top candidate: {top_ai[0]['symbol'] if top_ai else 'none'}")
+        print(f"[scan] Done. Top candidate: {top_ai[0]['symbol'] if top_ai else 'none'} | sector_bias applied to {sum(1 for s in symbol_bias if any(c['symbol']==s for c in top_ai))} stocks")
     except Exception as e:
         _scan_cache["sp500"] = {"status": "error", "error": str(e), "candidates": []}
     finally:
         _scan_running = False
 
+    # Cascade: auto-run agent after scan completes (both scheduled and manual)
+    if cascade_agent and _scan_cache.get("sp500", {}).get("status") == "done":
+        print("[scan] Cascading to trade agent…")
+        _run_agent_internal()
+
 
 @app.get("/api/scan/sp500")
 def get_scan():
     result = dict(_scan_cache.get("sp500", {"status": "not_run", "candidates": []}))
-    # Filter out symbols already held — no point recommending what you own
+    # Mark owned symbols instead of filtering — user can still see AI analysis for held positions
     try:
         from src.trader.alpaca_trader import get_client
         owned = {p.symbol for p in get_client().list_positions()}
         if owned and result.get("candidates"):
-            result["candidates"] = [c for c in result["candidates"] if c["symbol"] not in owned]
+            result["candidates"] = [
+                {**c, "owned": c["symbol"] in owned}
+                for c in result["candidates"]
+            ]
     except Exception:
         pass
     return result
 
 
+@app.post("/api/scan/enrich")
+def enrich_scan():
+    """Enrich existing cached candidates with yfinance fundamentals (P/E, market cap, beta, etc.)."""
+    result = _scan_cache.get("sp500", {})
+    candidates = result.get("candidates", [])
+    if not candidates:
+        return {"status": "no_candidates", "candidates": []}
+    # Skip if already enriched
+    if any(c.get("company_name") for c in candidates[:5]):
+        return {"status": "already_enriched", **result}
+    try:
+        from src.monitor.sp500_scanner import enrich_with_fundamentals
+        enriched = _sanitize_floats(enrich_with_fundamentals(list(candidates)))
+        _scan_cache["sp500"]["candidates"] = enriched
+        _save_scan_cache(_scan_cache)
+        return {"status": "done", **_scan_cache["sp500"]}
+    except Exception as e:
+        return {"status": "error", "error": str(e), "candidates": candidates}
+
+
+@app.get("/api/scan/nasdaq")
+def get_scan_nasdaq():
+    """Return scan candidates from NASDAQ-100 universe."""
+    result = dict(_scan_cache.get("sp500", {"status": "not_run", "candidates": []}))
+    try:
+        from src.trader.alpaca_trader import get_client
+        from src.monitor.sp500_scanner import get_nasdaq100_tickers
+        owned = {p.symbol for p in get_client().list_positions()}
+        nasdaq_set = set(get_nasdaq100_tickers())
+        if result.get("candidates"):
+            result["candidates"] = [
+                {**c, "owned": c["symbol"] in owned}
+                for c in result["candidates"]
+                if c.get("universe") in ("nasdaq100",) or c["symbol"] in nasdaq_set
+            ]
+    except Exception:
+        pass
+    return result
+
+
+@app.get("/api/goal/progress")
+def get_goal_progress():
+    """Return current goal progress for the 20-day target."""
+    try:
+        from src.trader.alpaca_trader import get_client
+        equity = float(get_client().get_account().equity)
+    except Exception:
+        # Fallback: read from market_context.json
+        try:
+            ctx_file = Path("data/market_context.json")
+            ctx_data = json.loads(ctx_file.read_text()) if ctx_file.exists() else {}
+            equity = ctx_data.get("goal_context", {}).get("current_equity", 100_000.0)
+        except Exception:
+            equity = 100_000.0
+    from src.analysis.market_context import _compute_goal_context, _load_goal
+    goal = _load_goal()
+    progress = _compute_goal_context(equity)
+    return {
+        **progress,
+        "target_pct_low":  goal.get("target_pct_low", 10.0),
+        "target_pct_high": goal.get("target_pct_high", 15.0),
+        "total_days":      goal.get("total_days", 20),
+        "start_date":      goal.get("start_date", ""),
+    }
+
+
 @app.post("/api/scan/sp500")
 def trigger_scan(background_tasks: BackgroundTasks):
+    """Manual scan trigger — cascades to agent automatically after scan."""
     global _scan_running
     if _scan_running:
         return {"status": "already_running"}
-    background_tasks.add_task(_run_sp500_scan)
-    return {"status": "started"}
+    background_tasks.add_task(_run_sp500_scan, True)   # cascade_agent=True
+    return {"status": "started", "cascade": "agent will auto-run after scan"}
+
+
+@app.get("/api/pipeline/status")
+def get_pipeline_status():
+    """Current state of the full pipeline — for UI status display."""
+    from datetime import datetime
+    from pathlib import Path
+
+    def _age_str(iso: str | None) -> str | None:
+        if not iso:
+            return None
+        try:
+            delta = datetime.utcnow() - datetime.fromisoformat(iso.replace("Z",""))
+            mins = int(delta.total_seconds() / 60)
+            return f"{mins}分钟前" if mins < 60 else f"{mins//60}小时前"
+        except Exception:
+            return iso
+
+    # Market context
+    ctx_file = Path("data/market_context.json")
+    ctx_data = {}
+    if ctx_file.exists():
+        try:
+            import json as _json
+            ctx_data = _json.loads(ctx_file.read_text())
+        except Exception:
+            pass
+
+    # Scan
+    scan = _scan_cache.get("sp500", {})
+
+    # Agent log
+    from src.trader.trade_agent import get_agent_log, get_pending_trades
+    log = get_agent_log()
+    last_run = log[0] if log else None
+    pending = [t for t in get_pending_trades() if t["status"] == "pending"]
+
+    # Review
+    review_cache_val = _review_cache.get("latest") or {}
+
+    return {
+        "market_context": {
+            "status": "done" if ctx_data else "not_run",
+            "regime": ctx_data.get("regime"),
+            "aggression": ctx_data.get("aggression"),
+            "min_ai_score": ctx_data.get("min_ai_score"),
+            "generated_at": ctx_data.get("generated_at"),
+            "age": _age_str(ctx_data.get("generated_at")),
+        },
+        "scan": {
+            "status": scan.get("status", "not_run"),
+            "total_screened": scan.get("total_screened"),
+            "candidates": len(scan.get("candidates", [])),
+            "scanned_at": scan.get("scanned_at"),
+            "age": _age_str(scan.get("scanned_at")),
+        },
+        "agent": {
+            "status": "running" if False else ("done" if last_run else "not_run"),
+            "last_run_at": last_run.get("run_at") if last_run else None,
+            "age": _age_str(last_run.get("run_at")) if last_run else None,
+            "signals_found": last_run.get("signals_found", 0) if last_run else 0,
+            "trades_queued": last_run.get("trades_queued", 0) if last_run else 0,
+            "pending_approval": len(pending),
+        },
+        "review": {
+            "status": "done" if review_cache_val else "not_run",
+            "generated_at": review_cache_val.get("generated_at"),
+            "age": _age_str(review_cache_val.get("generated_at")),
+            "one_line": review_cache_val.get("one_line_summary"),
+        },
+    }
 
 
 # ── Holdings Monitor ──────────────────────────────────────────────────────────
@@ -472,7 +680,7 @@ def get_orders():
                 "id": o.id,
                 "symbol": o.symbol,
                 "side": o.side,
-                "qty": float(o.qty),
+                "qty": float(o.qty) if o.qty else None,
                 "filled_qty": float(o.filled_qty) if o.filled_qty else 0,
                 "filled_avg_price": float(o.filled_avg_price) if o.filled_avg_price else None,
                 "status": o.status,
@@ -497,13 +705,43 @@ class TradeRequest(BaseModel):
     stop_price: Optional[float] = None
 
 
+MIN_CASH_PCT = 0.05  # keep ≥5% of portfolio value as cash at all times
+
 @app.post("/api/trade")
 def place_trade(req: TradeRequest):
-    from src.trader.alpaca_trader import place_order
+    from src.trader.alpaca_trader import place_order, get_account
     if req.qty is None and req.notional is None:
         raise HTTPException(status_code=400, detail="Provide either qty or notional.")
     if req.side not in ("buy", "sell"):
         raise HTTPException(status_code=400, detail="side must be 'buy' or 'sell'.")
+
+    # ── Cash reserve guard (buys only) ──────────────────────────────────────
+    if req.side == "buy":
+        try:
+            acct = get_account()
+            cash = float(acct.cash)
+            portfolio_value = float(acct.portfolio_value)
+            min_reserve = portfolio_value * MIN_CASH_PCT
+            cost = req.notional or 0
+            if req.qty and not req.notional:
+                # estimate cost from qty (rough; actual fill price may differ)
+                import yfinance as yf
+                try:
+                    cost = (yf.Ticker(req.symbol).fast_info.last_price or 0) * req.qty
+                except Exception:
+                    cost = 0
+            if cash - cost < min_reserve:
+                spendable = max(0, cash - min_reserve)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"现金不足：下单后现金将低于 {MIN_CASH_PCT*100:.0f}% 储备金 (${min_reserve:,.0f})。"
+                           f"当前可用 ${spendable:,.0f}，本次需要 ${cost:,.0f}。"
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # if check fails, let the order through rather than block
+
     try:
         order = place_order(
             symbol=req.symbol.upper(),
@@ -562,49 +800,56 @@ def get_pending_trades():
 
 SCAN_MAX_AGE_HOURS = 6   # auto-rescan if data is older than this
 
+# ── Shared agent runner (used by cascade + manual + scheduler) ────────────────
+def _run_agent_internal():
+    """Core agent logic — called by cascade, manual endpoint, and scheduler."""
+    from datetime import datetime
+    from src.trader.trade_agent import run_agent as _run_agent
+    from src.analysis.market_context import load_market_context
+
+    # Auto-scan if missing or stale
+    scan_data  = _scan_cache.get("sp500", {})
+    scanned_at = scan_data.get("scanned_at")
+    needs_scan = True
+    age_hours  = 0
+    if scanned_at:
+        try:
+            age_hours  = (datetime.utcnow() - datetime.fromisoformat(scanned_at)).total_seconds() / 3600
+            needs_scan = age_hours > SCAN_MAX_AGE_HOURS
+        except Exception:
+            needs_scan = True
+
+    if needs_scan:
+        print(f"[agent] Scan {'missing' if not scanned_at else f'stale ({age_hours:.1f}h)'} — scanning first…")
+        _run_sp500_scan(cascade_agent=False)   # no re-cascade
+    else:
+        print(f"[agent] Using cached scan (age={age_hours:.1f}h)")
+
+    portfolio_value = 100_000.0
+    try:
+        from src.trader.alpaca_trader import get_account as _get_acct
+        portfolio_value = float(_get_acct().portfolio_value)
+    except Exception:
+        pass
+
+    ctx = load_market_context()
+    _run_agent(
+        scan_cache=_scan_cache,
+        holdings_cache=_holdings_cache,
+        watchlist=load_watchlist(),
+        portfolio_value=portfolio_value,
+        analysis_cache=_analysis_cache,
+        analysis_timestamps=_analysis_timestamps,
+        min_ai_score_override=ctx.get("min_ai_score"),
+        size_scale_override=ctx.get("size_scale"),
+    )
+    _refresh_holdings()
+
+
 @app.post("/api/agent/run")
 def run_agent(background_tasks: BackgroundTasks):
-    """Manually trigger the signal engine. Auto-runs scan first if data is missing or stale (>4h)."""
-    def _run():
-        from datetime import datetime
-
-        # ── Auto-scan if missing or stale ────────────────────────────────────
-        scan_data = _scan_cache.get("sp500", {})
-        scanned_at = scan_data.get("scanned_at")
-        needs_scan = True
-        if scanned_at:
-            try:
-                age_hours = (datetime.utcnow() - datetime.fromisoformat(scanned_at)).total_seconds() / 3600
-                needs_scan = age_hours > SCAN_MAX_AGE_HOURS
-            except Exception:
-                needs_scan = True
-
-        if needs_scan:
-            print(f"[agent] Scan data {'missing' if not scanned_at else 'stale (>{:.1f}h)'.format(age_hours if scanned_at else 0)} — running scan first…")
-            _run_sp500_scan()
-        else:
-            print(f"[agent] Using cached scan data (age={age_hours:.1f}h < {SCAN_MAX_AGE_HOURS}h)")
-
-        # ── Run agent ─────────────────────────────────────────────────────────
-        from src.trader.trade_agent import run_agent as _run_agent
-        portfolio_value = 100_000.0
-        try:
-            from src.trader.alpaca_trader import get_account as _get_acct
-            portfolio_value = float(_get_acct().portfolio_value)
-        except Exception:
-            pass
-        _run_agent(
-            scan_cache=_scan_cache,
-            holdings_cache=_holdings_cache,
-            watchlist=load_watchlist(),
-            portfolio_value=portfolio_value,
-            analysis_cache=_analysis_cache,
-            analysis_timestamps=_analysis_timestamps,
-        )
-        # Auto-clean stale sell signals after agent run
-        _refresh_holdings()
-
-    background_tasks.add_task(_run)
+    """Manual override trigger — normally the pipeline runs automatically."""
+    background_tasks.add_task(_run_agent_internal)
     return {"status": "started"}
 
 
@@ -765,7 +1010,26 @@ def get_portfolio_history():
 
 _backtest_cache: dict = {}
 _backtest_running: bool = False
-_review_cache: dict = {}     # date -> review dict
+
+# ── Review cache with disk persistence ───────────────────────────────────────
+_REVIEW_CACHE_FILE = Path(__file__).parent.parent / "data" / "review_cache.json"
+
+def _load_review_cache() -> dict:
+    try:
+        if _REVIEW_CACHE_FILE.exists():
+            return json.loads(_REVIEW_CACHE_FILE.read_text())
+    except Exception:
+        pass
+    return {}
+
+def _save_review_cache(cache: dict):
+    try:
+        _REVIEW_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _REVIEW_CACHE_FILE.write_text(json.dumps(cache, default=str))
+    except Exception as e:
+        print(f"[review] cache save error: {e}")
+
+_review_cache: dict = _load_review_cache()     # date -> review dict
 
 
 @app.get("/api/backtest")
@@ -867,6 +1131,7 @@ def _run_strategy_review():
         _review_cache[today] = review
         _review_cache["latest"] = review
         _review_cache["status"] = "done"
+        _save_review_cache({k: v for k, v in _review_cache.items() if k not in {"status", "error"}})
         print(f"[review] Done: {review.get('one_line_summary','')}")
 
 
@@ -880,14 +1145,51 @@ def _run_strategy_review():
 def get_strategy_review():
     from datetime import date
     today = date.today().isoformat()
-    if today in _review_cache:
-        return _review_cache[today]
-    if _review_cache.get("latest"):
-        return _review_cache["latest"]
-    status = _review_cache.get("status")
-    if status == "running":
-        return {"status": "running"}
-    raise HTTPException(status_code=404, detail="No review yet. POST /api/strategy/review to generate.")
+    review = _review_cache.get(today) or _review_cache.get("latest")
+    if not review:
+        status = _review_cache.get("status")
+        if status == "running":
+            return {"status": "running"}
+        raise HTTPException(status_code=404, detail="No review yet. POST /api/strategy/review to generate.")
+
+    # Inject live performance data so it's always current, not frozen at generation time
+    try:
+        from src.trader.alpaca_trader import get_account
+        from src.monitor.portfolio_history import get_history
+        acct = get_account()
+        live_equity = float(acct.equity)
+        hist = get_history()
+        days = hist.get("days", [])
+        # yesterday's closing equity
+        yesterday_equity = next(
+            (d["equity"] for d in reversed(days) if d["date"] < today),
+            100_000.0
+        )
+        daily_pl = round(live_equity - yesterday_equity, 2)
+        daily_return_pct = round(daily_pl / yesterday_equity * 100, 3) if yesterday_equity else 0
+        # monthly: from first day of month
+        from datetime import date as _date
+        month_start = _date.today().replace(day=1).isoformat()
+        month_start_equity = next(
+            (d["equity"] for d in days if d["date"] >= month_start),
+            yesterday_equity
+        )
+        monthly_pl_pct = round((live_equity - month_start_equity) / month_start_equity * 100, 3) if month_start_equity else 0
+        target = review.get("performance", {}).get("target_monthly_pct", 10.0)
+        review = dict(review)
+        review["performance"] = {
+            **review.get("performance", {}),
+            "current_equity": round(live_equity, 2),
+            "daily_pl": daily_pl,
+            "daily_return_pct": daily_return_pct,
+            "monthly_return_pct": monthly_pl_pct,
+            "target_monthly_pct": target,
+            "target_gap": round(target - monthly_pl_pct, 3),
+        }
+    except Exception:
+        pass  # if live fetch fails, return cached performance as-is
+
+    return review
 
 
 @app.get("/api/strategy/reviews")
@@ -904,6 +1206,176 @@ def trigger_strategy_review(background_tasks: BackgroundTasks):
         return {"status": "already_running"}
     background_tasks.add_task(_run_strategy_review)
     return {"status": "started"}
+
+
+_OVERRIDES_FILE = Path(__file__).parent.parent / "data" / "strategy_overrides.json"
+
+def _load_overrides() -> dict:
+    try:
+        if _OVERRIDES_FILE.exists():
+            return json.loads(_OVERRIDES_FILE.read_text())
+    except Exception:
+        pass
+    return {}
+
+
+@app.get("/api/strategy/overrides")
+def get_strategy_overrides():
+    """Return current agent parameter overrides (adopted iteration changes)."""
+    from src.analysis.position_sizer import DEFAULT_RISK_PCT, DEFAULT_MAX_PCT
+    overrides = _load_overrides()
+    return {
+        "risk_pct":          overrides.get("risk_pct",          DEFAULT_RISK_PCT),
+        "max_position_pct":  overrides.get("max_position_pct",  DEFAULT_MAX_PCT),
+        "min_ai_score":      overrides.get("min_ai_score",       None),
+        "stop_loss_pct":     overrides.get("stop_loss_pct",      0.03),
+        "updated_at":        overrides.get("updated_at"),
+        "reason":            overrides.get("reason"),
+    }
+
+
+class OverridesRequest(BaseModel):
+    risk_pct:         Optional[float] = None
+    max_position_pct: Optional[float] = None
+    min_ai_score:     Optional[float] = None
+    stop_loss_pct:    Optional[float] = None
+    reason:           Optional[str]   = None
+
+
+@app.post("/api/strategy/overrides")
+def save_strategy_overrides(req: OverridesRequest):
+    """Save adopted parameter overrides to disk. Agents read these on next run."""
+    from datetime import datetime as _dt
+    existing = _load_overrides()
+    patch = {k: v for k, v in req.dict().items() if v is not None and k != "reason"}
+    updated = {**existing, **patch, "reason": req.reason, "updated_at": _dt.utcnow().isoformat()}
+    try:
+        _OVERRIDES_FILE.parent.mkdir(exist_ok=True)
+        _OVERRIDES_FILE.write_text(json.dumps(updated, indent=2))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not save overrides: {e}")
+    return updated
+
+
+@app.post("/api/strategy/param-extract")
+async def extract_strategy_params(body: dict):
+    """
+    Given a strategy iteration description, ask Claude to map it to concrete
+    parameter changes relative to current values. Returns list of param changes
+    for user confirmation before applying.
+    """
+    import re
+    import json as _json
+    import anthropic
+    from src.config import get_anthropic_key
+    from src.analysis.position_sizer import DEFAULT_RISK_PCT, DEFAULT_MAX_PCT
+
+    title       = body.get("title", "")
+    description = body.get("description", "")
+    expected    = body.get("expected_impact", "")
+
+    # Read current overrides (or defaults)
+    ov = _load_overrides()
+    cur_risk     = ov.get("risk_pct",         DEFAULT_RISK_PCT)
+    cur_max_pos  = ov.get("max_position_pct",  DEFAULT_MAX_PCT)
+    cur_min_ai   = ov.get("min_ai_score",      None)   # None = regime-determined
+    cur_sl_pct   = ov.get("stop_loss_pct",     0.03)
+
+    client = anthropic.Anthropic(api_key=get_anthropic_key())
+    prompt = f"""You are a quant trading system that maps natural-language strategy suggestions to concrete parameter changes.
+
+Current agent parameters:
+- risk_pct: {cur_risk*100:.2f}% (fraction of portfolio risked per trade)
+- max_position_pct: {cur_max_pos*100:.0f}% (max single-position size as % of portfolio)
+- min_ai_score: {f"{cur_min_ai}" if cur_min_ai is not None else "regime-based (typically 7.0)"}  (minimum AI score 0-10 to queue a trade)
+- stop_loss_pct: {cur_sl_pct*100:.1f}% (default stop-loss distance from entry price)
+
+Proposed strategy iteration:
+Title: {title}
+Description: {description}
+Expected Impact: {expected}
+
+Task: Determine if this iteration maps to a change in the numeric parameters listed above.
+If yes, return the specific before/after values for each affected parameter.
+If the iteration is qualitative (e.g. "focus on momentum stocks") and does NOT map to these parameters, set mappable=false.
+
+Return ONLY valid JSON:
+{{
+  "mappable": true or false,
+  "note": "brief explanation of what is being changed, or why it doesn't map",
+  "params": [
+    {{
+      "name": "risk_pct|max_position_pct|min_ai_score|stop_loss_pct",
+      "label": "human-readable name in Chinese",
+      "current": <current value as number>,
+      "proposed": <proposed value as number>,
+      "unit": "% or score or other unit label",
+      "display_current": "e.g. 2.0%",
+      "display_proposed": "e.g. 1.5%"
+    }}
+  ]
+}}
+
+Only include params that actually change. If mappable=false, params=[]."""
+
+    msg = anthropic.Anthropic(api_key=get_anthropic_key()).messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=512,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = msg.content[0].text
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        # fallback: non-mappable
+        return {"mappable": False, "note": "无法自动识别参数变更，请手动调整。", "params": []}
+    return _json.loads(match.group())
+
+
+@app.post("/api/strategy/debate")
+async def debate_iteration(body: dict):
+    """Agent Alpha vs Agent Beta debate a proposed strategy iteration."""
+    import re
+    import json as _json
+    import anthropic
+    from src.config import get_anthropic_key
+
+    title           = body.get("title", "")
+    description     = body.get("description", "")
+    priority        = body.get("priority", "MEDIUM")
+    expected_impact = body.get("expected_impact", "")
+
+    client = anthropic.Anthropic(api_key=get_anthropic_key())
+    prompt = f"""You are facilitating a trading strategy debate between two AI agents.
+
+Proposed change:
+Title: {title}
+Priority: {priority}
+Description: {description}
+Expected Impact: {expected_impact}
+
+Agent Alpha (Advocate) argues FOR this change — focus on benefits and upside.
+Agent Beta (Skeptic) argues AGAINST — focus on risks, edge-cases, and downsides.
+Then a neutral synthesis.
+
+Return ONLY valid JSON:
+{{
+  "pro": "Agent Alpha's strongest argument (2-3 sentences, concrete)",
+  "con": "Agent Beta's sharpest objection (2-3 sentences, risk-focused)",
+  "synthesis": "Balanced synthesis reconciling both views (1-2 sentences)",
+  "recommendation": "ADOPT" or "HOLD" or "REJECT",
+  "confidence": 0.0-1.0
+}}"""
+
+    msg = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=1024,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = msg.content[0].text
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        raise HTTPException(status_code=500, detail="Debate parse failed")
+    return _json.loads(match.group())
 
 
 # ── Serve built React app ─────────────────────────────────────────────────────

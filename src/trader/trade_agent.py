@@ -50,8 +50,34 @@ def _save_to_disk(pending: dict[str, dict]):
 
 # ── In-memory state (loaded from disk on first access) ────────────────────────
 
+_LOG_FILE      = Path(__file__).parent.parent.parent / "data" / "agent_log.json"
+_OVERRIDES_FILE = Path(__file__).parent.parent.parent / "data" / "strategy_overrides.json"
+
+def _load_strategy_overrides() -> dict:
+    try:
+        if _OVERRIDES_FILE.exists():
+            return json.loads(_OVERRIDES_FILE.read_text())
+    except Exception:
+        pass
+    return {}
+
+def _load_log() -> list[dict]:
+    try:
+        if _LOG_FILE.exists():
+            return json.loads(_LOG_FILE.read_text())
+    except Exception:
+        pass
+    return []
+
+def _save_log(log: list[dict]):
+    try:
+        _LOG_FILE.parent.mkdir(exist_ok=True)
+        _LOG_FILE.write_text(json.dumps(log, default=str))
+    except Exception:
+        pass
+
 _pending: dict[str, dict] = _load_from_disk()
-_run_log: list[dict] = []
+_run_log: list[dict] = _load_log()
 _agent_running: bool = False
 
 PENDING_TTL_HOURS = 4     # increased from 2h — more time to review pre-market signals
@@ -97,6 +123,11 @@ def _make_trade(
     stop_loss: Optional[float] = None,
     target_price: Optional[float] = None,
     price: Optional[float] = None,
+    rsi: Optional[float] = None,
+    momentum_5d: Optional[float] = None,
+    volume_ratio: Optional[float] = None,
+    near_breakout: Optional[bool] = None,
+    universe: Optional[str] = None,
 ) -> dict:
     now = _now()
     return {
@@ -112,6 +143,11 @@ def _make_trade(
         "stop_loss": stop_loss,
         "target_price": target_price,
         "price": price,
+        "rsi": rsi,
+        "momentum_5d": momentum_5d,
+        "volume_ratio": volume_ratio,
+        "near_breakout": near_breakout,
+        "universe": universe,
         "status": "pending",
         "created_at": now.isoformat(),
         "expires_at": (now + timedelta(hours=PENDING_TTL_HOURS)).isoformat(),
@@ -176,8 +212,11 @@ def _add_trade(trade: dict, existing_symbols: set[str]) -> bool:
 
 # ── Approve / Reject ──────────────────────────────────────────────────────────
 
+PRICE_DRIFT_THRESHOLD = 0.03   # 3% — if price moved >3% from scan, warn/block
+
 def approve_trade(trade_id: str) -> dict:
-    """Approve and execute. Places bracket order when stop/target available."""
+    """Approve and execute. Places bracket order when stop/target available.
+    Validates price hasn't drifted >3% from scan entry before executing buys."""
     trade = _pending.get(trade_id)
     if not trade:
         raise ValueError(f"Trade {trade_id} not found")
@@ -187,6 +226,33 @@ def approve_trade(trade_id: str) -> dict:
         trade["status"] = "expired"
         _save_to_disk(_pending)
         raise ValueError(f"Trade {trade_id} has expired")
+
+    # ── Price drift check for buys ────────────────────────────────────────────
+    if trade["side"] == "buy" and trade.get("price"):
+        try:
+            import yfinance as yf
+            live_price = yf.Ticker(trade["symbol"]).fast_info.last_price or 0
+            scan_price = trade["price"]
+            if live_price > 0 and scan_price > 0:
+                drift = (live_price - scan_price) / scan_price
+                trade["price_at_approve"] = round(live_price, 2)
+                trade["price_drift_pct"]  = round(drift * 100, 2)
+                if drift > PRICE_DRIFT_THRESHOLD:
+                    # Price ran up too much — stale signal, auto-reject
+                    trade["status"] = "rejected"
+                    trade["error"]  = (
+                        f"价格漂移 +{drift*100:.1f}% (扫描价 ${scan_price:.2f} → 现价 ${live_price:.2f})，"
+                        f"超过 {PRICE_DRIFT_THRESHOLD*100:.0f}% 阈值，信号已失效"
+                    )
+                    _save_to_disk(_pending)
+                    raise ValueError(trade["error"])
+                elif drift < -PRICE_DRIFT_THRESHOLD:
+                    # Price dropped — still ok to buy but log warning
+                    print(f"[agent] {trade['symbol']} dipped {drift*100:.1f}% since scan — proceeding (better entry)")
+        except ValueError:
+            raise
+        except Exception as e:
+            print(f"[agent] price drift check failed for {trade['symbol']}: {e}")
 
     from src.trader.alpaca_trader import place_order, close_position
 
@@ -246,6 +312,8 @@ def run_agent(
     portfolio_value: float,
     analysis_cache: Optional[dict] = None,        # pass _analysis_cache from app.py
     analysis_timestamps: Optional[dict] = None,   # pass _analysis_timestamps from app.py
+    min_ai_score_override: Optional[int] = None,  # from market_context aggression
+    size_scale_override: Optional[float] = None,  # from market_context aggression
 ) -> dict:
     """
     Scan all signal sources and queue pending trades.
@@ -266,8 +334,15 @@ def run_agent(
     _new_trade_ids: set[str] = set()   # track only trades queued in THIS run
 
     try:
-        risk_pct      = 0.02
-        max_notional  = portfolio_value * 0.10
+        # ── Load user-adopted strategy overrides ──────────────────────────────
+        _ov           = _load_strategy_overrides()
+        risk_pct      = _ov.get("risk_pct",        0.02)
+        max_pos_pct   = _ov.get("max_position_pct", 0.10)
+        stop_loss_pct = _ov.get("stop_loss_pct",    0.03)
+        max_notional  = portfolio_value * max_pos_pct
+        if _ov:
+            print(f"[agent] strategy overrides loaded: risk={risk_pct*100:.1f}% max_pos={max_pos_pct*100:.0f}% sl={stop_loss_pct*100:.1f}% (reason: {_ov.get('reason','')})")
+        MIN_CASH_PCT  = 0.05   # always keep ≥5% of portfolio as cash
 
         # ── Problem 1: Market Regime gate ─────────────────────────────────────
         from src.monitor.market_regime import get_market_regime
@@ -277,6 +352,21 @@ def run_agent(
 
         min_ai_score = regime["min_ai_score"]
         size_factor  = regime["size_factor"]
+
+        # ── Market context overrides (from goal progress + aggression) ────────
+        if min_ai_score_override is not None:
+            # Take the stricter of regime vs goal-based threshold
+            min_ai_score = max(min_ai_score, min_ai_score_override) if regime["regime"] in ("BEAR", "CAUTION") \
+                           else min_ai_score_override
+            print(f"[agent] min_ai_score overridden to {min_ai_score} (aggression-based)")
+        if size_scale_override is not None:
+            size_factor = size_factor * size_scale_override
+            print(f"[agent] size_factor scaled to {size_factor:.2f} (aggression-based)")
+
+        # Apply user-adopted min_ai_score override (take the stricter value)
+        if _ov.get("min_ai_score") is not None:
+            min_ai_score = max(min_ai_score, float(_ov["min_ai_score"]))
+            print(f"[agent] min_ai_score={min_ai_score} (user override)")
 
         if regime["block_buys"]:
             print(f"[agent] Buys BLOCKED by regime — {regime['reason']}")
@@ -314,21 +404,23 @@ def run_agent(
 
         if slots_remaining == 0:
             print("[agent] No open slots — skipping buy signals")
-        if cash < 500:
-            print(f"[agent] Low cash (${cash:.0f}) — skipping buy signals")
+        min_cash_reserve = portfolio_value * MIN_CASH_PCT
+        spendable_cash = max(0, cash - min_cash_reserve)
+        if cash < min_cash_reserve:
+            print(f"[agent] Cash ${cash:.0f} below {MIN_CASH_PCT*100:.0f}% reserve (${min_cash_reserve:.0f}) — skipping buy signals")
 
         can_buy = (
             slots_remaining > 0
-            and cash >= 500
+            and cash >= min_cash_reserve
             and not regime["block_buys"]
             and not breaker.get("triggered", False)
         )
 
         def _size(price: float, stop: float) -> float:
-            """Risk-based notional, scaled by regime size_factor."""
+            """Risk-based notional, scaled by regime size_factor. Never exceeds spendable cash."""
             risk_per_share = max(price - stop, 0.01)
             shares = (portfolio_value * risk_pct) / risk_per_share
-            raw = min(round(shares * price, 2), max_notional, cash * 0.95)
+            raw = min(round(shares * price, 2), max_notional, spendable_cash * 0.95)
             return round(raw * size_factor, 2)
 
         # ── Problem 4: earnings check helper ─────────────────────────────────
@@ -378,7 +470,7 @@ def run_agent(
                     summary["signals_found"] += 1
                     continue
                 price = c.get("price", 0)
-                stop = c.get("stop_loss") or (price * 0.97 if price else None)
+                stop = c.get("stop_loss") or (price * (1 - stop_loss_pct) if price else None)
                 notional = _size(price, stop) if (price and stop and stop < price) else \
                            min(portfolio_value * risk_pct * 3 * size_factor, max_notional)
 
@@ -392,6 +484,11 @@ def run_agent(
                     stop_loss=stop,
                     target_price=c.get("target_price"),
                     price=price,
+                    rsi=c.get("rsi"),
+                    momentum_5d=c.get("momentum_5d"),
+                    volume_ratio=c.get("volume_ratio"),
+                    near_breakout=c.get("near_breakout"),
+                    universe=c.get("universe"),
                 )
                 if _add_trade(trade, owned_symbols):
                     summary["signals_found"] += 1
@@ -456,7 +553,7 @@ def run_agent(
                         summary["signals_found"] += 1
                         continue
                     price = cached.get("price") or 0
-                    stop  = cached.get("stop_loss") or (price * 0.97 if price else None)
+                    stop  = cached.get("stop_loss") or (price * (1 - stop_loss_pct) if price else None)
                     notional = _size(price, stop) if (price and stop and stop < price) else \
                                min(portfolio_value * risk_pct * 3 * size_factor, max_notional)
 
@@ -545,6 +642,7 @@ def run_agent(
     _run_log.append(summary)
     if len(_run_log) > MAX_LOG:
         _run_log.pop(0)
+    _save_log(_run_log)
 
     return summary
 

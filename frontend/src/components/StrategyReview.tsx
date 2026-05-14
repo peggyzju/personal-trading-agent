@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { api } from "../api/client";
-import type { StrategyReview } from "../api/client";
+import type { StrategyReview, StrategyIterationOp, DebateResult, ParamChange, ParamExtractResult } from "../api/client";
 
 interface Props { backendOnline: boolean }
 
@@ -125,7 +125,82 @@ export function StrategyReviewPanel({ backendOnline }: Props) {
         </div>
       )}
 
+      {displayed && <AutoInsights review={displayed} />}
       {displayed && <ReviewCard review={displayed} />}
+    </div>
+  );
+}
+
+function AutoInsights({ review: r }: { review: StrategyReview }) {
+  const perf = r.performance;
+  const moodColor = r.market_context.includes("风险") || r.market_context.includes("谨慎") ? "warn" : "good";
+  const onTrack = perf.target_gap <= 0;
+
+  const insights: { icon: string; iconClass: string; title: string; detail: string; badge?: string; badgeClass?: string }[] = [
+    {
+      icon: onTrack ? "✓" : "⚠",
+      iconClass: onTrack ? "sri-good" : "sri-warn",
+      title: onTrack ? "月度目标: 达标轨道" : "月度目标: 落后进度",
+      detail: `当前月收益 ${perf.monthly_return_pct >= 0 ? "+" : ""}${perf.monthly_return_pct.toFixed(2)}%，目标 ${perf.target_monthly_pct}%，差距 ${Math.abs(perf.target_gap).toFixed(1)}%`,
+      badge: onTrack ? "OK" : `差 ${perf.target_gap.toFixed(1)}%`,
+      badgeClass: onTrack ? "sib-ok" : "sib-medium",
+    },
+    {
+      icon: perf.daily_pl >= 0 ? "↑" : "↓",
+      iconClass: perf.daily_pl >= 0 ? "sri-good" : "sri-warn",
+      title: `今日 P&L: ${perf.daily_pl >= 0 ? "+" : ""}$${Math.abs(perf.daily_pl).toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+      detail: r.one_line_summary,
+      badge: `${perf.daily_return_pct >= 0 ? "+" : ""}${perf.daily_return_pct.toFixed(2)}%`,
+      badgeClass: perf.daily_return_pct >= 0 ? "sib-ok" : "sib-medium",
+    },
+    {
+      icon: "🌍",
+      iconClass: `sri-${moodColor}`,
+      title: "市场背景",
+      detail: r.market_context.slice(0, 120) + (r.market_context.length > 120 ? "…" : ""),
+    },
+    ...(r.what_worked.length > 0 ? [{
+      icon: "✓",
+      iconClass: "sri-good",
+      title: "有效策略",
+      detail: r.what_worked.slice(0, 2).join(" · "),
+      badge: `${r.what_worked.length} 项`,
+      badgeClass: "sib-ok",
+    }] : []),
+    ...(r.what_didnt.length > 0 ? [{
+      icon: "×",
+      iconClass: "sri-warn",
+      title: "待改进点",
+      detail: r.what_didnt.slice(0, 2).join(" · "),
+      badge: `${r.what_didnt.length} 项`,
+      badgeClass: "sib-medium",
+    }] : []),
+  ];
+
+  return (
+    <div className="sr-auto-insights" style={{ marginBottom: 16 }}>
+      <div className="sr-auto-insights-header">
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 13 }}>⚡</span>
+          <span style={{ fontWeight: 700, fontSize: 13 }}>Vera 自动化洞察</span>
+          <span style={{ fontSize: 11, color: "var(--muted)" }}>基于今日交易分析</span>
+        </div>
+        <span style={{ fontSize: 11, color: "var(--muted)" }}>
+          {new Date(r.generated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} 生成
+        </span>
+      </div>
+      {insights.map((ins, i) => (
+        <div key={i} className="sr-insight-item">
+          <div className={`sr-insight-icon ${ins.iconClass}`}>{ins.icon}</div>
+          <div className="sr-insight-body">
+            <div className="sr-insight-title">{ins.title}</div>
+            <div className="sr-insight-detail">{ins.detail}</div>
+          </div>
+          {ins.badge && (
+            <span className={`sr-insight-badge ${ins.badgeClass ?? ""}`}>{ins.badge}</span>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -225,16 +300,7 @@ function ReviewCard({ review: r }: { review: StrategyReview }) {
         <p className="sr-progress-note">{r.monthly_progress_note}</p>
         <div className="sr-iter-list">
           {r.iteration_opportunities.map((op, i) => (
-            <div key={i} className="sr-iter-card">
-              <div className="sr-iter-header">
-                <strong className="sr-iter-title">{op.title}</strong>
-                <span className="sr-priority-badge" style={{ color: PRIORITY_COLOR[op.priority] ?? "#64748b" }}>
-                  {op.priority}
-                </span>
-              </div>
-              <p className="sr-iter-desc">{op.description}</p>
-              <span className="sr-iter-impact">预期影响: {op.expected_impact}</span>
-            </div>
+            <IterCard key={i} op={op} reviewDate={r.date} />
           ))}
         </div>
       </div>
@@ -244,6 +310,225 @@ function ReviewCard({ review: r }: { review: StrategyReview }) {
         <h3 className="sr-section-title">📅 明日关注</h3>
         <p className="sr-text">{r.tomorrow_focus}</p>
       </div>
+    </div>
+  );
+}
+
+type IterDecision = "adopt" | "hold" | "reject" | null;
+
+const REC_TO_DECISION: Record<string, IterDecision> = {
+  ADOPT: "adopt", HOLD: "hold", REJECT: "reject",
+};
+const REC_COLOR: Record<string, string> = {
+  ADOPT: "#22c55e", HOLD: "#f59e0b", REJECT: "#ef4444",
+};
+
+const ITER_STORE = "strategy_iter_decisions";
+
+function iterKey(reviewDate: string, title: string) {
+  return `${reviewDate}::${title}`;
+}
+
+function readDecisions(): Record<string, IterDecision> {
+  try { return JSON.parse(localStorage.getItem(ITER_STORE) ?? "{}"); } catch { return {}; }
+}
+
+function saveDecision(reviewDate: string, title: string, d: IterDecision) {
+  try {
+    const all = readDecisions();
+    if (d === null) delete all[iterKey(reviewDate, title)];
+    else all[iterKey(reviewDate, title)] = d;
+    localStorage.setItem(ITER_STORE, JSON.stringify(all));
+  } catch { /* ignore */ }
+}
+
+function IterCard({ op, reviewDate }: { op: StrategyIterationOp; reviewDate: string }) {
+  const [decision, setDecision] = useState<IterDecision>(
+    () => readDecisions()[iterKey(reviewDate, op.title)] ?? null
+  );
+  const [showDebate, setShowDebate] = useState(false);
+  const [debate, setDebate]         = useState<DebateResult | null>(null);
+  const [debating, setDebating]     = useState(false);
+
+  // Param-confirm flow
+  const [extracting, setExtracting]           = useState(false);
+  const [paramResult, setParamResult]         = useState<ParamExtractResult | null>(null);
+  const [showConfirm, setShowConfirm]         = useState(false);
+  const [savingOverrides, setSavingOverrides] = useState(false);
+
+  function decide(d: IterDecision) {
+    setDecision(d);
+    saveDecision(reviewDate, op.title, d);
+  }
+
+  async function handleDebate() {
+    setShowDebate(s => !s);
+    if (debate || debating) return;
+    setDebating(true);
+    try {
+      const result = await api.debateIteration(op);
+      setDebate(result);
+      if (!decision) decide(REC_TO_DECISION[result.recommendation] ?? null);
+    } catch { /* ignore */ }
+    finally { setDebating(false); }
+  }
+
+  async function handleAdoptClick() {
+    if (decision === "adopt") {
+      // Toggle off — just clear
+      decide(null);
+      setShowConfirm(false);
+      setParamResult(null);
+      return;
+    }
+    // Extract params first
+    setExtracting(true);
+    setShowConfirm(false);
+    try {
+      const result = await api.extractParams(op);
+      setParamResult(result);
+      setShowConfirm(true);
+    } catch {
+      // Fallback: no params extracted, confirm with no changes
+      setParamResult({ mappable: false, note: "无法连接后端，仅记录决策。", params: [] });
+      setShowConfirm(true);
+    } finally {
+      setExtracting(false);
+    }
+  }
+
+  async function confirmAdopt() {
+    if (!paramResult) return;
+    setSavingOverrides(true);
+    try {
+      if (paramResult.mappable && paramResult.params.length > 0) {
+        const patch: Record<string, number | string> = { reason: `采纳: ${op.title}` };
+        for (const p of paramResult.params) patch[p.name] = p.proposed;
+        await api.saveOverrides(patch);
+      }
+      decide("adopt");
+      setShowConfirm(false);
+    } catch { /* still mark decision even if save failed */ decide("adopt"); setShowConfirm(false); }
+    finally { setSavingOverrides(false); }
+  }
+
+  const cardCls = `sr-iter-card${decision === "adopt" ? " sr-iter-adopted" : decision === "reject" ? " sr-iter-rejected" : ""}`;
+
+  return (
+    <div className={cardCls}>
+      <div className="sr-iter-header">
+        <strong className="sr-iter-title">{op.title}</strong>
+        <span className="sr-priority-badge" style={{ color: PRIORITY_COLOR[op.priority] ?? "#64748b" }}>
+          {op.priority}
+        </span>
+      </div>
+      <p className="sr-iter-desc">{op.description}</p>
+      <span className="sr-iter-impact">预期影响: {op.expected_impact}</span>
+
+      <div className="sr-iter-approval">
+        <button className="sr-iter-action-btn sia-adopt"
+          onClick={handleAdoptClick}
+          disabled={extracting}
+          style={{ opacity: decision && decision !== "adopt" ? 0.4 : 1, fontWeight: decision === "adopt" ? 700 : 600 }}>
+          {extracting ? "⏳ 解析中…" : decision === "adopt" ? "✓ 已采纳" : "✓ 采纳"}
+        </button>
+        <button className="sr-iter-action-btn sia-hold"
+          onClick={() => decide(decision === "hold" ? null : "hold")}
+          style={{ opacity: decision && decision !== "hold" ? 0.4 : 1 }}>
+          {decision === "hold" ? "○ 待定中" : "○ 待定"}
+        </button>
+        <button className="sr-iter-action-btn sia-reject"
+          onClick={() => decide(decision === "reject" ? null : "reject")}
+          style={{ opacity: decision && decision !== "reject" ? 0.4 : 1 }}>
+          {decision === "reject" ? "✕ 已忽略" : "✕ 忽略"}
+        </button>
+        <button
+          className={`sr-iter-action-btn sia-debate${showDebate ? " active" : ""}`}
+          onClick={handleDebate}
+          disabled={debating && !showDebate}
+        >
+          {debating ? "⏳ 辩论中…" : "⚡ Agent 辩论"}
+        </button>
+      </div>
+
+      {/* Parameter confirmation panel */}
+      {showConfirm && paramResult && (
+        <div className="sr-param-confirm">
+          <div className="sr-param-confirm-title">
+            确认应用参数变更到 Agent？
+          </div>
+          {paramResult.mappable && paramResult.params.length > 0 ? (
+            <table className="sr-param-table">
+              <thead>
+                <tr>
+                  <th>参数</th>
+                  <th>当前值</th>
+                  <th>→</th>
+                  <th>新值</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paramResult.params.map(p => (
+                  <tr key={p.name}>
+                    <td className="sr-param-label">{p.label}</td>
+                    <td className="sr-param-cur">{p.display_current}</td>
+                    <td className="sr-param-arrow">→</td>
+                    <td className="sr-param-new">{p.display_proposed}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="sr-param-note">{paramResult.note || "此建议不涉及数值参数变更，仅记录决策。"}</p>
+          )}
+          <div className="sr-param-actions">
+            <button
+              className="sr-param-confirm-btn"
+              onClick={confirmAdopt}
+              disabled={savingOverrides}
+            >
+              {savingOverrides ? "保存中…" : "确认应用"}
+            </button>
+            <button
+              className="sr-param-cancel-btn"
+              onClick={() => setShowConfirm(false)}
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showDebate && (
+        <div className="sr-debate-panel">
+          {debating && !debate && (
+            <div className="sr-debate-loading">Agent Alpha 与 Beta 正在辩论中，约 5 秒…</div>
+          )}
+          {debate && (
+            <>
+              <div className="sr-debate-side sr-debate-pro">
+                <div className="sr-debate-label">🟢 Agent Alpha · 赞成</div>
+                <p className="sr-debate-text">{debate.pro}</p>
+              </div>
+              <div className="sr-debate-side sr-debate-con">
+                <div className="sr-debate-label">🔴 Agent Beta · 反对</div>
+                <p className="sr-debate-text">{debate.con}</p>
+              </div>
+              <div className="sr-debate-synthesis">
+                <div className="sr-debate-label">⚖️ 综合结论</div>
+                <p className="sr-debate-text">{debate.synthesis}</p>
+                <div className="sr-debate-verdict">
+                  建议：
+                  <span style={{ color: REC_COLOR[debate.recommendation], fontWeight: 700 }}>
+                    {debate.recommendation === "ADOPT" ? "采纳" : debate.recommendation === "HOLD" ? "待定" : "忽略"}
+                  </span>
+                  <span className="sr-debate-confidence">置信度 {Math.round(debate.confidence * 100)}%</span>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

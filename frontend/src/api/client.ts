@@ -113,6 +113,17 @@ export interface ScanCandidate {
   volume_ratio?: number;
   rsi?: number;
   near_breakout?: boolean;
+  owned?: boolean;
+  universe?: "sp500" | "nasdaq100" | "layer2" | "other";
+  // Fundamentals (from yfinance enrichment)
+  company_name?: string;
+  sector?: string;
+  industry?: string;
+  pe_ratio?: number | null;
+  market_cap?: number | null;
+  beta?: number | null;
+  week52_high?: number | null;
+  week52_low?: number | null;
 }
 
 export interface ScanResult {
@@ -247,6 +258,39 @@ export interface StrategyIterationOp {
   expected_impact: string;
 }
 
+export interface DebateResult {
+  pro: string;
+  con: string;
+  synthesis: string;
+  recommendation: "ADOPT" | "HOLD" | "REJECT";
+  confidence: number;
+}
+
+export interface ParamChange {
+  name: "risk_pct" | "max_position_pct" | "min_ai_score" | "stop_loss_pct";
+  label: string;
+  current: number;
+  proposed: number;
+  unit: string;
+  display_current: string;
+  display_proposed: string;
+}
+
+export interface ParamExtractResult {
+  mappable: boolean;
+  note: string;
+  params: ParamChange[];
+}
+
+export interface StrategyOverrides {
+  risk_pct: number;
+  max_position_pct: number;
+  min_ai_score: number | null;
+  stop_loss_pct: number;
+  updated_at: string | null;
+  reason: string | null;
+}
+
 export interface StrategyReview {
   date: string;
   generated_at: string;
@@ -296,11 +340,36 @@ export interface PendingTrade {
   stop_loss: number | null;
   target_price: number | null;
   price: number | null;
+  price_drift_pct?: number | null;
+  rsi?: number | null;
+  momentum_5d?: number | null;
+  volume_ratio?: number | null;
+  near_breakout?: boolean | null;
+  universe?: string | null;
   status: "pending" | "approved" | "rejected" | "executed" | "expired" | "error";
   created_at: string;
   expires_at: string;
   executed_order_id: string | null;
   error: string | null;
+}
+
+export interface GoalProgress {
+  start_equity: number;
+  current_equity: number;
+  target_equity_low: number;
+  target_equity_mid: number;
+  current_return_pct: number;
+  target_return_pct: number;
+  days_elapsed: number;
+  days_remaining: number;
+  daily_return_needed: number;
+  on_track: boolean;
+  gap_pct: number;
+  aggression: "conservative" | "normal" | "aggressive";
+  target_pct_low: number;
+  target_pct_high: number;
+  total_days: number;
+  start_date: string;
 }
 
 export interface AgentState {
@@ -347,6 +416,7 @@ export const api = {
   getMovers: () => get<{ gainers: Quote[]; losers: Quote[]; all: Quote[] }>("/movers"),
   getBrief: () => get<DailyBrief>("/brief"),
   generateBrief: () => post<DailyBrief>("/brief"),
+  getWatchlist: () => get<{ symbols: string[] }>("/watchlist"),
   addToWatchlist: (symbol: string) => post<{ symbols: string[] }>(`/watchlist/${symbol}`),
   removeFromWatchlist: (symbol: string) => del<{ symbols: string[] }>(`/watchlist/${symbol}`),
   getPortfolioHistory: () => get<PortfolioHistory>("/portfolio/history"),
@@ -359,6 +429,7 @@ export const api = {
   },
   getScan: () => get<ScanResult>("/scan/sp500"),
   triggerScan: () => post<{ status: string }>("/scan/sp500"),
+  enrichScan: () => post<ScanResult & { status: string }>("/scan/enrich"),
   getHoldings: () => get<HoldingsResult>("/scan/holdings"),
   refreshHoldings: () => post<{ status: string }>("/scan/holdings"),
   getBudget: () => get<BudgetAllocation>("/budget"),
@@ -378,4 +449,26 @@ export const api = {
   getStrategyReview: () => get<StrategyReview | { status: string }>("/strategy/review"),
   getStrategyReviews: () => get<StrategyReview[]>("/strategy/reviews"),
   generateStrategyReview: () => post<{ status: string }>("/strategy/review"),
+  debateIteration: (op: StrategyIterationOp) => post<DebateResult>("/strategy/debate", op),
+  extractParams: (op: StrategyIterationOp) => post<ParamExtractResult>("/strategy/param-extract", op),
+  getOverrides: () => get<StrategyOverrides>("/strategy/overrides"),
+  saveOverrides: (patch: Partial<StrategyOverrides> & { reason?: string }) =>
+    post<StrategyOverrides>("/strategy/overrides", patch),
+  getPipelineStatus: () => get<PipelineStatus>("/pipeline/status"),
+  getGoalProgress: () => get<GoalProgress>("/goal/progress"),
+  getScanNasdaq: () => get<ScanResult>("/scan/nasdaq"),
 };
+
+export interface PipelineStage {
+  status: "not_run" | "running" | "done" | "error";
+  age?: string | null;
+  generated_at?: string | null;
+  scanned_at?: string | null;
+  last_run_at?: string | null;
+}
+export interface PipelineStatus {
+  market_context: PipelineStage & { regime?: string; aggression?: string; min_ai_score?: number };
+  scan: PipelineStage & { total_screened?: number; candidates?: number };
+  agent: PipelineStage & { signals_found?: number; trades_queued?: number; pending_approval?: number };
+  review: PipelineStage & { one_line?: string };
+}

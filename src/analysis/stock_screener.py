@@ -16,14 +16,26 @@ def ai_score_candidates(candidates: list[dict]) -> list[dict]:
 
     client = anthropic.Anthropic(api_key=get_anthropic_key())
 
+    def _fmt_mktcap(mc) -> str:
+        if not mc:
+            return "N/A"
+        if mc >= 1e12:
+            return f"${mc/1e12:.1f}T"
+        if mc >= 1e9:
+            return f"${mc/1e9:.1f}B"
+        return f"${mc/1e6:.0f}M"
+
     rows = "\n".join(
-        f'{i+1}. {c["symbol"]} | momentum={c["momentum_5d"]:+.1f}% | '
+        f'{i+1}. {c["symbol"]} ({c.get("company_name") or c["symbol"]}) | '
+        f'sector={c.get("sector","?") or "?"} | industry={c.get("industry","?") or "?"} | '
+        f'pe={c.get("pe_ratio","N/A")} | mkt_cap={_fmt_mktcap(c.get("market_cap"))} | '
+        f'beta={c.get("beta","N/A")} | momentum={c["momentum_5d"]:+.1f}% | '
         f'vol_ratio={c["volume_ratio"]:.1f}x | rsi={c["rsi"]} | '
         f'breakout={c["near_breakout"]} | tech_score={c["tech_score"]:.1f} | price=${c["price"]}'
         for i, c in enumerate(candidates)
     )
 
-    prompt = f"""You are a professional equity analyst. These S&P 500 stocks passed a technical momentum screen today. Rate each one objectively — some may be worth buying, others may be overextended or lacking conviction.
+    prompt = f"""You are a professional equity analyst. These stocks passed a technical momentum screen today. Rate each one objectively — some may be worth buying, others may be overextended or lacking conviction.
 
 {rows}
 
@@ -32,7 +44,7 @@ For each of the {len(candidates)} stocks, return a JSON object with an honest as
   "symbol": "...",
   "ai_score": 1-10,
   "signal": "STRONG_BUY" | "BUY" | "HOLD" | "SELL",
-  "reason": "one sentence: the key factor driving your rating (positive OR negative)",
+  "reason": "REQUIRED: start with one sentence describing what the company does (e.g. 'NVDA is a GPU and AI infrastructure company.'), then add the key trading factor in one more sentence.",
   "entry_note": "at market" | "on pullback to $X" | "on breakout above $X" | "avoid for now",
   "stop_loss_pct": suggested stop-loss % below current price (number, e.g. 3.5),
   "target_pct": suggested upside target % above current price (number, 0 if SELL),

@@ -1,15 +1,18 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "../api/client";
 import type {
   BudgetAllocation, HoldingsResult, ScanResult,
   AgentState, PendingTrade, HoldingPosition, ScanCandidate, Position,
-  MarketRegime, CircuitBreaker,
+  PipelineStatus, GoalProgress, Quote, PortfolioDay,
 } from "../api/client";
 import { TradeModal } from "./TradeModal";
-import { CalendarHeatmap } from "./PortfolioOverview";
 import type { PortfolioHistory } from "../api/client";
 
-interface Props { backendOnline: boolean }
+interface Props {
+  backendOnline: boolean;
+  onPendingCountChange?: (n: number) => void;
+  autoApprove?: { enabled: boolean; threshold: number };
+}
 
 // ── Data loader ───────────────────────────────────────────────────────────────
 
@@ -20,99 +23,60 @@ interface PCC {
   scan: ScanResult | null;
   agent: AgentState | null;
   history: PortfolioHistory | null;
-  regime: MarketRegime | null;
-  breaker: CircuitBreaker | null;
+  pipeline: PipelineStatus | null;
+  goal: GoalProgress | null;
+  quotes: Record<string, Quote>;
 }
 
-export function PortfolioCommandCenter({ backendOnline }: Props) {
-  const [data, setData] = useState<PCC>({ budget: null, holdings: null, positions: [], scan: null, agent: null, history: null, regime: null, breaker: null });
-  const [resettingBreaker, setResettingBreaker] = useState(false);
-  const [agentRunning, setAgentRunning] = useState(false);
-  const [scanning, setScanning] = useState(false);
-  const [autoApprove, setAutoApproveState] = useState<{ enabled: boolean; threshold: number }>({ enabled: false, threshold: 0.80 });
-  const [autoApproveLoading, setAutoApproveLoading] = useState(false);
+export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, autoApprove }: Props) {
+  const [data, setData] = useState<PCC>({ budget: null, holdings: null, positions: [], scan: null, agent: null, history: null, pipeline: null, goal: null, quotes: {} });
 
   const load = useCallback(async () => {
     if (!backendOnline) return;
-    const [budget, holdings, positions, scan, agent, history, regime, breaker] = await Promise.allSettled([
+    const [budget, holdings, positions, scan, agent, history, pipeline, goal] = await Promise.allSettled([
       api.getBudget(),
       api.getHoldings(),
       api.getPositions(),
       api.getScan(),
       api.getAgentState(),
       api.getPortfolioHistory(),
-      api.getMarketRegime(),
-      api.getCircuitBreaker(),
+      api.getPipelineStatus(),
+      api.getGoalProgress(),
     ]);
-    setData({
+    const newData = {
       budget: budget.status === "fulfilled" ? budget.value : null,
       holdings: holdings.status === "fulfilled" ? holdings.value : null,
       positions: positions.status === "fulfilled" ? positions.value : [],
       scan: scan.status === "fulfilled" ? scan.value : null,
       agent: agent.status === "fulfilled" ? agent.value : null,
       history: history.status === "fulfilled" ? history.value : null,
-      regime: regime.status === "fulfilled" ? regime.value : null,
-      breaker: breaker.status === "fulfilled" ? breaker.value : null,
-    });
-  }, [backendOnline]);
+      pipeline: pipeline.status === "fulfilled" ? pipeline.value : null,
+      goal: goal.status === "fulfilled" ? goal.value : null,
+      quotes: {},
+    };
+    setData(newData);
 
-  useEffect(() => {
-    if (backendOnline) {
-      api.getAutoApprove().then(setAutoApproveState).catch(() => {});
+    // Fetch quotes in background — don't block the main data render
+    const positionSymbols = newData.positions.map(p => p.symbol);
+    if (positionSymbols.length > 0) {
+      Promise.allSettled(positionSymbols.map(sym => api.getQuoteSingle(sym))).then(results => {
+        const quotes: Record<string, Quote> = {};
+        results.forEach((r, i) => {
+          if (r.status === "fulfilled") quotes[positionSymbols[i]] = r.value;
+        });
+        setData(prev => ({ ...prev, quotes }));
+      });
     }
-  }, [backendOnline]);
+    if (onPendingCountChange && newData.agent) {
+      onPendingCountChange(newData.agent.trades.filter(t => t.status === "pending").length);
+    }
+  }, [backendOnline, onPendingCountChange]);
 
   useEffect(() => {
     load();
     const id = setInterval(load, 20_000);
     return () => clearInterval(id);
   }, [load]);
-
-  async function runAgent() {
-    setAgentRunning(true);
-    try {
-      await api.runAgent();
-      // poll for new results
-      let tries = 0;
-      const poll = setInterval(async () => {
-        await load();
-        if (++tries > 30) { clearInterval(poll); setAgentRunning(false); }
-      }, 2000);
-      setTimeout(() => { clearInterval(poll); setAgentRunning(false); }, 90_000);
-    } catch { setAgentRunning(false); }
-  }
-
-  async function runScan() {
-    setScanning(true);
-    try {
-      await api.triggerScan();
-      const poll = setInterval(async () => {
-        const scan = await api.getScan();
-        setData(prev => ({ ...prev, scan }));
-        if (scan.status !== "running") { clearInterval(poll); setScanning(false); }
-      }, 3000);
-      setTimeout(() => { clearInterval(poll); setScanning(false); }, 120_000);
-    } catch { setScanning(false); }
-  }
-
-  async function toggleAutoApprove() {
-    setAutoApproveLoading(true);
-    try {
-      const next = !autoApprove.enabled;
-      const cfg = await api.setAutoApprove(next, autoApprove.threshold);
-      setAutoApproveState(cfg);
-    } catch { /* ignore */ }
-    finally { setAutoApproveLoading(false); }
-  }
-
-  async function resetBreaker() {
-    setResettingBreaker(true);
-    try {
-      const breaker = await api.resetCircuitBreaker();
-      setData(prev => ({ ...prev, breaker }));
-    } catch { /* ignore */ }
-    finally { setResettingBreaker(false); }
-  }
 
   async function handleApprove(id: string) {
     try {
@@ -152,12 +116,16 @@ export function PortfolioCommandCenter({ backendOnline }: Props) {
     unrealized_plpc: p.unrealized_plpc,
   }));
 
-  // For sell signals, merge Alpaca prices into holdings sell signal data
-  const holdingsPositions = data.holdings?.positions ?? [];
-  const alpacaMap = Object.fromEntries(alpacaPositions.map(p => [p.symbol, p]));
-  const mergedPositions = holdingsPositions.map(p => ({
+  // Merge sell signals from holdings analysis into alpaca positions (alpaca is always source of truth)
+  const holdingsMap = Object.fromEntries(
+    (data.holdings?.positions ?? []).map(p => [p.symbol, p])
+  );
+  const mergedPositions: HoldingPosition[] = alpacaPositions.map(p => ({
     ...p,
-    ...(alpacaMap[p.symbol] ?? {}),  // overwrite prices with live Alpaca data
+    sell_signal: holdingsMap[p.symbol]?.sell_signal,
+    urgency:     holdingsMap[p.symbol]?.urgency,
+    reason:      holdingsMap[p.symbol]?.reason,
+    suggested_action: holdingsMap[p.symbol]?.suggested_action,
   }));
 
   const pendingTrades = (data.agent?.trades ?? []).filter(t => t.status === "pending");
@@ -173,115 +141,153 @@ export function PortfolioCommandCenter({ backendOnline }: Props) {
     (p.sell_signal === "SELL" || p.sell_signal === "REDUCE") &&
     !pendingSymbols.has(p.symbol + "sell")
   );
-  const buySignals = scanCandidates.filter(c => !pendingSymbols.has(c.symbol + "buy"));
+  const buySignals = scanCandidates
+    .filter(c => !pendingSymbols.has(c.symbol + "buy"))
+    .sort((a, b) => (a.owned ? 1 : 0) - (b.owned ? 1 : 0));
+
+  // Agent log entries (most recent 5)
+  const agentLogEntries = (data.agent?.log ?? []).slice(0, 5);
+  // Trade log — today's executed/error trades only (rejected are user-driven, shown separately)
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const tradeLogEntries = (data.agent?.trades ?? [])
+    .filter(t => t.status === "executed" || t.status === "error")
+    .filter(t => t.created_at.startsWith(todayStr))
+    .slice(0, 8);
+  const rejectedToday = (data.agent?.trades ?? [])
+    .filter(t => t.status === "rejected" && t.created_at.startsWith(todayStr));
 
   return (
     <div className="pcc-container">
-      {/* ── Top bar ── */}
-      <div className="pcc-topbar">
-        <div className="pcc-stat">
-          <span className="holding-label">组合总值</span>
-          <span className="pcc-stat-val">${(budget?.portfolio_value ?? 0).toLocaleString()}</span>
+
+      {/* ── Dashboard top ── */}
+      <div className="pcc-dashboard-top">
+        <StatsRow goal={data.goal} history={data.history} />
+        {data.goal && <GoalProgressStrip goal={data.goal} />}
+        {(data.history?.days.length ?? 0) > 0 && (
+          <CompactHeatmap days={data.history!.days} />
+        )}
+        <AgentCards pipeline={data.pipeline} pendingCount={pendingTrades.length} />
+      </div>
+
+      {/* ── Zone labels ── */}
+      <div className="pcc-zone-row">
+        <div className="pcc-zone-label">
+          {autoApprove?.enabled ? (
+            <>
+              <span className="zone-chip zone-chip-auto">⚡ 自动执行中</span>
+              <span className="zone-desc">置信度 ≥{Math.round((autoApprove.threshold) * 100)}% 自动执行，低于阈值仍需确认</span>
+            </>
+          ) : (
+            <>
+              <span className="zone-chip zone-chip-manual">👤 需要你决策</span>
+              <span className="zone-desc">Rex 已分析，等待人工确认</span>
+            </>
+          )}
         </div>
-        <div className="pcc-stat">
-          <span className="holding-label">现金</span>
-          <span className="pcc-stat-val up">${(budget?.cash ?? 0).toLocaleString()} <span className="pcc-pct">({budget?.cash_pct ?? 0}%)</span></span>
-        </div>
-        <div className="pcc-stat">
-          <span className="holding-label">已投资</span>
-          <span className="pcc-stat-val">${(budget?.invested ?? 0).toLocaleString()} <span className="pcc-pct">({budget?.invested_pct ?? 0}%)</span></span>
-        </div>
-        <div className="pcc-stat">
-          <span className="holding-label">空仓位</span>
-          <span className="pcc-stat-val" style={{ color: "#f59e0b" }}>{budget?.slots_remaining ?? "—"} 个</span>
-        </div>
-        {data.regime && <RegimeBadge regime={data.regime} />}
-        {data.breaker && <CircuitBreakerBadge breaker={data.breaker} onReset={resetBreaker} resetting={resettingBreaker} />}
-        <div className="pcc-actions">
-          <div className="pcc-agent-block">
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <button className="brief-generate-btn" onClick={runAgent} disabled={agentRunning}>
-                {agentRunning ? "分析中…" : "🤖 运行 Agent"}
-              </button>
-              {/* Auto-approve toggle */}
-              <button
-                className={`pcc-auto-approve-btn${autoApprove.enabled ? " active" : ""}`}
-                onClick={toggleAutoApprove}
-                disabled={autoApproveLoading}
-                title={autoApprove.enabled
-                  ? `自动执行已开启 (置信度 ≥ ${Math.round(autoApprove.threshold * 100)}%)，点击关闭`
-                  : "点击开启自动执行高置信度交易"}
-              >
-                {autoApprove.enabled
-                  ? `⚡ 自动执行 ≥${Math.round(autoApprove.threshold * 100)}%`
-                  : "⚡ 手动审批"}
-              </button>
-            </div>
-            {data.agent?.log[0] && (
-              <span className="pcc-last-run">
-                上次运行&nbsp;
-                {new Date(data.agent.log[0].run_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                {" · "}
-                {data.agent.log[0].trades_queued} 个信号
-                {(data.agent.log[0] as any).auto_approved
-                  ? ` · ⚡${(data.agent.log[0] as any).auto_approved} 自动执行` : ""}
-              </span>
-            )}
-            {!data.agent?.log[0] && (
-              <span className="pcc-last-run pcc-last-run-none">自动 8:30 AM ET 开市前运行</span>
-            )}
-          </div>
-          <button className="brief-regenerate-btn" onClick={runScan} disabled={scanning}>
-            {scanning ? "扫描中…" : "🔍 扫描 S&P"}
-          </button>
-          <button className="brief-regenerate-btn" onClick={load}>↺</button>
+        <div className="pcc-zone-label">
+          <span className="zone-chip zone-chip-auto">⚡ 自动化管理</span>
+          <span className="zone-desc">Agent 实时监控，无需干预</span>
         </div>
       </div>
 
-      {/* ── Two-column layout ── */}
-      <div className="pcc-body">
+      {/* ── 2-col: Pending (manual) | Holdings (auto) ── */}
+      <div className="pcc-main-cols">
 
-        {/* Left: current holdings */}
-        <div className="pcc-left">
-          <h3 className="pcc-section-title">持仓分布</h3>
-
-          {/* Allocation bar — from live Alpaca positions */}
-          <div className="pcc-alloc-bar-wrap">
-            {allocationMap.map((h, i) => (
-              <div
-                key={h.symbol}
-                className="pcc-alloc-segment"
-                style={{ width: `${h.pct}%`, background: `hsl(${240 + i * 35}, 60%, 55%)` }}
-                title={`${h.symbol} ${h.pct}%`}
-              />
-            ))}
-            {budget && (
-              <div
-                className="pcc-alloc-segment"
-                style={{ width: `${budget.cash_pct}%`, background: "#1e293b" }}
-                title={`Cash ${budget.cash_pct}%`}
-              />
+        {/* LEFT — Manual: pending approval */}
+        <div className="pcc-manual-col">
+          <div className="pcc-col-header">
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="pcc-section-title" style={{ margin: 0 }}>待你审批</span>
+              {pendingTrades.length > 0 && (
+                <span className="pcc-badge">{pendingTrades.length}</span>
+              )}
+            </div>
+            {pendingTrades.length > 0 && (
+              <div className="pcc-bulk-btns">
+                <button className="pcc-bulk-btn pcc-bulk-btn-approve"
+                  onClick={() => pendingTrades.forEach(t => handleApprove(t.id))}>
+                  ✓ 全部批准
+                </button>
+                <button className="pcc-bulk-btn pcc-bulk-btn-reject"
+                  onClick={() => pendingTrades.forEach(t => handleReject(t.id))}>
+                  ✕ 全部拒绝
+                </button>
+              </div>
             )}
           </div>
 
+          {pendingTrades.length === 0 ? (
+            <div className="pcc-manual-empty">
+              <div style={{ fontSize: 24, marginBottom: 8 }}>{autoApprove?.enabled ? "⚡" : "✓"}</div>
+              <div>{autoApprove?.enabled ? "自动执行已开启" : "暂无待审批交易"}</div>
+              <div style={{ marginTop: 4, fontSize: 11, color: "var(--muted)" }}>
+                {autoApprove?.enabled
+                  ? `置信度 ≥${Math.round(autoApprove.threshold * 100)}% 的信号将自动执行`
+                  : "Rex 生成信号后将出现在这里"}
+              </div>
+            </div>
+          ) : (
+            pendingTrades.map(t => (
+              <PendingCard
+                key={t.id}
+                trade={t}
+                budget={budget}
+                onApprove={() => handleApprove(t.id)}
+                onReject={() => handleReject(t.id)}
+              />
+            ))
+          )}
+        </div>
+
+        {/* RIGHT — Auto: holdings + sell signals */}
+        <div className="pcc-auto-col">
+          <div className="pcc-col-header">
+            <span className="pcc-section-title" style={{ margin: 0 }}>持仓监控</span>
+            <span className="pcc-auto-tag">⚡ Rex 持续监控中</span>
+          </div>
+
+          {/* Allocation bar */}
+          <div className="pcc-alloc-bar-wrap">
+            {allocationMap.map((h, i) => (
+              <div key={h.symbol} className="pcc-alloc-segment"
+                style={{ width: `${h.pct}%`, background: `hsl(${220 + i * 35}, 65%, 55%)` }}
+                title={`${h.symbol} ${h.pct}%`} />
+            ))}
+            {budget && (
+              <div className="pcc-alloc-segment"
+                style={{ width: `${budget.cash_pct}%`, background: "#1e293b" }}
+                title={`现金 ${budget.cash_pct}%`} />
+            )}
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--muted)", marginTop: -4 }}>
+            <span>已投 {budget?.invested_pct ?? 0}%</span>
+            <span>现金 {budget?.cash_pct ?? 0}%</span>
+          </div>
+
           {alpacaPositions.length === 0 ? (
-            <p className="brief-empty-text" style={{ padding: "20px 0", fontSize: 13 }}>
-              暂无持仓（Alpaca paper 账户）
-            </p>
+            <p style={{ color: "var(--muted)", fontSize: 12 }}>暂无持仓</p>
           ) : (
             <div className="pcc-holdings-list">
-              {mergedPositions.map(p => (
-                <HoldingRow key={p.symbol} position={p} onRefresh={load} />
-              ))}
+              {mergedPositions.map(p => {
+                const allocPct = allocationMap.find(a => a.symbol === p.symbol)?.pct ?? 0;
+                return (
+                  <HoldingRow
+                    key={p.symbol}
+                    position={p}
+                    quote={data.quotes[p.symbol] ?? null}
+                    allocPct={allocPct}
+                    onRefresh={load}
+                  />
+                );
+              })}
             </div>
           )}
 
-          {/* Slot pills */}
           {budget && (
             <div className="pcc-slots">
               {allocationMap.map((h, i) => (
                 <div key={h.symbol} className="pcc-slot-pill pcc-slot-filled"
-                  style={{ borderColor: `hsl(${240 + i * 35}, 60%, 55%)40` }}>
+                  style={{ borderColor: `hsl(${220 + i * 35}, 65%, 55%)40` }}>
                   <span>{h.symbol}</span>
                   <span className="pcc-slot-pct">{h.pct}%</span>
                 </div>
@@ -291,91 +297,263 @@ export function PortfolioCommandCenter({ backendOnline }: Props) {
               ))}
             </div>
           )}
-        </div>
 
-        {/* Right: signal queue */}
-        <div className="pcc-right">
-          {/* Section 1: pending trades */}
-          {pendingTrades.length > 0 && (
-            <div className="pcc-signal-section">
-              <h3 className="pcc-section-title">
-                ⏳ 待确认 <span className="pcc-badge">{pendingTrades.length}</span>
-              </h3>
-              {pendingTrades.map(t => (
-                <PendingRow
-                  key={t.id}
-                  trade={t}
-                  onApprove={() => handleApprove(t.id)}
-                  onReject={() => handleReject(t.id)}
-                />
-              ))}
-            </div>
-          )}
-
-          {/* Section 2: sell signals */}
-          {sellSignals.length > 0 && (
-            <div className="pcc-signal-section">
-              <h3 className="pcc-section-title">
-                🔴 卖出信号 <span className="pcc-badge pcc-badge-sell">{sellSignals.length}</span>
-              </h3>
-              {sellSignals.map(p => (
-                <SellSignalRow key={p.symbol} position={p} onRefresh={load} />
-              ))}
-            </div>
-          )}
-
-          {/* Section 3: S&P top 10 candidates */}
-          {buySignals.length > 0 && (
-            <div className="pcc-signal-section">
-              <h3 className="pcc-section-title">
-                🔍 S&P 500 扫描 — Top {buySignals.length}
-                {data.scan?.scanned_at && (
-                  <span className="pcc-scan-time">
-                    {new Date(data.scan.scanned_at).toLocaleTimeString()}
-                  </span>
-                )}
-              </h3>
-              {buySignals.map((c, i) => (
-                <BuySignalRow key={c.symbol} rank={i + 1} candidate={c} budget={budget} />
-              ))}
-            </div>
-          )}
-
-          {data.scan?.status === "not_run" && (
-            <div className="brief-empty" style={{ marginTop: 8 }}>
-              <p className="brief-empty-text" style={{ fontSize: 12 }}>
-                点击「扫描 S&P」获取推荐候选
-              </p>
-            </div>
-          )}
-
-          {pendingTrades.length === 0 && sellSignals.length === 0 && buySignals.length === 0 && (
-            <div className="brief-empty" style={{ marginTop: 24 }}>
-              <p className="brief-empty-text">暂无信号。点击「运行 Agent」开始分析。</p>
+          {budget && (
+            <div style={{ display: "flex", gap: 14, paddingTop: 8, borderTop: "1px solid var(--border)" }}>
+              <div className="pcc-stat">
+                <span className="holding-label">可用现金</span>
+                <span className="pcc-stat-val">${budget.cash.toLocaleString()}</span>
+              </div>
+              <div className="pcc-stat">
+                <span className="holding-label">建议投入</span>
+                <span className="pcc-stat-val up">
+                  ${(data.budget?.suggested_buys ?? []).reduce((s, b) => s + b.cost, 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="pcc-stat">
+                <span className="holding-label">每笔风险</span>
+                <span className="pcc-stat-val">{budget.risk_per_trade_pct}%</span>
+              </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* ── Calendar heatmap ── */}
-      {data.history && data.history.days.length > 0 && (
-        <div className="pcc-heatmap-wrap">
-          <CalendarHeatmap days={data.history.days} />
+      {/* ── Activity log 2-col ── */}
+      <div className="pcc-activity-cols">
+
+        {/* Agent log */}
+        <div className="pcc-log-card">
+          <div className="pcc-log-header">
+            <span className="pcc-section-title" style={{ margin: 0 }}>Agent 执行记录</span>
+            <span className="pcc-log-tag pcc-log-tag-auto">⚡ 全自动</span>
+            <span style={{ fontSize: 10, color: "var(--muted)" }}>Maya · Scout · Rex · Vera</span>
+          </div>
+          <div className="pcc-log-list">
+            {agentLogEntries.length === 0 ? (
+              <div className="pcc-log-item dimmed">
+                <div className="pcc-log-icon pcc-log-icon-sys">—</div>
+                <div className="pcc-log-body">
+                  <span className="pcc-log-title" style={{ color: "var(--muted)" }}>暂无记录</span>
+                  <span className="pcc-log-sub">等待 Agent 首次运行</span>
+                </div>
+              </div>
+            ) : (
+              agentLogEntries.map((entry, i) => {
+                const sources = entry.sources?.join(" · ") ?? "";
+                const regimeInfo = entry.regime ? ` · ${entry.regime}` : "";
+                return (
+                  <div key={i} className="pcc-log-item">
+                    <div className={`pcc-log-icon ${entry.status === "error" ? "pcc-log-icon-sell" : "pcc-log-icon-agent"}`}>
+                      {entry.status === "error" ? "⚠" : "🧠"}
+                    </div>
+                    <div className="pcc-log-body">
+                      <span className="pcc-log-title">
+                        Rex · {entry.signals_found} 个信号{entry.trades_queued > 0 ? ` · ${entry.trades_queued} 待审` : ""}
+                      </span>
+                      <span className="pcc-log-sub">{sources}{regimeInfo}</span>
+                      <span className="pcc-log-time">{new Date(entry.run_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+            {data.pipeline?.review.status !== "done" && (
+              <div className="pcc-log-item dimmed">
+                <div className="pcc-log-icon pcc-log-icon-sys">📈</div>
+                <div className="pcc-log-body">
+                  <span className="pcc-log-title">Vera · 策略复盘</span>
+                  <span className="pcc-log-sub">等待今日收盘后生成</span>
+                  <span className="pcc-log-time">16:00 预计</span>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-      )}
+
+        {/* Trade log */}
+        <div className="pcc-log-card">
+          <div className="pcc-log-header">
+            <span className="pcc-section-title" style={{ margin: 0 }}>今日交易记录</span>
+            <span className="pcc-log-tag pcc-log-tag-trade">
+              ✓ {tradeLogEntries.filter(t => t.status === "executed").length} 已执行
+            </span>
+            {rejectedToday.length > 0 && (
+              <span style={{ fontSize: 11, color: "var(--muted)" }}>
+                {rejectedToday.length} 已拒绝
+              </span>
+            )}
+          </div>
+          <div className="pcc-log-list">
+            {tradeLogEntries.length === 0 && rejectedToday.length === 0 ? (
+              <div className="pcc-log-item dimmed">
+                <div className="pcc-log-icon pcc-log-icon-sys">—</div>
+                <div className="pcc-log-body">
+                  <span className="pcc-log-title" style={{ color: "var(--muted)" }}>今日暂无成交</span>
+                  <span className="pcc-log-sub">批准信号后将在此显示</span>
+                </div>
+              </div>
+            ) : (
+              <>
+                {tradeLogEntries.map(t => {
+                  const isBuy = t.side === "buy";
+                  const isErr = t.status === "error";
+                  return (
+                    <div key={t.id} className="pcc-log-item">
+                      <div className={`pcc-log-icon ${!isErr ? (isBuy ? "pcc-log-icon-buy" : "pcc-log-icon-sell") : "pcc-log-icon-sys"}`}>
+                        {isErr ? "⚠" : "✓"}
+                      </div>
+                      <div className="pcc-log-body">
+                        <span className="pcc-log-title">
+                          <span style={{ color: isBuy ? "#22c55e" : "#ef4444" }}>
+                            {isBuy ? "买入" : "卖出"}
+                          </span> · {t.symbol}
+                          {t.notional ? ` $${t.notional.toFixed(0)}` : t.qty ? ` ×${t.qty}` : ""}
+                        </span>
+                        <span className="pcc-log-sub">
+                          {!isErr ? "已成交" : `失败: ${t.error ?? "未知"}`}
+                          {t.price ? ` · $${t.price.toFixed(2)}` : ""}
+                        </span>
+                        <span className="pcc-log-time">
+                          {new Date(t.created_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+                {rejectedToday.map(t => (
+                  <div key={t.id} className="pcc-log-item" style={{ opacity: 0.5 }}>
+                    <div className="pcc-log-icon pcc-log-icon-sys">✕</div>
+                    <div className="pcc-log-body">
+                      <span className="pcc-log-title" style={{ textDecoration: "line-through" }}>
+                        <span style={{ color: t.side === "buy" ? "#22c55e" : "#ef4444" }}>
+                          {t.side === "buy" ? "买入" : "卖出"}
+                        </span> · {t.symbol}
+                      </span>
+                      <span className="pcc-log-sub">已拒绝</span>
+                      <span className="pcc-log-time">
+                        {new Date(t.created_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        </div>
+
+      </div>
     </div>
   );
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function HoldingRow({ position: p, onRefresh }: { position: HoldingPosition; onRefresh: () => void }) {
+// ── Pipeline Status Bar ───────────────────────────────────────────────────────
+
+function stageAge(ts: string | null | undefined): string {
+  if (!ts) return "";
+  const mins = Math.round((Date.now() - new Date(ts).getTime()) / 60000);
+  if (mins < 1) return "刚刚";
+  if (mins < 60) return `${mins}m前`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h前`;
+}
+
+function StageIcon({ status }: { status: string }) {
+  if (status === "running") return <span className="pipeline-spin">↻</span>;
+  if (status === "done")    return <span style={{ color: "#22c55e" }}>✓</span>;
+  if (status === "error")   return <span style={{ color: "#ef4444" }}>✕</span>;
+  return <span style={{ color: "#475569" }}>○</span>;
+}
+
+interface PipelineBarProps {
+  pipeline: PipelineStatus | null;
+  onRefresh: () => void;
+}
+
+function PipelineBar({ pipeline: p, onRefresh }: PipelineBarProps) {
+  const stages = [
+    {
+      key: "market_context",
+      label: "市场分析",
+      schedule: "8:00 AM",
+      status: p?.market_context.status ?? "not_run",
+      ts: p?.market_context.generated_at,
+      extra: p?.market_context.regime
+        ? `${p.market_context.regime} · ${p.market_context.aggression}`
+        : undefined,
+    },
+    {
+      key: "scan",
+      label: "选股扫描",
+      schedule: "9:31 / 12:30",
+      status: p?.scan.status ?? "not_run",
+      ts: p?.scan.scanned_at,
+      extra: p?.scan.candidates != null ? `${p.scan.candidates} 个候选` : undefined,
+    },
+    {
+      key: "agent",
+      label: "交易 Agent",
+      schedule: "级联 + 每30m",
+      status: p?.agent.status ?? "not_run",
+      ts: p?.agent.last_run_at,
+      extra: p?.agent.pending_approval != null && p.agent.pending_approval > 0
+        ? `${p.agent.pending_approval} 待确认`
+        : p?.agent.trades_queued != null ? `${p.agent.trades_queued} 信号` : undefined,
+    },
+    {
+      key: "review",
+      label: "复盘",
+      schedule: "4:15 PM",
+      status: p?.review.status ?? "not_run",
+      ts: p?.review.generated_at,
+      extra: undefined,
+    },
+  ] as const;
+
+  return (
+    <div className="pipeline-bar">
+      <div className="pipeline-stages">
+        {stages.map((s, i) => (
+          <div key={s.key} className="pipeline-stage-wrap">
+            <div
+              className={`pipeline-stage ${s.status}`}
+              title={s.extra ?? s.schedule}
+            >
+              <StageIcon status={s.status} />
+              <span className="pipeline-stage-label">{s.label}</span>
+              {s.ts
+                ? <span className="pipeline-stage-age">{stageAge(s.ts)}</span>
+                : <span className="pipeline-stage-age">{s.schedule}</span>
+              }
+              {s.extra && (
+                <span className="pipeline-stage-extra">{s.extra}</span>
+              )}
+            </div>
+            {i < stages.length - 1 && <span className="pipeline-arrow">→</span>}
+          </div>
+        ))}
+      </div>
+      <button className="brief-regenerate-btn" onClick={onRefresh} title="刷新">↺</button>
+    </div>
+  );
+}
+
+function HoldingRow({ position: p, quote, allocPct, onRefresh }: {
+  position: HoldingPosition;
+  quote: Quote | null;
+  allocPct: number;
+  onRefresh: () => void;
+}) {
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(false);
   const pl = p.unrealized_pl ?? 0;
   const plPct = p.unrealized_plpc ?? 0;
   const signalColor: Record<string, string> = { SELL: "#ef4444", REDUCE: "#f97316", HOLD: "#22c55e", ADD: "#6366f1" };
   const sig = p.sell_signal ?? "HOLD";
+  const todayPct = quote?.change_pct ?? null;
+  const todayColor = todayPct != null ? (todayPct >= 0 ? "#22c55e" : "#ef4444") : "var(--muted)";
 
   async function closePos() {
     if (!confirming) { setConfirming(true); return; }
@@ -387,17 +565,19 @@ function HoldingRow({ position: p, onRefresh }: { position: HoldingPosition; onR
 
   return (
     <div className="pcc-holding-row">
+      {/* Row 1: symbol + signal + today's change + close button */}
       <div className="pcc-holding-main">
         <span className="symbol" style={{ fontSize: 14 }}>{p.symbol}</span>
-        <span className="signal-badge" style={{ background: signalColor[sig] ?? "#64748b", fontSize: 11, padding: "1px 6px" }}>{sig}</span>
-        <span className={`pcc-pl ${pl >= 0 ? "up" : "down"}`}>
-          {pl >= 0 ? "+" : ""}${pl.toFixed(0)} ({plPct >= 0 ? "+" : ""}{plPct.toFixed(1)}%)
-        </span>
-      </div>
-      <div className="pcc-holding-meta">
-        <span style={{ color: "var(--muted)", fontSize: 11 }}>${p.current_price?.toFixed(2)} · {p.qty}股</span>
         {sig !== "HOLD" && (
-          <>
+          <span className="signal-badge" style={{ background: signalColor[sig] ?? "#64748b", fontSize: 11, padding: "1px 6px" }}>{sig}</span>
+        )}
+        {todayPct != null && (
+          <span style={{ color: todayColor, fontSize: 12, fontWeight: 600 }}>
+            {todayPct >= 0 ? "+" : ""}{todayPct.toFixed(2)}% 今日
+          </span>
+        )}
+        {sig !== "HOLD" && (
+          <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
             <button
               className={`trade-btn ${confirming ? "sell-btn-confirm" : "sell-btn"}`}
               onClick={closePos}
@@ -408,53 +588,187 @@ function HoldingRow({ position: p, onRefresh }: { position: HoldingPosition; onR
             {confirming && !loading && (
               <button className="cancel-small-btn" onClick={() => setConfirming(false)}>✕</button>
             )}
-          </>
+          </div>
         )}
+      </div>
+      {/* Row 2: price · qty · market value · alloc% · total P&L */}
+      <div className="pcc-holding-detail">
+        <span>${p.current_price?.toFixed(2)}</span>
+        <span className="pcc-holding-dot">·</span>
+        <span>{typeof p.qty === "number" ? (Number.isInteger(p.qty) ? p.qty.toLocaleString("en-US") : p.qty.toLocaleString("en-US", { maximumFractionDigits: 2 })) : p.qty} 股</span>
+        <span className="pcc-holding-dot">·</span>
+        <span>${p.market_value?.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
+        <span className="pcc-holding-dot">·</span>
+        <span style={{ color: "#93c5fd" }}>{allocPct.toFixed(1)}% 仓位</span>
+        <span className="pcc-holding-dot">·</span>
+        <span className={pl >= 0 ? "up" : "down"}>
+          {pl >= 0 ? "+" : ""}${pl.toFixed(0)} ({plPct >= 0 ? "+" : ""}{plPct.toFixed(1)}%)
+        </span>
       </div>
     </div>
   );
 }
 
-function PendingRow({
-  trade: t, onApprove, onReject,
-}: { trade: PendingTrade; onApprove: () => void; onReject: () => void }) {
+function PendingCard({
+  trade: t, budget, onApprove, onReject,
+}: { trade: PendingTrade; budget: BudgetAllocation | null; onApprove: () => void; onReject: () => void }) {
   const [confirming, setConfirming] = useState(false);
   const expiresIn = Math.max(0, Math.round((new Date(t.expires_at).getTime() - Date.now()) / 60000));
+  const portfolioValue = budget?.portfolio_value ?? 100_000;
+
+  // Risk/reward calc
+  const risk   = t.price && t.stop_loss   ? (t.price - t.stop_loss) * (t.notional ? t.notional / t.price : (t.qty ?? 0)) : null;
+  const reward = t.price && t.target_price ? (t.target_price - t.price) * (t.notional ? t.notional / t.price : (t.qty ?? 0)) : null;
+  const rrRatio = risk && reward && risk > 0 ? (reward / risk) : null;
+
+  // Price drift check
+  const driftPct = t.price_drift_pct ?? 0;
+  const hasDrift = Math.abs(driftPct) > 0.5;
+
+  const sideColor = t.side === "buy" ? "#22c55e" : "#ef4444";
 
   return (
-    <div className="pcc-signal-row pcc-pending-row">
-      <div className="pcc-signal-left">
-        <span className={`pcc-side ${t.side === "buy" ? "up" : "down"}`}>
-          {t.side === "buy" ? "▲" : "▼"}
-        </span>
-        <strong>{t.symbol}</strong>
-        <span className="signal-badge" style={{ background: t.side === "buy" ? "#16a34a" : "#ef4444", fontSize: 11, padding: "1px 6px" }}>
-          {t.signal}
-        </span>
-        <span style={{ color: "var(--muted)", fontSize: 11 }}>
-          {t.notional ? `$${t.notional.toFixed(0)}` : t.qty ? `${t.qty}股` : ""}
-        </span>
+    <div className="pending-card">
+      {/* Layer 1: Header */}
+      <div className="pending-card-header">
+        <div className="pending-card-left">
+          <span className={`pending-side-badge ${t.side}`}>{t.side === "buy" ? "买入" : "卖出"}</span>
+          <strong className="pending-symbol">{t.symbol}</strong>
+          <span className="signal-badge" style={{ background: sideColor, fontSize: 11, padding: "2px 8px" }}>{t.signal}</span>
+          {t.universe && (
+            <span className="pending-universe-badge" style={{ background: t.universe === "nasdaq100" ? "#7c3aed20" : "#1e40af20", color: t.universe === "nasdaq100" ? "#a78bfa" : "#93c5fd" }}>
+              {t.universe === "sp500" ? "S&P" : t.universe === "nasdaq100" ? "NQ" : t.universe}
+            </span>
+          )}
+          <span style={{ color: "var(--muted)", fontSize: 11 }}>来源: {t.source}</span>
+          <span style={{ color: expiresIn < 30 ? "#f59e0b" : "var(--muted)", fontSize: 11 }}>过期 {expiresIn}m</span>
+        </div>
+        <div className="pending-card-actions">
+          {confirming ? (
+            <>
+              <button className="trade-btn buy-btn" style={{ width: "auto", margin: 0, padding: "5px 16px", background: sideColor }} onClick={onApprove}>
+                ✓ 确认执行
+              </button>
+              <button className="cancel-small-btn" onClick={() => setConfirming(false)}>✕</button>
+            </>
+          ) : (
+            <>
+              <button className="trade-btn buy-btn" style={{ width: "auto", margin: 0, padding: "5px 16px", background: sideColor }}
+                onClick={() => setConfirming(true)}>
+                ✓ 批准
+              </button>
+              <button className="cancel-small-btn" style={{ padding: "4px 12px", fontSize: 12 }} onClick={onReject}>✕ 拒绝</button>
+            </>
+          )}
+        </div>
       </div>
-      <div className="pcc-signal-right">
-        <span style={{ color: "var(--muted)", fontSize: 11 }}>{expiresIn}m</span>
-        {confirming ? (
-          <>
-            <button className="trade-btn buy-btn" style={{ width: "auto", margin: 0, padding: "4px 12px", background: t.side === "buy" ? "#16a34a" : "#ef4444" }} onClick={onApprove}>
-              ✓ 确认
-            </button>
-            <button className="cancel-small-btn" onClick={() => setConfirming(false)}>✕</button>
-          </>
-        ) : (
-          <>
-            <button className="trade-btn buy-btn" style={{ width: "auto", margin: 0, padding: "4px 12px", background: t.side === "buy" ? "#16a34a" : "#ef4444" }}
-              onClick={() => setConfirming(true)}>
-              Approve
-            </button>
-            <button className="cancel-small-btn" onClick={onReject}>Reject</button>
-          </>
-        )}
+
+      {/* Layer 2: Price stats grid */}
+      <div className="pending-stats-grid">
+        <div className="pending-stat">
+          <span className="pending-stat-label">金额</span>
+          <span className="pending-stat-val">{t.notional ? `$${t.notional.toFixed(0)}` : t.qty ? `${t.qty}股` : "—"}</span>
+          {t.notional && portfolioValue > 0 && (
+            <span className="pending-stat-sub">{(t.notional / portfolioValue * 100).toFixed(1)}% 仓位</span>
+          )}
+        </div>
+        <div className="pending-stat">
+          <span className="pending-stat-label">入场价</span>
+          <span className="pending-stat-val">{t.price ? `$${t.price.toFixed(2)}` : "市价"}</span>
+        </div>
+        <div className="pending-stat">
+          <span className="pending-stat-label">止损</span>
+          <span className="pending-stat-val" style={{ color: "#ef4444" }}>{t.stop_loss ? `$${t.stop_loss.toFixed(2)}` : "—"}</span>
+          {t.price && t.stop_loss && (
+            <span className="pending-stat-sub">-{((t.price - t.stop_loss) / t.price * 100).toFixed(1)}%</span>
+          )}
+        </div>
+        <div className="pending-stat">
+          <span className="pending-stat-label">目标价</span>
+          <span className="pending-stat-val" style={{ color: "#22c55e" }}>{t.target_price ? `$${t.target_price.toFixed(2)}` : "—"}</span>
+          {t.price && t.target_price && (
+            <span className="pending-stat-sub">+{((t.target_price - t.price) / t.price * 100).toFixed(1)}%</span>
+          )}
+        </div>
+        <div className="pending-stat">
+          <span className="pending-stat-label">置信度</span>
+          <span className="pending-stat-val" style={{ color: t.confidence >= 0.8 ? "#22c55e" : t.confidence >= 0.65 ? "#f59e0b" : "#ef4444" }}>
+            {Math.round(t.confidence * 100)}%
+          </span>
+        </div>
       </div>
-      {t.reason && <p className="pcc-signal-reason">{t.reason}</p>}
+
+      {/* Layer 3: Price drift warning */}
+      {hasDrift && (
+        <div className="pending-drift-warn">
+          ⚠ 价格已偏移 {driftPct >= 0 ? "+" : ""}{driftPct.toFixed(2)}% — 入场价可能不准确
+        </div>
+      )}
+
+      {/* Layer 4: Technical indicators */}
+      {(t.rsi != null || t.momentum_5d != null || t.volume_ratio != null || t.near_breakout != null) && (
+        <div className="pending-tech-grid">
+          {t.rsi != null && (
+            <div className="pending-tech-item">
+              <span className="pending-tech-label">RSI(14)</span>
+              <span className="pending-tech-val" style={{ color: t.rsi > 70 ? "#ef4444" : t.rsi < 30 ? "#22c55e" : "#f59e0b" }}>
+                {t.rsi.toFixed(1)}
+              </span>
+            </div>
+          )}
+          {t.momentum_5d != null && (
+            <div className="pending-tech-item">
+              <span className="pending-tech-label">5日动量</span>
+              <span className="pending-tech-val" style={{ color: t.momentum_5d >= 0 ? "#22c55e" : "#ef4444" }}>
+                {t.momentum_5d >= 0 ? "+" : ""}{t.momentum_5d.toFixed(1)}%
+              </span>
+            </div>
+          )}
+          {t.volume_ratio != null && (
+            <div className="pending-tech-item">
+              <span className="pending-tech-label">量比</span>
+              <span className="pending-tech-val" style={{ color: t.volume_ratio >= 1.5 ? "#22c55e" : "var(--text)" }}>
+                {t.volume_ratio.toFixed(1)}x
+              </span>
+            </div>
+          )}
+          {t.near_breakout != null && (
+            <div className="pending-tech-item">
+              <span className="pending-tech-label">突破信号</span>
+              <span className="pending-tech-val" style={{ color: t.near_breakout ? "#22c55e" : "var(--muted)" }}>
+                {t.near_breakout ? "✓ 近突破" : "否"}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Layer 5: Risk/Reward bar */}
+      {rrRatio != null && risk != null && reward != null && (
+        <div className="pending-rr-wrap">
+          <div className="pending-rr-bar-row">
+            <span style={{ color: "#ef4444", fontSize: 11 }}>风险 ${Math.abs(risk).toFixed(0)}</span>
+            <div className="pending-rr-bar">
+              <div className="pending-rr-loss" style={{ width: `${Math.min(50, 50 / rrRatio)}%` }} />
+              <div className="pending-rr-gain" style={{ width: `${Math.min(50, 50 * (rrRatio > 1 ? 1 : rrRatio))}%` }} />
+            </div>
+            <span style={{ color: "#22c55e", fontSize: 11 }}>收益 ${Math.abs(reward).toFixed(0)}</span>
+          </div>
+          <div className="pending-rr-ratio">
+            <span style={{ color: rrRatio >= 2 ? "#22c55e" : rrRatio >= 1.5 ? "#f59e0b" : "#ef4444", fontWeight: 700 }}>
+              R:R = 1 : {rrRatio.toFixed(1)}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Layer 6: AI reason */}
+      {t.reason && (
+        <div className="pending-ai-reason">
+          <span className="pending-ai-icon">🤖</span>
+          <span>{t.reason}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -511,14 +825,37 @@ const SIGNAL_BG: Record<string, string> = {
   WATCH:      "#f59e0b",
 };
 
-function BuySignalRow({ rank, candidate: c, budget }: { rank: number; candidate: ScanCandidate; budget: BudgetAllocation | null }) {
+type PccSection = "ai" | "sentiment" | null;
+
+function BuySignalRow({ rank, candidate: c, budget, backendOnline }: { rank: number; candidate: ScanCandidate; budget: BudgetAllocation | null; backendOnline: boolean }) {
   const [showModal, setShowModal] = useState(false);
-  const isBuyable = c.signal === "STRONG_BUY" || c.signal === "BUY";
+  const [section, setSection] = useState<PccSection>(null);
+  const [aiResult, setAiResult] = useState<import("../api/client").Analysis | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [sentiment, setSentiment] = useState<import("../api/client").NewsSentiment | null>(null);
+  const [sentLoading, setSentLoading] = useState(false);
+
+  const isBuyable = (c.signal === "STRONG_BUY" || c.signal === "BUY") && !c.owned;
   const portfolioValue = budget?.portfolio_value ?? 100_000;
   const stop = c.stop_loss ?? (c.price ? c.price * 0.97 : undefined);
   const suggestedNotional = isBuyable && stop && c.price && stop < c.price
     ? Math.min(portfolioValue * 0.02 / (c.price - stop) * c.price, portfolioValue * 0.10)
     : null;
+
+  function toggleSection(key: PccSection) {
+    const next = section === key ? null : key;
+    setSection(next);
+    if (next === "ai" && !aiResult && !aiLoading) {
+      setAiLoading(true);
+      api.analyze(c.symbol).then(r => { setAiResult(r); setAiLoading(false); }).catch(() => setAiLoading(false));
+    }
+    if (next === "sentiment" && !sentiment && !sentLoading) {
+      setSentLoading(true);
+      api.analyzeNewsSentiment(c.symbol).then(r => { setSentiment(r); setSentLoading(false); }).catch(() => setSentLoading(false));
+    }
+  }
+
+  const SIG_COLOR: Record<string, string> = { BUY: "#22c55e", SELL: "#ef4444", HOLD: "#64748b" };
 
   return (
     <div className={`pcc-signal-row ${isBuyable ? "pcc-row-buy" : "pcc-row-neutral"}`}>
@@ -543,6 +880,11 @@ function BuySignalRow({ rank, candidate: c, budget }: { rank: number; candidate:
         }}>
           {c.signal?.replace("_", " ")}
         </span>
+        {c.owned && (
+          <span style={{ fontSize: 11, background: "#1e40af", color: "#93c5fd", borderRadius: 4, padding: "2px 6px", fontWeight: 600 }}>
+            已持仓
+          </span>
+        )}
         <span style={{ color: "var(--muted)", fontSize: 11 }}>AI {c.ai_score}/10</span>
         <span style={{ color: "var(--muted)", fontSize: 11 }}>${c.price?.toFixed(2)}</span>
         {suggestedNotional && (
@@ -563,80 +905,325 @@ function BuySignalRow({ rank, candidate: c, budget }: { rank: number; candidate:
             onClick={() => setShowModal(true)}>
             买入
           </button>
+        ) : c.owned ? (
+          <span style={{ color: "#93c5fd", fontSize: 12 }}>持仓中</span>
         ) : (
           <span style={{ color: "var(--muted)", fontSize: 12 }}>观察</span>
         )}
       </div>
       {c.reason && <p className="pcc-signal-reason" style={{ opacity: isBuyable ? 1 : 0.6 }}>{c.reason}</p>}
-    </div>
-  );
-}
 
-// ── Regime Badge ──────────────────────────────────────────────────────────────
-
-const REGIME_STYLE: Record<string, { bg: string; color: string; icon: string }> = {
-  BULL:    { bg: "#16a34a20", color: "#22c55e", icon: "🟢" },
-  NEUTRAL: { bg: "#6366f120", color: "#818cf8", icon: "🔵" },
-  CAUTION: { bg: "#f59e0b20", color: "#f59e0b", icon: "🟡" },
-  BEAR:    { bg: "#ef444420", color: "#ef4444", icon: "🔴" },
-};
-
-function RegimeBadge({ regime: r }: { regime: MarketRegime }) {
-  const s = REGIME_STYLE[r.regime] ?? REGIME_STYLE.NEUTRAL;
-  return (
-    <div className="pcc-regime-badge" style={{ background: s.bg, borderColor: s.color + "40" }}
-      title={r.reason}>
-      <span>{s.icon}</span>
-      <div>
-        <span style={{ color: s.color, fontWeight: 700, fontSize: 12 }}>{r.regime}</span>
-        <span style={{ color: "var(--muted)", fontSize: 10, display: "block" }}>
-          SPY {r.spy_change_pct >= 0 ? "+" : ""}{r.spy_change_pct.toFixed(1)}%
-          {r.block_buys ? " · 买入已暂停" : ` · ${Math.round(r.size_factor * 100)}% 仓位`}
-        </span>
+      {/* Analysis tabs — always visible for owned stocks, optional for others */}
+      <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+        <button
+          onClick={() => toggleSection("ai")}
+          disabled={!backendOnline}
+          style={{
+            fontSize: 11, padding: "2px 10px", borderRadius: 4, border: "none", cursor: "pointer",
+            background: section === "ai" ? "#3730a3" : "#1e293b",
+            color: section === "ai" ? "#a5b4fc" : "var(--muted)",
+          }}>
+          🤖 AI 分析
+        </button>
+        <button
+          onClick={() => toggleSection("sentiment")}
+          disabled={!backendOnline}
+          style={{
+            fontSize: 11, padding: "2px 10px", borderRadius: 4, border: "none", cursor: "pointer",
+            background: section === "sentiment" ? "#3730a3" : "#1e293b",
+            color: section === "sentiment" ? "#a5b4fc" : "var(--muted)",
+          }}>
+          📰 舆情
+        </button>
       </div>
+
+      {section === "ai" && (
+        <div style={{ marginTop: 8, padding: "10px 12px", background: "#0f172a", borderRadius: 6, fontSize: 12 }}>
+          {aiLoading && <span style={{ color: "var(--muted)" }}>分析中…</span>}
+          {aiResult && (
+            <>
+              <div style={{ display: "flex", gap: 12, marginBottom: 8, flexWrap: "wrap" }}>
+                <span style={{ color: SIG_COLOR[aiResult.signal] ?? "#f59e0b", fontWeight: 700 }}>{aiResult.signal}</span>
+                <span style={{ color: "var(--muted)" }}>信心 {Math.round(aiResult.confidence * 100)}%</span>
+                {aiResult.target_price && <span style={{ color: "#22c55e" }}>目标 ${aiResult.target_price.toFixed(2)}</span>}
+                {aiResult.stop_loss && <span style={{ color: "#ef4444" }}>止损 ${aiResult.stop_loss.toFixed(2)}</span>}
+              </div>
+              <p style={{ color: "#cbd5e1", margin: "0 0 6px", lineHeight: 1.5 }}>{aiResult.reasoning}</p>
+              {aiResult.key_risks?.length > 0 && (
+                <div>
+                  <span style={{ color: "var(--muted)", fontSize: 11 }}>风险：</span>
+                  {aiResult.key_risks.map((r, i) => (
+                    <span key={i} style={{ color: "#f59e0b", fontSize: 11, marginLeft: 4 }}>• {r}</span>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {section === "sentiment" && (
+        <div style={{ marginTop: 8, padding: "10px 12px", background: "#0f172a", borderRadius: 6, fontSize: 12 }}>
+          {sentLoading && <span style={{ color: "var(--muted)" }}>加载舆情…</span>}
+          {sentiment && (
+            <>
+              <div style={{ display: "flex", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+                <span style={{ color: sentiment.overall === "BULLISH" ? "#22c55e" : sentiment.overall === "BEARISH" ? "#ef4444" : "#f59e0b", fontWeight: 700 }}>
+                  {sentiment.overall}
+                </span>
+                <span style={{ color: "#cbd5e1" }}>{sentiment.key_insight}</span>
+              </div>
+              {sentiment.watch_for && (
+                <p style={{ color: "#f59e0b", margin: "0 0 6px" }}>⚠️ {sentiment.watch_for}</p>
+              )}
+              {sentiment.items?.slice(0, 3).map((item, i) => (
+                <div key={i} style={{ borderTop: "1px solid #1e293b", paddingTop: 6, marginTop: 6 }}>
+                  <a href={item.url} target="_blank" rel="noreferrer"
+                    style={{ color: "#93c5fd", fontWeight: 600, textDecoration: "none" }}>
+                    {item.title}
+                  </a>
+                  <p style={{ color: "var(--muted)", margin: "2px 0 0", fontSize: 11 }}>{item.summary}</p>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function CircuitBreakerBadge({
-  breaker: b, onReset, resetting,
-}: { breaker: CircuitBreaker; onReset: () => void; resetting: boolean }) {
-  if (!b.triggered) {
-    // Show quiet green status when not triggered
-    return (
-      <div className="pcc-regime-badge" style={{ background: "#16a34a15", borderColor: "#22c55e30" }}
-        title={`今日亏损 ${b.daily_loss_pct.toFixed(2)}%，熔断未触发`}>
-        <span>🛡️</span>
-        <div>
-          <span style={{ color: "#22c55e", fontWeight: 700, fontSize: 12 }}>熔断正常</span>
-          <span style={{ color: "var(--muted)", fontSize: 10, display: "block" }}>
-            今日 {b.daily_loss_pct >= 0 ? "+" : ""}{b.daily_loss_pct.toFixed(2)}%
-          </span>
+// ── Dashboard Top Components ──────────────────────────────────────────────────
+
+function StatsRow({ goal, history }: { goal: GoalProgress | null; history: PortfolioHistory | null }) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const days = history?.days ?? [];
+
+  // Today's P&L — must be from today's date entry
+  const todayDay = days.find(d => d.date === todayStr) ?? (days.length > 0 ? days[days.length - 1] : null);
+  const isToday = todayDay?.date === todayStr;
+  const todayPL  = todayDay?.daily_pl ?? null;
+  const todayPct = todayDay?.daily_return_pct ?? null;
+
+  // Monthly return — total return from history (since base), or from goal if available
+  const monthlyPct = goal?.current_return_pct ?? history?.total_return_pct ?? null;
+
+  return (
+    <div className="pcc-stats-row">
+      <div className="pcc-stat-group">
+        <div className="pcc-stat-main">
+          {todayPL != null ? (
+            <>
+              <span className={todayPL >= 0 ? "up" : "down"}>
+                {todayPL >= 0 ? "+" : "−"}${Math.abs(todayPL).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+              </span>
+              {todayPct != null && (
+                <span className={`pcc-stat-badge ${todayPL >= 0 ? "up" : "down"}`}>
+                  {todayPct >= 0 ? "+" : ""}{todayPct.toFixed(2)}%
+                </span>
+              )}
+            </>
+          ) : <span className="pcc-stat-empty">—</span>}
+        </div>
+        <div className="pcc-stat-label">
+          {isToday ? "今日收益" : todayDay ? `${todayDay.date.slice(5)} 收益` : "今日收益"}
         </div>
       </div>
-    );
-  }
-  return (
-    <div className="pcc-regime-badge" style={{ background: "#ef444425", borderColor: "#ef444460" }}
-      title={b.reason}>
-      <span>🚨</span>
-      <div>
-        <span style={{ color: "#ef4444", fontWeight: 700, fontSize: 12 }}>熔断触发</span>
-        <span style={{ color: "var(--muted)", fontSize: 10, display: "block" }}>
-          亏损 {b.daily_loss_pct.toFixed(2)}% · 买入已停
-        </span>
+
+      <div className="pcc-stat-divider" />
+
+      <div className="pcc-stat-group">
+        <div className="pcc-stat-main">
+          {monthlyPct != null ? (
+            <span className={monthlyPct >= 0 ? "up" : "down"}>
+              {monthlyPct >= 0 ? "+" : ""}{monthlyPct.toFixed(2)}%
+            </span>
+          ) : <span className="pcc-stat-empty">—</span>}
+        </div>
+        <div className="pcc-stat-label">{goal ? "目标期收益" : "总收益"}</div>
       </div>
-      <button
-        onClick={onReset}
-        disabled={resetting}
-        style={{
-          marginLeft: 6, fontSize: 10, padding: "2px 6px",
-          background: "#ef444420", border: "1px solid #ef444440",
-          color: "#ef4444", borderRadius: 4, cursor: "pointer",
-        }}
-      >
-        {resetting ? "…" : "重置"}
-      </button>
+
+      <div className="pcc-stat-divider" />
+
+      <div className="pcc-stat-group">
+        <div className="pcc-stat-main">
+          <span style={{ color: "var(--text)" }}>
+            {goal ? `${goal.target_pct_low.toFixed(0)}–${goal.target_pct_high.toFixed(0)}%` : "—"}
+          </span>
+          {goal && (
+            <span className="pcc-stat-badge" style={{ color: "var(--muted)", background: "var(--bg)" }}>
+              剩 {goal.days_remaining}天
+            </span>
+          )}
+        </div>
+        <div className="pcc-stat-label">月度目标</div>
+      </div>
     </div>
   );
 }
+
+function GoalProgressStrip({ goal }: { goal: GoalProgress }) {
+  const pct = Math.min(100, Math.max(0, goal.current_return_pct / goal.target_pct_high * 100));
+  const color = goal.on_track ? "#22c55e" : goal.current_return_pct >= 0 ? "#f59e0b" : "#ef4444";
+  const loMark = Math.round(goal.target_pct_low / goal.target_pct_high * 100);
+  const aggrLabel: Record<string, string> = { conservative: "稳健", normal: "正常", aggressive: "激进" };
+
+  return (
+    <div className="pcc-progress-strip">
+      <div className="pcc-progress-track">
+        <div className="pcc-progress-fill" style={{ width: `${pct}%`, background: color }} />
+        <div className="pcc-progress-mark" style={{ left: `${loMark}%` }} title={`最低目标 ${goal.target_pct_low}%`} />
+      </div>
+      <div className="pcc-progress-meta">
+        <span style={{ color, fontWeight: 600, fontSize: 11 }}>
+          {goal.on_track ? "✓ 达标轨道" : "⚠ 落后目标"}
+        </span>
+        <span style={{ color: "var(--muted)", fontSize: 11 }}>
+          {aggrLabel[goal.aggression] ?? goal.aggression} · 第{goal.days_elapsed}天 · 起始 ${goal.start_equity.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function cellColor(pct: number): string {
+  if (pct < -1)   return "#dc2626";
+  if (pct < 0)    return "#fca5a5";
+  if (pct < 0.05) return "#1e293b";
+  if (pct < 1)    return "#4ade80";
+  return "#16a34a";
+}
+
+function CompactHeatmap({ days }: { days: PortfolioDay[] }) {
+  const [tooltip, setTooltip] = useState<{ day: PortfolioDay; x: number; y: number } | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+  const now = new Date();
+  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const monthDays = days.filter(d => d.date.startsWith(monthKey));
+  if (monthDays.length === 0) return null;
+
+  return (
+    <div className="pcc-compact-heatmap" ref={ref}>
+      <div className="pcc-heatmap-header">
+        <span className="pcc-heatmap-title">本月每日收益</span>
+        <div className="pcc-heatmap-legend">
+          {([["<−1%","#dc2626"],["−1~0%","#fca5a5"],["≈0","#1e293b"],["0~1%","#4ade80"],[">1%","#16a34a"]] as const).map(([l,c]) => (
+            <span key={l} className="pcc-legend-item">
+              <span className="pcc-legend-swatch" style={{ background: c }} />{l}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="pcc-heatmap-cells">
+        {monthDays.map(d => (
+          <div
+            key={d.date}
+            className="pcc-heatmap-cell"
+            style={{ background: cellColor(d.daily_return_pct) }}
+            onMouseEnter={e => {
+              const rect = ref.current?.getBoundingClientRect();
+              if (rect) setTooltip({ day: d, x: e.clientX - rect.left, y: e.clientY - rect.top });
+            }}
+            onMouseLeave={() => setTooltip(null)}
+          />
+        ))}
+      </div>
+      {tooltip && (
+        <div className="pcc-heatmap-tooltip" style={{ left: tooltip.x + 10, top: Math.max(0, tooltip.y - 56) }}>
+          <div style={{ fontSize: 11, color: "var(--muted)" }}>
+            {new Date(tooltip.day.date + "T12:00").toLocaleDateString("zh-CN", { month: "numeric", day: "numeric", weekday: "short" })}
+          </div>
+          <div className={tooltip.day.daily_pl >= 0 ? "up" : "down"} style={{ fontWeight: 700 }}>
+            {tooltip.day.daily_pl >= 0 ? "+" : "−"}${Math.abs(tooltip.day.daily_pl).toFixed(0)}
+            <span style={{ fontWeight: 400, marginLeft: 4 }}>
+              ({tooltip.day.daily_return_pct >= 0 ? "+" : ""}{tooltip.day.daily_return_pct.toFixed(2)}%)
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const REGIME_COLOR: Record<string, string> = {
+  BULL: "#22c55e", NEUTRAL: "#818cf8", CAUTION: "#f59e0b", BEAR: "#ef4444",
+};
+
+function timeAgo(ts: string | null | undefined): string {
+  if (!ts) return "";
+  const mins = Math.round((Date.now() - new Date(ts).getTime()) / 60000);
+  if (mins < 1) return "刚刚";
+  if (mins < 60) return `${mins}m 前`;
+  return `${Math.floor(mins / 60)}h 前`;
+}
+
+function AgentCards({ pipeline, pendingCount }: { pipeline: PipelineStatus | null; pendingCount: number }) {
+  const agents = [
+    {
+      name: "Maya", role: "市场分析", emoji: "🧠", color: "#6366f1",
+      status: pipeline?.market_context.status ?? "not_run",
+      metric: pipeline?.market_context.regime ?? null,
+      metricColor: REGIME_COLOR[pipeline?.market_context.regime ?? ""] ?? "var(--text)",
+      sub: pipeline?.market_context.aggression ?? null,
+      ts: pipeline?.market_context.generated_at ?? null,
+    },
+    {
+      name: "Scout", role: "选股扫描", emoji: "🔍", color: "#06b6d4",
+      status: pipeline?.scan.status ?? "not_run",
+      metric: pipeline?.scan.candidates != null ? `${pipeline.scan.candidates} 候选` : null,
+      metricColor: "var(--text)",
+      sub: pipeline?.scan.total_screened != null ? `共扫 ${pipeline.scan.total_screened} 只` : null,
+      ts: pipeline?.scan.scanned_at ?? null,
+    },
+    {
+      name: "Rex", role: "交易决策", emoji: "⚡", color: "#f59e0b",
+      status: pipeline?.agent.status ?? "not_run",
+      metric: pendingCount > 0 ? `${pendingCount} 待审批` : pipeline?.agent.signals_found != null ? `${pipeline.agent.signals_found} 信号` : null,
+      metricColor: pendingCount > 0 ? "#f59e0b" : "var(--text)",
+      sub: pipeline?.agent.trades_queued != null ? `${pipeline.agent.trades_queued} 已入队` : null,
+      ts: pipeline?.agent.last_run_at ?? null,
+    },
+    {
+      name: "Vera", role: "策略复盘", emoji: "📈", color: "#22c55e",
+      status: pipeline?.review.status ?? "not_run",
+      metric: pipeline?.review.one_line ?? null,
+      metricColor: "var(--text)",
+      sub: null,
+      ts: pipeline?.review.generated_at ?? null,
+    },
+  ];
+
+  return (
+    <div className="pcc-agents-row">
+      {agents.map((a, i) => (
+        <div key={a.name} className="pcc-agent-wrap">
+          <div className={`pcc-agent-card status-${a.status}`}>
+            <div className="pcc-agent-head">
+              <div className="pcc-agent-avatar" style={{ background: a.color + "20", borderColor: a.color + "40" }}>
+                <span className="pcc-agent-emoji">{a.emoji}</span>
+                <span className={`pcc-agent-dot dot-${a.status}`} />
+              </div>
+              <div>
+                <div className="pcc-agent-name">{a.name}</div>
+                <div className="pcc-agent-role">{a.role}</div>
+              </div>
+            </div>
+            <div className="pcc-agent-body">
+              {a.metric ? (
+                <span className="pcc-agent-metric" style={{ color: a.metricColor }}>{a.metric}</span>
+              ) : (
+                <span className="pcc-agent-metric muted">
+                  {a.status === "running" ? "运行中…" : a.status === "error" ? "出错" : "等待触发"}
+                </span>
+              )}
+              {a.sub && <span className="pcc-agent-sub">{a.sub}</span>}
+            </div>
+            {a.ts && <div className="pcc-agent-time">{timeAgo(a.ts)}</div>}
+          </div>
+          {i < agents.length - 1 && <div className="pcc-agent-arrow">→</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
