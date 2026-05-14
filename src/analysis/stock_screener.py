@@ -62,6 +62,7 @@ Return ONLY a JSON array of exactly {len(candidates)} objects, one per stock."""
     msg = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=4096,
+        temperature=0,
         messages=[{"role": "user", "content": prompt}],
     )
 
