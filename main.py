@@ -60,11 +60,27 @@ def run_analysis_cycle():
             print(f"  [ERROR] {symbol}: {e}")
 
 
+def run_market_context():
+    """Step 1 of pipeline — generate market context (regime + goal progress + sector bias).
+    Runs at 8:00 AM ET, before scan and agent."""
+    from src.analysis.market_context import generate_market_context
+    print("[scheduler] Generating market context…")
+    ctx = generate_market_context()
+    gc  = ctx.get("goal_context", {})
+    print(
+        f"[scheduler] Context: regime={ctx['regime']} aggression={ctx['aggression']} "
+        f"min_score={ctx['min_ai_score']} "
+        f"day={gc.get('days_elapsed')}/{gc.get('days_elapsed',0)+gc.get('days_remaining',0)-1} "
+        f"return={gc.get('current_return_pct',0):+.2f}% "
+        f"need/day={gc.get('daily_return_needed',0):.2f}%"
+    )
+
+
 def run_sp500_scan():
-    """Triggered at market open — scan S&P 500 for buy candidates."""
+    """Step 2 of pipeline — scan S&P 500, then auto-cascade to agent."""
     from api.app import _run_sp500_scan
-    print("[scheduler] Running daily S&P 500 scan…")
-    _run_sp500_scan()
+    print("[scheduler] Running daily S&P 500 scan (cascade→agent)…")
+    _run_sp500_scan(cascade_agent=True)
 
 
 def run_holdings_refresh():
@@ -98,11 +114,12 @@ def run_daily_review():
 
 
 def run_trade_agent():
-    """After analysis cycle — run signal engine and queue pending trades."""
+    """Step 3 of pipeline — run signal engine using market context for dynamic params."""
     import json
     from pathlib import Path
     from api.app import _scan_cache, _holdings_cache, _analysis_cache, _analysis_timestamps
     from src.trader.trade_agent import run_agent
+    from src.analysis.market_context import load_market_context
 
     wl_file = Path("watchlist.json")
     watchlist = json.loads(wl_file.read_text()) if wl_file.exists() else WATCHLIST_DEFAULT
@@ -114,7 +131,20 @@ def run_trade_agent():
     except Exception:
         pass
 
-    print("[scheduler] Running trade agent signal scan…")
+    # ── Read market context → derive agent params ──────────────────────────
+    ctx            = load_market_context()
+    min_ai_score   = ctx.get("min_ai_score", 7)       # 6 / 7 / 8 based on aggression
+    size_scale     = ctx.get("size_scale", 1.0)        # 0.75 / 1.0 / 1.1
+    aggression     = ctx.get("aggression", "normal")
+    goal_ctx       = ctx.get("goal_context", {})
+
+    print(
+        f"[scheduler] Running trade agent | aggression={aggression} "
+        f"min_score={min_ai_score} size_scale={size_scale} "
+        f"day {goal_ctx.get('days_elapsed','?')}/{goal_ctx.get('days_elapsed',0)+goal_ctx.get('days_remaining',0)-1} "
+        f"gap={goal_ctx.get('gap_pct',0):.1f}%"
+    )
+
     summary = run_agent(
         scan_cache=_scan_cache,
         holdings_cache=_holdings_cache,
@@ -122,6 +152,8 @@ def run_trade_agent():
         portfolio_value=portfolio_value,
         analysis_cache=_analysis_cache,
         analysis_timestamps=_analysis_timestamps,
+        min_ai_score_override=min_ai_score,
+        size_scale_override=size_scale,
     )
     print(f"[scheduler] Agent done — {summary.get('trades_queued', 0)} trades queued")
 
@@ -134,20 +166,19 @@ if __name__ == "__main__":
     ET = "America/New_York"
     scheduler = BackgroundScheduler(timezone=ET)
 
-    # S&P 500 scan: 9:31 AM ET (market open) + 12:30 PM ET (midday refresh)
+    # ── Pipeline: 市场分析 → 选股 → 执行 ────────────────────────────────────
+    # Step 1: Market context (8:00 AM ET) — regime + goal progress + sector bias
+    scheduler.add_job(run_market_context, "cron", day_of_week="mon-fri", hour=8, minute=0)
+    # Step 2: S&P 500 scan (9:31 AM ET open + 12:30 PM midday) — uses market context
     scheduler.add_job(run_sp500_scan, "cron", day_of_week="mon-fri", hour=9, minute=31)
     scheduler.add_job(run_sp500_scan, "cron", day_of_week="mon-fri", hour=12, minute=30)
+    # Step 3: Trade agent — cascades automatically from scan (9:31→agent, 12:30→agent)
+    #         Also runs every 30 min intraday to catch sell signals & new setups
+    scheduler.add_job(run_trade_agent, "cron", day_of_week="mon-fri", hour="10-15", minute="2,32")
 
     # Analysis cycle + holdings: every 30 min during market hours Mon–Fri (9 AM–3 PM ET)
     scheduler.add_job(run_analysis_cycle, "cron", day_of_week="mon-fri", hour="9-15", minute="*/30")
     scheduler.add_job(run_holdings_refresh, "cron", day_of_week="mon-fri", hour="9-15", minute="*/30")
-
-    # Trade agent: pre-market 8:30 AM ET — 1 hour before open (uses cached scan + analysis)
-    scheduler.add_job(run_trade_agent, "cron", day_of_week="mon-fri", hour=8, minute=30,
-                      id="agent_premarket", name="Pre-market agent scan (8:30 AM ET)")
-    # Trade agent: after each analysis cycle (offset by 2 min) + after daily scan
-    scheduler.add_job(run_trade_agent, "cron", day_of_week="mon-fri", hour="9-15", minute="2,32")
-    scheduler.add_job(run_trade_agent, "cron", day_of_week="mon-fri", hour=9, minute=40)  # after daily scan
 
     # Order fill sync: every 5 min during market hours
     scheduler.add_job(sync_order_fills, "cron", day_of_week="mon-fri", hour="9-16", minute="*/5")

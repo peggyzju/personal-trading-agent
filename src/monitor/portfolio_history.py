@@ -42,8 +42,26 @@ def _get_alpaca_history() -> dict:
         })
         prev_equity = eq
 
-    current = float(hist.equity[-1]) if hist.equity[-1] else 100_000.0
+    # Use live account equity for today (portfolio history lags until EOD)
+    try:
+        live_equity = float(api.get_account().equity)
+    except Exception:
+        live_equity = None
+
+    current = live_equity or (float(hist.equity[-1]) if hist.equity[-1] else 100_000.0)
     base = float(hist.base_value) if hist.base_value else 100_000.0
+
+    # Patch today's entry with live equity so the chart shows real intraday P&L
+    today_str = date.today().isoformat()
+    if days and live_equity:
+        # Find yesterday's closing equity for today's daily P&L calc
+        yesterday_equity = days[-1]["equity"] if days[-1]["date"] != today_str else (days[-2]["equity"] if len(days) > 1 else base)
+        today_pl = round(live_equity - yesterday_equity, 2)
+        today_pl_pct = round(today_pl / yesterday_equity * 100, 3) if yesterday_equity > 0 else 0
+        if days[-1]["date"] == today_str:
+            days[-1] = {"date": today_str, "equity": round(live_equity, 2), "daily_pl": today_pl, "daily_return_pct": today_pl_pct}
+        else:
+            days.append({"date": today_str, "equity": round(live_equity, 2), "daily_pl": today_pl, "daily_return_pct": today_pl_pct})
 
     return {
         "current_equity": round(current, 2),

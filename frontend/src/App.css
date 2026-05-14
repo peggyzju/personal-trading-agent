@@ -3307,6 +3307,192 @@ body {
   overflow: hidden;
 }
 
+/* ── Dashboard Summary (today + goal merged) ── */
+.pcc-summary {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0;
+  align-items: center;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pcc-summary-today {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-right: 20px;
+  border-right: 1px solid var(--border);
+}
+
+.pcc-summary-goal {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 0 20px;
+}
+
+.pcc-summary-target {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-left: 20px;
+  border-left: 1px solid var(--border);
+  text-align: right;
+}
+
+.pcc-summary-label {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.pcc-summary-big {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.pcc-summary-pct {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.pcc-summary-pct.up   { background: #22c55e18; color: #22c55e; }
+.pcc-summary-pct.down { background: #ef444418; color: #ef4444; }
+
+.pcc-summary-goal-top,
+.pcc-summary-goal-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.pcc-summary-track {
+  position: relative;
+  height: 6px;
+  background: #1e293b;
+  border-radius: 3px;
+  overflow: visible;
+}
+
+.pcc-summary-time-ghost {
+  position: absolute;
+  top: 0; left: 0;
+  height: 100%;
+  background: #334155;
+  border-radius: 3px;
+  opacity: 0.6;
+}
+
+.pcc-summary-fill {
+  position: absolute;
+  top: 0; left: 0;
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.pcc-summary-mark {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 12px;
+  background: #475569;
+  border-radius: 1px;
+  transform: translateX(-50%);
+}
+
+.pcc-account-rows {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pcc-account-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  justify-content: flex-end;
+}
+
+/* ── Agent Pills ── */
+.pcc-agent-pills {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 8px 20px;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pcc-agent-pill-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pcc-agent-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  background: #0f172a;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 11px;
+  transition: border-color 0.2s;
+}
+
+.pcc-agent-pill.status-done    { border-color: #22c55e30; }
+.pcc-agent-pill.status-running { border-color: #3b82f640; background: rgba(59,130,246,.04); }
+.pcc-agent-pill.status-error   { border-color: #ef444440; }
+.pcc-agent-pill.status-not_run { opacity: 0.55; }
+
+.pcc-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pcc-pill-emoji { font-size: 12px; }
+
+.pcc-pill-name {
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.pcc-pill-metric {
+  font-size: 11px;
+  color: var(--text);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pcc-pill-time {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pcc-pill-arrow {
+  color: var(--muted);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
 /* Stats Row */
 .pcc-stats-row {
   display: flex;
@@ -3393,10 +3579,43 @@ body {
   transform: translateX(-50%);
 }
 
+.pcc-progress-time {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: #334155;
+  border-radius: 3px;
+  opacity: 0.5;
+}
+
 .pcc-progress-meta {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
+}
+
+.pcc-progress-chips {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.pcc-progress-chip {
+  font-size: 10px;
+  color: var(--muted);
+  background: #1e293b;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.pcc-progress-chip.warn {
+  color: #f59e0b;
+  border-color: #f59e0b40;
+  background: #f59e0b10;
 }
 
 /* Compact Heatmap */

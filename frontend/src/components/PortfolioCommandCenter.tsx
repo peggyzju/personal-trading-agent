@@ -3,7 +3,7 @@ import { api } from "../api/client";
 import type {
   BudgetAllocation, HoldingsResult, ScanResult,
   AgentState, PendingTrade, HoldingPosition, ScanCandidate, Position,
-  PipelineStatus, GoalProgress, Quote, PortfolioDay,
+  PipelineStatus, GoalProgress, Quote, PortfolioDay, Account,
 } from "../api/client";
 import { TradeModal } from "./TradeModal";
 import type { PortfolioHistory } from "../api/client";
@@ -25,15 +25,16 @@ interface PCC {
   history: PortfolioHistory | null;
   pipeline: PipelineStatus | null;
   goal: GoalProgress | null;
+  account: Account | null;
   quotes: Record<string, Quote>;
 }
 
 export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, autoApprove }: Props) {
-  const [data, setData] = useState<PCC>({ budget: null, holdings: null, positions: [], scan: null, agent: null, history: null, pipeline: null, goal: null, quotes: {} });
+  const [data, setData] = useState<PCC>({ budget: null, holdings: null, positions: [], scan: null, agent: null, history: null, pipeline: null, goal: null, account: null, quotes: {} });
 
   const load = useCallback(async () => {
     if (!backendOnline) return;
-    const [budget, holdings, positions, scan, agent, history, pipeline, goal] = await Promise.allSettled([
+    const [budget, holdings, positions, scan, agent, history, pipeline, goal, account] = await Promise.allSettled([
       api.getBudget(),
       api.getHoldings(),
       api.getPositions(),
@@ -42,6 +43,7 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
       api.getPortfolioHistory(),
       api.getPipelineStatus(),
       api.getGoalProgress(),
+      api.getAccount(),
     ]);
     const newData = {
       budget: budget.status === "fulfilled" ? budget.value : null,
@@ -52,6 +54,7 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
       history: history.status === "fulfilled" ? history.value : null,
       pipeline: pipeline.status === "fulfilled" ? pipeline.value : null,
       goal: goal.status === "fulfilled" ? goal.value : null,
+      account: account.status === "fulfilled" ? account.value : null,
       quotes: {},
     };
     setData(newData);
@@ -161,12 +164,11 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
 
       {/* ── Dashboard top ── */}
       <div className="pcc-dashboard-top">
-        <StatsRow goal={data.goal} history={data.history} />
-        {data.goal && <GoalProgressStrip goal={data.goal} />}
-        {(data.history?.days.length ?? 0) > 0 && (
+        <DashboardSummary goal={data.goal} history={data.history} account={data.account} />
+        {(data.history?.days.length ?? 0) > 10 && (
           <CompactHeatmap days={data.history!.days} />
         )}
-        <AgentCards pipeline={data.pipeline} pendingCount={pendingTrades.length} />
+        <AgentPills pipeline={data.pipeline} pendingCount={pendingTrades.length} />
       </div>
 
       {/* ── Zone labels ── */}
@@ -905,92 +907,114 @@ function BuySignalRow({ rank, candidate: c, budget, backendOnline }: { rank: num
 
 // ── Dashboard Top Components ──────────────────────────────────────────────────
 
-function StatsRow({ goal, history }: { goal: GoalProgress | null; history: PortfolioHistory | null }) {
+function DashboardSummary({ goal, history, account }: { goal: GoalProgress | null; history: PortfolioHistory | null; account: Account | null }) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const days = history?.days ?? [];
-
-  // Today's P&L — must be from today's date entry
   const todayDay = days.find(d => d.date === todayStr) ?? (days.length > 0 ? days[days.length - 1] : null);
-  const isToday = todayDay?.date === todayStr;
   const todayPL  = todayDay?.daily_pl ?? null;
   const todayPct = todayDay?.daily_return_pct ?? null;
+  const isToday  = todayDay?.date === todayStr;
 
-  // Monthly return — total return from history (since base), or from goal if available
-  const monthlyPct = goal?.current_return_pct ?? history?.total_return_pct ?? null;
+  const goalPct   = goal?.current_return_pct ?? null;
+  const fillPct   = goal ? Math.min(100, Math.max(0, goal.current_return_pct / goal.target_pct_high * 100)) : 0;
+  const timePct   = goal ? Math.round(goal.days_elapsed / goal.total_days * 100) : 0;
+  const loMark    = goal ? Math.round(goal.target_pct_low / goal.target_pct_high * 100) : 67;
+  const barColor  = !goal ? "#818cf8" : goal.on_track ? "#22c55e" : goalPct != null && goalPct >= 0 ? "#f59e0b" : "#ef4444";
 
   return (
-    <div className="pcc-stats-row">
-      <div className="pcc-stat-group">
-        <div className="pcc-stat-main">
+    <div className="pcc-summary">
+      {/* left: today */}
+      <div className="pcc-summary-today">
+        <div className="pcc-summary-label">{isToday ? "今日收益" : todayDay ? `${todayDay.date.slice(5)} 收益` : "今日收益"}</div>
+        <div className="pcc-summary-big">
           {todayPL != null ? (
-            <>
-              <span className={todayPL >= 0 ? "up" : "down"}>
-                {todayPL >= 0 ? "+" : "−"}${Math.abs(todayPL).toLocaleString("en-US", { maximumFractionDigits: 0 })}
-              </span>
-              {todayPct != null && (
-                <span className={`pcc-stat-badge ${todayPL >= 0 ? "up" : "down"}`}>
-                  {todayPct >= 0 ? "+" : ""}{todayPct.toFixed(2)}%
-                </span>
-              )}
-            </>
-          ) : <span className="pcc-stat-empty">—</span>}
-        </div>
-        <div className="pcc-stat-label">
-          {isToday ? "今日收益" : todayDay ? `${todayDay.date.slice(5)} 收益` : "今日收益"}
-        </div>
-      </div>
-
-      <div className="pcc-stat-divider" />
-
-      <div className="pcc-stat-group">
-        <div className="pcc-stat-main">
-          {monthlyPct != null ? (
-            <span className={monthlyPct >= 0 ? "up" : "down"}>
-              {monthlyPct >= 0 ? "+" : ""}{monthlyPct.toFixed(2)}%
+            <span className={todayPL >= 0 ? "up" : "down"}>
+              {todayPL >= 0 ? "+" : "−"}${Math.abs(todayPL).toLocaleString("en-US", { maximumFractionDigits: 0 })}
             </span>
-          ) : <span className="pcc-stat-empty">—</span>}
-        </div>
-        <div className="pcc-stat-label">{goal ? "目标期收益" : "总收益"}</div>
-      </div>
-
-      <div className="pcc-stat-divider" />
-
-      <div className="pcc-stat-group">
-        <div className="pcc-stat-main">
-          <span style={{ color: "var(--text)" }}>
-            {goal ? `${goal.target_pct_low.toFixed(0)}–${goal.target_pct_high.toFixed(0)}%` : "—"}
-          </span>
-          {goal && (
-            <span className="pcc-stat-badge" style={{ color: "var(--muted)", background: "var(--bg)" }}>
-              剩 {goal.days_remaining}天
+          ) : <span style={{ color: "var(--muted)" }}>—</span>}
+          {todayPct != null && (
+            <span className={`pcc-summary-pct ${todayPL != null && todayPL >= 0 ? "up" : "down"}`}>
+              {todayPct >= 0 ? "+" : ""}{todayPct.toFixed(2)}%
             </span>
           )}
         </div>
-        <div className="pcc-stat-label">月度目标</div>
       </div>
-    </div>
-  );
-}
 
-function GoalProgressStrip({ goal }: { goal: GoalProgress }) {
-  const pct = Math.min(100, Math.max(0, goal.current_return_pct / goal.target_pct_high * 100));
-  const color = goal.on_track ? "#22c55e" : goal.current_return_pct >= 0 ? "#f59e0b" : "#ef4444";
-  const loMark = Math.round(goal.target_pct_low / goal.target_pct_high * 100);
-  const aggrLabel: Record<string, string> = { conservative: "稳健", normal: "正常", aggressive: "激进" };
-
-  return (
-    <div className="pcc-progress-strip">
-      <div className="pcc-progress-track">
-        <div className="pcc-progress-fill" style={{ width: `${pct}%`, background: color }} />
-        <div className="pcc-progress-mark" style={{ left: `${loMark}%` }} title={`最低目标 ${goal.target_pct_low}%`} />
+      {/* center: goal progress */}
+      <div className="pcc-summary-goal">
+        <div className="pcc-summary-goal-top">
+          <span className="pcc-summary-label">目标期收益</span>
+          <span className="pcc-summary-label" style={{ color: "var(--muted)" }}>
+            {goal ? `第 ${goal.days_elapsed}/${goal.total_days} 天` : ""}
+          </span>
+        </div>
+        <div className="pcc-summary-track">
+          <div className="pcc-summary-time-ghost" style={{ width: `${timePct}%` }} />
+          <div className="pcc-summary-fill" style={{ width: `${fillPct}%`, background: barColor }} />
+          <div className="pcc-summary-mark" style={{ left: `${loMark}%` }} title={`最低目标 ${goal?.target_pct_low}%`} />
+        </div>
+        <div className="pcc-summary-goal-bottom">
+          <span style={{ color: barColor, fontSize: 11, fontWeight: 600 }}>
+            {goalPct != null ? `${goalPct >= 0 ? "+" : ""}${goalPct.toFixed(2)}%` : "—"}
+            {goal && (
+              <span style={{ color: "var(--muted)", fontWeight: 400 }}>
+                {" "}(${(goal.current_equity - goal.start_equity >= 0 ? "+" : "")}{(goal.current_equity - goal.start_equity).toLocaleString("en-US", { maximumFractionDigits: 0 })} / ${(goal.target_equity_low - goal.start_equity).toLocaleString("en-US", { maximumFractionDigits: 0 })})
+                {" · "}{goal.target_pct_low}–{goal.target_pct_high}%
+              </span>
+            )}
+          </span>
+          {goal && !goal.on_track && (
+            <span style={{ color: "#f59e0b", fontSize: 10 }}>⚠ 需 +{goal.daily_return_needed.toFixed(2)}%/天</span>
+          )}
+          {goal && goal.on_track && (
+            <span style={{ color: "#22c55e", fontSize: 10 }}>✓ 达标轨道</span>
+          )}
+        </div>
       </div>
-      <div className="pcc-progress-meta">
-        <span style={{ color, fontWeight: 600, fontSize: 11 }}>
-          {goal.on_track ? "✓ 达标轨道" : "⚠ 落后目标"}
-        </span>
-        <span style={{ color: "var(--muted)", fontSize: 11 }}>
-          {aggrLabel[goal.aggression] ?? goal.aggression} · 第{goal.days_elapsed}天 · 起始 ${goal.start_equity.toLocaleString("en-US", { maximumFractionDigits: 0 })}
-        </span>
+
+      {/* right: target + cash */}
+      <div className="pcc-summary-target">
+        <div className="pcc-summary-label">{goal ? `${goal.total_days}天目标` : "目标"}</div>
+        <div className="pcc-summary-big" style={{ fontSize: 18 }}>
+          {goal ? `${goal.target_pct_low.toFixed(0)}–${goal.target_pct_high.toFixed(0)}%` : "—"}
+        </div>
+        {goal && (
+          <div className="pcc-summary-label" style={{ color: "var(--muted)" }}>
+            剩 {goal.days_remaining} 天
+          </div>
+        )}
+        {account != null && (() => {
+          const cash = account.cash;
+          const reserve = account.portfolio_value * 0.05;
+          const cashOk = cash >= reserve;
+          const rows = [
+            {
+              label: "现金",
+              value: `${cash >= 0 ? "" : "−"}$${Math.abs(cash).toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+              color: cashOk ? "var(--text)" : "#ef4444",
+              badge: cashOk ? null : "⚠ 低于储备",
+              badgeColor: "#ef4444",
+            },
+            {
+              label: "日内次数",
+              value: `${account.daytrade_count} 次`,
+              color: "var(--text)",
+              badge: null,
+              badgeColor: "",
+            },
+          ];
+          return (
+            <div className="pcc-account-rows">
+              {rows.map(r => (
+                <div key={r.label} className="pcc-account-row">
+                  <span className="pcc-summary-label">{r.label}</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: r.color }}>{r.value}</span>
+                  {r.badge && <span style={{ fontSize: 10, color: r.badgeColor }}>{r.badge}</span>}
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -1067,70 +1091,60 @@ function timeAgo(ts: string | null | undefined): string {
   return `${Math.floor(mins / 60)}h 前`;
 }
 
-function AgentCards({ pipeline, pendingCount }: { pipeline: PipelineStatus | null; pendingCount: number }) {
+function AgentPills({ pipeline, pendingCount }: { pipeline: PipelineStatus | null; pendingCount: number }) {
   const agents = [
     {
-      name: "Maya", role: "市场分析", emoji: "🧠", color: "#6366f1",
+      name: "Maya", emoji: "🧠", color: "#6366f1",
       status: pipeline?.market_context.status ?? "not_run",
-      metric: pipeline?.market_context.regime ?? null,
+      metric: pipeline?.market_context.regime
+        ? `${pipeline.market_context.regime} · ${pipeline.market_context.aggression}`
+        : null,
       metricColor: REGIME_COLOR[pipeline?.market_context.regime ?? ""] ?? "var(--text)",
-      sub: pipeline?.market_context.aggression ?? null,
       ts: pipeline?.market_context.generated_at ?? null,
     },
     {
-      name: "Scout", role: "选股扫描", emoji: "🔍", color: "#06b6d4",
+      name: "Scout", emoji: "🔍", color: "#06b6d4",
       status: pipeline?.scan.status ?? "not_run",
       metric: pipeline?.scan.candidates != null ? `${pipeline.scan.candidates} 候选` : null,
       metricColor: "var(--text)",
-      sub: pipeline?.scan.total_screened != null ? `共扫 ${pipeline.scan.total_screened} 只` : null,
       ts: pipeline?.scan.scanned_at ?? null,
     },
     {
-      name: "Rex", role: "交易决策", emoji: "⚡", color: "#f59e0b",
+      name: "Rex", emoji: "⚡", color: "#f59e0b",
       status: pipeline?.agent.status ?? "not_run",
       metric: pendingCount > 0 ? `${pendingCount} 待审批` : pipeline?.agent.signals_found != null ? `${pipeline.agent.signals_found} 信号` : null,
       metricColor: pendingCount > 0 ? "#f59e0b" : "var(--text)",
-      sub: pipeline?.agent.trades_queued != null ? `${pipeline.agent.trades_queued} 已入队` : null,
       ts: pipeline?.agent.last_run_at ?? null,
     },
     {
-      name: "Vera", role: "策略复盘", emoji: "📈", color: "#22c55e",
+      name: "Vera", emoji: "📈", color: "#22c55e",
       status: pipeline?.review.status ?? "not_run",
-      metric: pipeline?.review.one_line ?? null,
+      metric: pipeline?.review.one_line
+        ? pipeline.review.one_line.slice(0, 28) + (pipeline.review.one_line.length > 28 ? "…" : "")
+        : null,
       metricColor: "var(--text)",
-      sub: null,
       ts: pipeline?.review.generated_at ?? null,
     },
   ];
 
+  const dotColor: Record<string, string> = {
+    done: "#22c55e", running: "#3b82f6", error: "#ef4444", not_run: "#475569",
+  };
+
   return (
-    <div className="pcc-agents-row">
+    <div className="pcc-agent-pills">
       {agents.map((a, i) => (
-        <div key={a.name} className="pcc-agent-wrap">
-          <div className={`pcc-agent-card status-${a.status}`}>
-            <div className="pcc-agent-head">
-              <div className="pcc-agent-avatar" style={{ background: a.color + "20", borderColor: a.color + "40" }}>
-                <span className="pcc-agent-emoji">{a.emoji}</span>
-                <span className={`pcc-agent-dot dot-${a.status}`} />
-              </div>
-              <div>
-                <div className="pcc-agent-name">{a.name}</div>
-                <div className="pcc-agent-role">{a.role}</div>
-              </div>
-            </div>
-            <div className="pcc-agent-body">
-              {a.metric ? (
-                <span className="pcc-agent-metric" style={{ color: a.metricColor }}>{a.metric}</span>
-              ) : (
-                <span className="pcc-agent-metric muted">
-                  {a.status === "running" ? "运行中…" : a.status === "error" ? "出错" : "等待触发"}
-                </span>
-              )}
-              {a.sub && <span className="pcc-agent-sub">{a.sub}</span>}
-            </div>
-            {a.ts && <div className="pcc-agent-time">{timeAgo(a.ts)}</div>}
+        <div key={a.name} className="pcc-agent-pill-wrap">
+          <div className={`pcc-agent-pill status-${a.status}`}>
+            <span className="pcc-pill-dot" style={{ background: dotColor[a.status] ?? "#475569" }} />
+            <span className="pcc-pill-emoji">{a.emoji}</span>
+            <span className="pcc-pill-name" style={{ color: a.color }}>{a.name}</span>
+            {a.metric && (
+              <span className="pcc-pill-metric" style={{ color: a.metricColor }}>{a.metric}</span>
+            )}
+            {a.ts && <span className="pcc-pill-time">{timeAgo(a.ts)}</span>}
           </div>
-          {i < agents.length - 1 && <div className="pcc-agent-arrow">→</div>}
+          {i < agents.length - 1 && <span className="pcc-pill-arrow">→</span>}
         </div>
       ))}
     </div>
