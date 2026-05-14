@@ -1085,7 +1085,9 @@ const REGIME_COLOR: Record<string, string> = {
 
 function timeAgo(ts: string | null | undefined): string {
   if (!ts) return "";
-  const mins = Math.round((Date.now() - new Date(ts).getTime()) / 60000);
+  // Append Z if no timezone info to force UTC parsing
+  const normalized = /[Z+]/.test(ts) ? ts : ts + "Z";
+  const mins = Math.round((Date.now() - new Date(normalized).getTime()) / 60000);
   if (mins < 1) return "刚刚";
   if (mins < 60) return `${mins}m 前`;
   return `${Math.floor(mins / 60)}h 前`;

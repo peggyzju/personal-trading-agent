@@ -66,11 +66,14 @@ Return ONLY a JSON array of exactly {len(candidates)} objects, one per stock."""
     )
 
     text = msg.content[0].text
-    match = re.search(r"\[.*\]", text, re.DOTALL)
+    match = re.search(r"\[.*?\]", text, re.DOTALL)
     if not match:
         return candidates[:10]
 
-    ai_results = json.loads(match.group())
+    try:
+        ai_results = json.loads(match.group())
+    except Exception:
+        return candidates[:10]
 
     # merge AI scores back onto technical data
     tech_map = {c["symbol"]: c for c in candidates}

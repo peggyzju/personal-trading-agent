@@ -1,4 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+
+function toUTC(ts: string): Date {
+  return new Date(/[Z+]/.test(ts) ? ts : ts + "Z");
+}
 import { api } from "../api/client";
 import type { ScanCandidate, ScanResult, BudgetAllocation } from "../api/client";
 import { TradeModal } from "./TradeModal";
@@ -217,7 +221,7 @@ export function SignalsView({ backendOnline }: Props) {
           <div className="signals-scan-wrap">
             {scanTime && (
               <span style={{ color: "var(--muted)", fontSize: 11 }}>
-                {new Date(scanTime).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} 更新
+                {toUTC(scanTime).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} 更新
               </span>
             )}
             {totalScreened && (
@@ -304,7 +308,7 @@ function AllSignalsView({
       )}
       {!isRunning && scanTime && (
         <div className="signals-stale-banner">
-          📦 缓存结果 · {new Date(scanTime).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} · 点击「立即扫描」刷新
+          📦 缓存结果 · {toUTC(scanTime).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} · 点击「立即扫描」刷新
         </div>
       )}
       {candidates.map((c, i) => (
@@ -404,9 +408,9 @@ function SignalCard({
         </div>
         <div className="sc-ai-score">
           <div className="sc-ai-bar-wrap">
-            <div className="sc-ai-bar-fill" style={{ width: `${(c.ai_score / 10) * 100}%`, background: aiBarColor(c.ai_score) }} />
+            <div className="sc-ai-bar-fill" style={{ width: `${((c.ai_score ?? 0) / 10) * 100}%`, background: aiBarColor(c.ai_score ?? 0) }} />
           </div>
-          <span className="sc-ai-num">{c.ai_score.toFixed(1)}<span className="sc-ai-denom">/10</span></span>
+          <span className="sc-ai-num">{c.ai_score != null ? c.ai_score.toFixed(1) : "—"}<span className="sc-ai-denom">/10</span></span>
         </div>
       </div>
 
