@@ -24,7 +24,7 @@ export default function App() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [backendOnline, setBackendOnline] = useState(true);
   const [tab, setTab] = useState<Tab>("portfolio");
-  const [autoApprove, setAutoApprove] = useState<{ enabled: boolean; threshold: number }>({ enabled: false, threshold: 0.80 });
+  const [autoApprove, setAutoApprove] = useState<{ enabled: boolean; threshold: number }>({ enabled: true, threshold: 0.0 });
   const [pendingCount, setPendingCount] = useState(0);
   const [regime, setRegime] = useState<MarketRegime | null>(null);
   const [breaker, setBreaker] = useState<CircuitBreaker | null>(null);
@@ -148,10 +148,10 @@ export default function App() {
           className={`hdr-approve-btn${autoApprove.enabled ? " auto" : " manual"}`}
           onClick={toggleAutoApprove}
           title={autoApprove.enabled
-            ? `自动执行已开启 (置信度 ≥${Math.round(autoApprove.threshold * 100)}%)，点击关闭`
-            : "手动审批模式，点击开启自动执行"}
+            ? "自主模式：Agent 自动执行所有交易，点击切换为人工审批"
+            : "人工审批模式：每笔交易需手动确认，点击开启自主模式"}
         >
-          <span className="hdr-approve-label">{autoApprove.enabled ? "自动执行" : "手动审批"}</span>
+          <span className="hdr-approve-label">{autoApprove.enabled ? "自主模式" : "人工审批"}</span>
           <div className={`hdr-toggle${autoApprove.enabled ? " on" : ""}`}>
             <div className="hdr-toggle-dot" />
           </div>

@@ -339,7 +339,8 @@ def _run_sp500_scan(cascade_agent: bool = False):
         from src.monitor.sp500_scanner import enrich_with_fundamentals
         top_tech = enrich_with_fundamentals(top_tech)
         print(f"[scan] Fundamentals enriched. Running AI scoring…")
-        top_ai = _sanitize_floats(ai_score_candidates(top_tech))
+        _scan_notes = [n["text"] for n in _load_notes() if n.get("active", True)]
+        top_ai = _sanitize_floats(ai_score_candidates(top_tech, strategy_notes=_scan_notes or None))
 
         # Apply sector bias: adjust ai_score ±1 based on sector momentum
         if symbol_bias and top_ai:
@@ -1093,35 +1094,108 @@ def trigger_backtest(
 # ── Scheduler: auto-trigger after market close ────────────────────────────────
 
 def _start_scheduler():
-    """Background thread that triggers strategy review at 4:15 PM ET (Mon-Fri)."""
+    """Background threads: Rex every 30 min during market hours + Vera at close + event triggers."""
     import time
     from datetime import datetime, timezone, timedelta
 
-    ET = timezone(timedelta(hours=-4))   # EDT (switches to -5 in Nov, close enough)
+    ET = timezone(timedelta(hours=-4))   # EDT (approx; close enough for trading hours)
+
+    # ── Shared state ────────────────────────────────────────────────────────────
+    review_triggered:  set[str] = set()   # dates where close-review ran
+    vera_extra_dates:  set[str] = set()   # dates where intraday Vera already fired
+    rex_last_run:      dict = {"ts": 0.0} # last Rex run timestamp (epoch seconds)
+    last_regime:       dict = {"value": None}
+
+    REX_INTERVAL_SECS  = 30 * 60   # 30 minutes
+    DAILY_LOSS_TRIGGER = -0.02     # -2% daily loss triggers Vera
+    POSITION_DD_TRIGGER = -0.05    # -5% position drawdown triggers Vera
+
+    def _market_open(now_et: datetime) -> bool:
+        h, m = now_et.hour, now_et.minute
+        return now_et.weekday() < 5 and (9, 30) <= (h, m) <= (16, 0)
+
+    def _check_event_triggers(today_str: str):
+        """Fire Vera mid-day if daily loss or position drawdown threshold crossed."""
+        if today_str in vera_extra_dates:
+            return
+        try:
+            from src.monitor.portfolio_history import get_history
+            hist = get_history()
+            days = hist.get("days", [])
+            if days:
+                today_return = days[-1].get("daily_return_pct", 0) / 100
+                if today_return <= DAILY_LOSS_TRIGGER:
+                    print(f"[scheduler] Event trigger: daily loss {today_return:.1%} ≤ {DAILY_LOSS_TRIGGER:.0%} — running Vera")
+                    vera_extra_dates.add(today_str)
+                    _run_strategy_review()
+                    return
+        except Exception:
+            pass
+        try:
+            from src.trader.alpaca_trader import get_positions
+            for pos in get_positions():
+                pct = float(getattr(pos, "unrealized_plpc", 0) or 0)
+                if pct <= POSITION_DD_TRIGGER:
+                    sym = getattr(pos, "symbol", "?")
+                    print(f"[scheduler] Event trigger: {sym} drawdown {pct:.1%} — running Vera")
+                    vera_extra_dates.add(today_str)
+                    _run_strategy_review()
+                    return
+        except Exception:
+            pass
+
+    def _check_regime_change():
+        """Detect regime flip and log it (future: adjust Rex behaviour)."""
+        try:
+            from src.monitor.market_regime import get_market_regime
+            r = get_market_regime()
+            current = r.get("regime")
+            if last_regime["value"] and last_regime["value"] != current:
+                print(f"[scheduler] Regime changed: {last_regime['value']} → {current}")
+            last_regime["value"] = current
+        except Exception:
+            pass
 
     def _loop():
-        triggered_dates: set[str] = set()
         while True:
-            now_et = datetime.now(ET)
+            now_et  = datetime.now(ET)
             today_str = now_et.strftime("%Y-%m-%d")
-            h, m = now_et.hour, now_et.minute
+            h, m    = now_et.hour, now_et.minute
             is_weekday = now_et.weekday() < 5
+
+            # ── P1: Rex every 30 min during market hours ───────────────────────
+            if _market_open(now_et):
+                elapsed = time.time() - rex_last_run["ts"]
+                if elapsed >= REX_INTERVAL_SECS:
+                    print(f"[scheduler] Market open — running Rex (last run {elapsed/60:.0f}m ago)")
+                    rex_last_run["ts"] = time.time()
+                    try:
+                        _run_agent_internal()
+                    except Exception as e:
+                        print(f"[scheduler] Rex error: {e}")
+
+                # ── P2: Event-driven Vera ──────────────────────────────────────
+                _check_event_triggers(today_str)
+                _check_regime_change()
+
+            # ── Close-of-day Vera at 4:15 PM ──────────────────────────────────
             after_close = (h, m) >= (16, 15)
-            already_done = today_str in triggered_dates or (
+            review_done = today_str in review_triggered or (
                 _review_cache.get("latest", {}).get("date") == today_str
             )
-            if is_weekday and after_close and not already_done:
-                print(f"[scheduler] Market closed — triggering strategy review for {today_str}")
-                triggered_dates.add(today_str)
+            if is_weekday and after_close and not review_done:
+                print(f"[scheduler] Market closed — triggering end-of-day review for {today_str}")
+                review_triggered.add(today_str)
                 try:
                     _run_strategy_review()
                 except Exception as e:
                     print(f"[scheduler] Review error: {e}")
+
             time.sleep(60)
 
-    t = threading.Thread(target=_loop, daemon=True, name="review-scheduler")
+    t = threading.Thread(target=_loop, daemon=True, name="trading-scheduler")
     t.start()
-    print("[scheduler] Market-close review scheduler started (checks every 60s, fires at 4:15 PM ET)")
+    print("[scheduler] Autonomous scheduler started: Rex every 30 min (market hours) + Vera at 4:15 PM ET")
 
 
 # ── Strategy Review ──────────────────────────────────────────────────────────

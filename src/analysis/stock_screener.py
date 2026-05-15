@@ -6,7 +6,7 @@ import anthropic
 from src.config import get_anthropic_key
 
 
-def ai_score_candidates(candidates: list[dict]) -> list[dict]:
+def ai_score_candidates(candidates: list[dict], strategy_notes: list[str] | None = None) -> list[dict]:
     """
     Send top technical candidates to Claude in one batch call.
     Returns top 10 with AI scores, signals, reasons, and entry notes.
@@ -35,7 +35,13 @@ def ai_score_candidates(candidates: list[dict]) -> list[dict]:
         for i, c in enumerate(candidates)
     )
 
+    notes_section = ""
+    if strategy_notes:
+        notes_text = "\n".join(f"- {n}" for n in strategy_notes)
+        notes_section = f"\nActive strategy guidelines (apply as additional filters when scoring):\n{notes_text}\n"
+
     prompt = f"""You are a professional equity analyst. These stocks passed a technical momentum screen today. Rate each one objectively — some may be worth buying, others may be overextended or lacking conviction.
+{notes_section}
 
 {rows}
 

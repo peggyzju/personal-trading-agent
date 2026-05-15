@@ -688,34 +688,34 @@ _AUTO_APPROVE_FILE = Path(__file__).parent.parent.parent / "data" / "auto_approv
 
 def _get_auto_approve_threshold() -> Optional[float]:
     """
-    Returns the auto-approve confidence threshold, or None if disabled.
-    Config stored in data/auto_approve.json: {"enabled": true, "threshold": 0.80}
+    Returns the auto-approve confidence threshold, or None if autonomous mode is off.
+    Default: autonomous (threshold=0.0 — execute all trades).
     """
     try:
         if _AUTO_APPROVE_FILE.exists():
             cfg = json.loads(_AUTO_APPROVE_FILE.read_text())
-            if cfg.get("enabled") and cfg.get("threshold"):
-                return float(cfg["threshold"])
+            if not cfg.get("enabled", True):
+                return None   # manually disabled
+            return float(cfg.get("threshold", 0.0))
     except Exception:
         pass
-    return None  # disabled by default
+    return 0.0   # default: autonomous, execute all trades
 
 
-def set_auto_approve(enabled: bool, threshold: float = 0.80) -> dict:
-    """Enable or disable auto-approve. Persisted to disk."""
+def set_auto_approve(enabled: bool, threshold: float = 0.0) -> dict:
+    """Enable or disable autonomous execution. Persisted to disk."""
     cfg = {"enabled": enabled, "threshold": round(threshold, 2)}
     _AUTO_APPROVE_FILE.parent.mkdir(exist_ok=True)
     _AUTO_APPROVE_FILE.write_text(json.dumps(cfg))
-    status = f"Auto-approve {'ENABLED' if enabled else 'DISABLED'} (threshold={threshold})"
-    print(f"[agent] {status}")
+    print(f"[agent] Autonomous execution {'ENABLED' if enabled else 'DISABLED'} (threshold={threshold})")
     return cfg
 
 
 def get_auto_approve_config() -> dict:
-    """Return current auto-approve config."""
+    """Return current autonomous execution config."""
     try:
         if _AUTO_APPROVE_FILE.exists():
             return json.loads(_AUTO_APPROVE_FILE.read_text())
     except Exception:
         pass
-    return {"enabled": False, "threshold": 0.80}
+    return {"enabled": True, "threshold": 0.0}   # default: autonomous
