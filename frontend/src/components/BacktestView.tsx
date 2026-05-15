@@ -50,7 +50,7 @@ export function BacktestView({ backendOnline }: Props) {
         <div>
           <h2>📊 策略回测</h2>
           <span className="scan-meta">
-            基于自选股 + 扫描候选股做前向模拟 · 无未来数据泄漏
+            基于自选股 + 扫描候选股做前向模拟 · 无未来数据泄漏 · 仅技术信号（不含 AI 评分）· ATR 定仓
           </span>
         </div>
       </div>
@@ -194,15 +194,15 @@ function EquityCurve({ curve }: { curve: number[] }) {
 
   return (
     <div className="equity-curve-section">
-      <h3 className="backtest-section-title">资金曲线（初始 $100）</h3>
+      <h3 className="backtest-section-title">资金曲线（ATR定仓，初始$100k标准化）</h3>
       <div className="equity-curve-wrap">
         <svg viewBox={`0 0 ${w} ${h}`} className="equity-svg" preserveAspectRatio="none">
           {/* Baseline at 100 */}
           <line x1={pad} y1={baseline_y} x2={w - pad} y2={baseline_y}
             stroke="#2a2d3a" strokeWidth="1" strokeDasharray="4,4" />
-          {/* Fill */}
+          {/* Fill — anchored to the 100-baseline, not chart bottom */}
           <polygon
-            points={`${pad},${h - pad} ${points} ${w - pad},${h - pad}`}
+            points={`${pad},${baseline_y} ${points} ${w - pad},${baseline_y}`}
             fill={lineColor} opacity="0.08"
           />
           {/* Line */}

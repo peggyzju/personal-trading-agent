@@ -148,28 +148,54 @@ def _simulate_symbol(
 
 # ── Stats ─────────────────────────────────────────────────────────────────────
 
+_INITIAL_CAPITAL = 100_000.0
+_RISK_PCT        = 0.02        # 2% portfolio risk per trade (matches live strategy)
+_MAX_POS_PCT     = 0.12        # cap single position at 12% of capital
+
+
 def _compute_stats(trades: list[dict], spy_return: float) -> dict:
     if not trades:
         return {"error": "no_trades"}
+
+    # ── ATR-based position sizing ──────────────────────────────────────────────
+    # Mirrors live strategy: risk 2% of capital on a 2×ATR stop.
+    # Dollar P&L replaces raw pnl_pct for equity curve — fixes sequential-
+    # compounding bias when multiple symbols are tested together.
+    for t in trades:
+        atr   = t.get("atr_at_entry", 0)
+        entry = t.get("entry_price", 1) or 1
+        if atr > 0:
+            shares   = (_INITIAL_CAPITAL * _RISK_PCT) / (2 * atr)
+            notional = min(shares * entry, _INITIAL_CAPITAL * _MAX_POS_PCT)
+        else:
+            notional = _INITIAL_CAPITAL * 0.05   # 5% fallback for missing ATR
+        t["notional"]   = round(notional, 2)
+        t["dollar_pnl"] = round(notional * t["pnl_pct"] / 100, 2)
 
     pnls = [t["pnl_pct"] for t in trades]
     winners = [p for p in pnls if p > 0]
     losers  = [p for p in pnls if p <= 0]
 
-    win_rate = len(winners) / len(pnls) * 100
-    avg_win  = float(np.mean(winners)) if winners else 0.0
-    avg_loss = float(np.mean(losers))  if losers  else 0.0
-    profit_factor = (
-        abs(sum(winners) / sum(losers)) if sum(losers) != 0 else float("inf")
-    )
+    win_rate      = len(winners) / len(pnls) * 100
+    avg_win       = float(np.mean(winners)) if winners else 0.0
+    avg_loss      = float(np.mean(losers))  if losers  else 0.0
+    profit_factor = abs(sum(winners) / sum(losers)) if sum(losers) != 0 else float("inf")
 
-    # Cumulative equity curve (equal-weight, each trade = 1 unit)
-    equity = [100.0]
-    for p in pnls:
-        equity.append(equity[-1] * (1 + p / 100))
+    # ── Portfolio equity curve ────────────────────────────────────────────────
+    # Sorted by exit_date so the curve reflects capital as each trade closes.
+    # Multiple concurrent positions are approximated (not intra-day NAV).
+    sorted_by_exit = sorted(trades, key=lambda t: t["exit_date"])
+    capital = _INITIAL_CAPITAL
+    equity_abs = [capital]
+    for t in sorted_by_exit:
+        capital += t["dollar_pnl"]
+        equity_abs.append(capital)
 
-    # Max drawdown
-    peak = equity[0]
+    # Normalise to 100 for display
+    equity = [round(v / _INITIAL_CAPITAL * 100, 2) for v in equity_abs]
+
+    # ── Max drawdown (on normalised curve) ───────────────────────────────────
+    peak   = equity[0]
     max_dd = 0.0
     for e in equity:
         if e > peak:
@@ -178,11 +204,13 @@ def _compute_stats(trades: list[dict], spy_return: float) -> dict:
         if dd > max_dd:
             max_dd = dd
 
-    # Sharpe (annualise assuming ~252 trading days / year, avg hold ~hold_days)
+    # ── Sharpe ratio (per-trade approximation, annualised) ───────────────────
+    # Uses per-trade pnl_pct, not daily returns — treats each trade as one
+    # observation. Annualised via average holding period.
     if len(pnls) > 1:
         returns_arr = np.array(pnls)
-        avg_hold = float(np.mean([t["days_held"] for t in trades])) if trades else 10.0
-        ann_factor = np.sqrt(252 / max(avg_hold, 1))   # annualise using actual avg hold period
+        avg_hold    = float(np.mean([t["days_held"] for t in trades])) or 10.0
+        ann_factor  = np.sqrt(252 / max(avg_hold, 1))
         sharpe = float(
             np.mean(returns_arr) / np.std(returns_arr) * ann_factor
         ) if np.std(returns_arr) > 0 else 0.0
@@ -191,26 +219,26 @@ def _compute_stats(trades: list[dict], spy_return: float) -> dict:
 
     total_return = equity[-1] - 100
 
-    # Exit breakdown
+    # ── Exit breakdown ────────────────────────────────────────────────────────
     reasons: dict[str, int] = {}
     for t in trades:
         r = t["exit_reason"]
         reasons[r] = reasons.get(r, 0) + 1
 
     return {
-        "total_trades": len(trades),
-        "win_rate": round(win_rate, 1),
-        "avg_win_pct": round(avg_win, 2),
-        "avg_loss_pct": round(avg_loss, 2),
-        "profit_factor": round(profit_factor, 2),
+        "total_trades":     len(trades),
+        "win_rate":         round(win_rate, 1),
+        "avg_win_pct":      round(avg_win, 2),
+        "avg_loss_pct":     round(avg_loss, 2),
+        "profit_factor":    round(profit_factor, 2),
         "total_return_pct": round(total_return, 2),
-        "spy_return_pct": round(spy_return, 2),
-        "alpha_pct": round(total_return - spy_return, 2),
+        "spy_return_pct":   round(spy_return, 2),
+        "alpha_pct":        round(total_return - spy_return, 2),
         "max_drawdown_pct": round(max_dd, 2),
-        "sharpe_ratio": round(sharpe, 2),
-        "exit_breakdown": reasons,
-        "equity_curve": [round(e, 2) for e in equity],
-        "trades": sorted(trades, key=lambda t: t["entry_date"]),
+        "sharpe_ratio":     round(sharpe, 2),
+        "exit_breakdown":   reasons,
+        "equity_curve":     equity,
+        "trades":           sorted(trades, key=lambda t: t["entry_date"]),
     }
 
 
