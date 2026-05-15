@@ -12,10 +12,8 @@ const PRIORITY_COLOR: Record<string, string> = {
 
 export function StrategyReviewPanel({ backendOnline }: Props) {
   const [review, setReview] = useState<StrategyReview | null>(null);
-  const [history, setHistory] = useState<StrategyReview[]>([]);
   const [generating, setGenerating] = useState(false);
   const [status, setStatus] = useState<string>("");
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!backendOnline) return;
@@ -24,11 +22,6 @@ export function StrategyReviewPanel({ backendOnline }: Props) {
       if (r && "date" in r) setReview(r as StrategyReview);
       else if ((r as { status?: string })?.status === "running") setStatus("running");
     } catch { /* no review yet */ }
-
-    try {
-      const all = await api.getStrategyReviews();
-      setHistory(all);
-    } catch { /* empty */ }
   }, [backendOnline]);
 
   useEffect(() => {
@@ -42,7 +35,6 @@ export function StrategyReviewPanel({ backendOnline }: Props) {
     setStatus("running");
     try {
       await api.generateStrategyReview();
-      // Poll until done
       let tries = 0;
       const poll = setInterval(async () => {
         tries++;
@@ -53,7 +45,6 @@ export function StrategyReviewPanel({ backendOnline }: Props) {
             setStatus("done");
             clearInterval(poll);
             setGenerating(false);
-            load(); // refresh history
           }
         } catch { /* still running */ }
         if (tries > 30) { clearInterval(poll); setGenerating(false); }
@@ -64,17 +55,12 @@ export function StrategyReviewPanel({ backendOnline }: Props) {
     }
   }
 
-  const displayed = selectedDate
-    ? history.find(r => r.date === selectedDate) ?? review
-    : review;
-
   if (!backendOnline) {
     return <div className="brief-offline">启动后端服务以查看策略复盘。</div>;
   }
 
   return (
     <div className="sr-container">
-      {/* Header */}
       <div className="sr-header">
         <div>
           <h2 className="sr-title">📈 每日策略复盘</h2>
@@ -89,29 +75,7 @@ export function StrategyReviewPanel({ backendOnline }: Props) {
         </button>
       </div>
 
-      {/* History tabs */}
-      {history.length > 1 && (
-        <div className="sr-date-pills">
-          <button
-            className={`sr-date-pill${!selectedDate ? " active" : ""}`}
-            onClick={() => setSelectedDate(null)}
-          >
-            最新
-          </button>
-          {history.slice(0, 7).map(r => (
-            <button
-              key={r.date}
-              className={`sr-date-pill${selectedDate === r.date ? " active" : ""}`}
-              onClick={() => setSelectedDate(r.date)}
-            >
-              {new Date(r.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* No data state */}
-      {!displayed && status !== "running" && (
+      {!review && status !== "running" && (
         <div className="brief-empty" style={{ padding: "40px 0" }}>
           <p className="brief-empty-text">
             暂无复盘数据。收盘后（美东 4:15 PM）自动生成，或点击「立即生成」。
@@ -119,13 +83,13 @@ export function StrategyReviewPanel({ backendOnline }: Props) {
         </div>
       )}
 
-      {status === "running" && !displayed && (
+      {status === "running" && !review && (
         <div className="brief-empty" style={{ padding: "40px 0" }}>
           <p className="brief-empty-text">⏳ Claude 正在分析今日交易数据…（约 15-20 秒）</p>
         </div>
       )}
 
-      {displayed && <ReviewCard review={displayed} />}
+      {review && <ReviewCard review={review} />}
 
       <StrategyNotesPanel backendOnline={backendOnline} />
     </div>
