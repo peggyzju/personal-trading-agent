@@ -478,7 +478,28 @@ export const api = {
   getPipelineStatus: () => get<PipelineStatus>("/pipeline/status"),
   getGoalProgress: () => get<GoalProgress>("/goal/progress"),
   getScanNasdaq: () => get<ScanResult>("/scan/nasdaq"),
+  getNotes: () => get<StrategyNote[]>("/strategy/notes"),
+  addNote: (text: string, source_review_date?: string) =>
+    post<StrategyNote>("/strategy/notes", { text, source_review_date }),
+  deleteNote: (id: string) => del<{ status: string }>(`/strategy/notes/${id}`),
+  getOverridesHistory: () => get<OverrideHistoryEntry[]>("/strategy/overrides/history"),
 };
+
+export interface StrategyNote {
+  id: string;
+  text: string;
+  source_review_date: string | null;
+  created_at: string;
+  active: boolean;
+}
+
+export interface OverrideHistoryEntry {
+  changed_at: string;
+  source_review_date: string | null;
+  reason: string;
+  before: { risk_pct?: number; max_position_pct?: number; min_ai_score?: number | null; stop_loss_pct?: number };
+  after:  { risk_pct?: number; max_position_pct?: number; min_ai_score?: number | null; stop_loss_pct?: number };
+}
 
 export interface PipelineStage {
   status: "not_run" | "running" | "done" | "error";

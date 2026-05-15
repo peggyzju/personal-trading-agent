@@ -52,6 +52,7 @@ def _save_to_disk(pending: dict[str, dict]):
 
 _LOG_FILE      = Path(__file__).parent.parent.parent / "data" / "agent_log.json"
 _OVERRIDES_FILE = Path(__file__).parent.parent.parent / "data" / "strategy_overrides.json"
+_NOTES_FILE     = Path(__file__).parent.parent.parent / "data" / "strategy_notes.json"
 
 def _load_strategy_overrides() -> dict:
     try:
@@ -60,6 +61,15 @@ def _load_strategy_overrides() -> dict:
     except Exception:
         pass
     return {}
+
+def _load_active_strategy_notes() -> list[str]:
+    try:
+        if _NOTES_FILE.exists():
+            notes = json.loads(_NOTES_FILE.read_text())
+            return [n["text"] for n in notes if n.get("active", True)]
+    except Exception:
+        pass
+    return []
 
 def _load_log() -> list[dict]:
     try:
@@ -342,6 +352,11 @@ def run_agent(
         max_notional  = portfolio_value * max_pos_pct
         if _ov:
             print(f"[agent] strategy overrides loaded: risk={risk_pct*100:.1f}% max_pos={max_pos_pct*100:.0f}% sl={stop_loss_pct*100:.1f}% (reason: {_ov.get('reason','')})")
+
+        # ── Load active strategy notes (qualitative guidance from reviews) ─────
+        _strategy_notes = _load_active_strategy_notes()
+        if _strategy_notes:
+            print(f"[agent] {len(_strategy_notes)} strategy note(s) loaded for AI context")
         MIN_CASH_PCT  = 0.05   # always keep ≥5% of portfolio as cash
 
         # ── Problem 1: Market Regime gate ─────────────────────────────────────
@@ -527,7 +542,7 @@ def run_agent(
                         quote = get_quote(symbol)
                         ohlcv = get_ohlcv(symbol)
                         news  = get_news(symbol, limit=5)
-                        cached = analyze(symbol, ohlcv, quote, news=news)
+                        cached = analyze(symbol, ohlcv, quote, news=news, strategy_notes=_strategy_notes or None)
                         if analysis_cache is not None:
                             analysis_cache[symbol] = cached
                         if analysis_timestamps is not None:

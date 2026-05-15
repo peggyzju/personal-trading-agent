@@ -1253,7 +1253,44 @@ def trigger_strategy_review(background_tasks: BackgroundTasks):
     return {"status": "started"}
 
 
-_OVERRIDES_FILE = Path(__file__).parent.parent / "data" / "strategy_overrides.json"
+_OVERRIDES_FILE         = Path(__file__).parent.parent / "data" / "strategy_overrides.json"
+_OVERRIDES_HISTORY_FILE = Path(__file__).parent.parent / "data" / "strategy_overrides_history.json"
+_NOTES_FILE             = Path(__file__).parent.parent / "data" / "strategy_notes.json"
+
+
+def _load_notes() -> list:
+    try:
+        if _NOTES_FILE.exists():
+            return json.loads(_NOTES_FILE.read_text())
+    except Exception:
+        pass
+    return []
+
+def _save_notes(notes: list):
+    _NOTES_FILE.parent.mkdir(exist_ok=True)
+    _NOTES_FILE.write_text(json.dumps(notes, indent=2))
+
+def _load_overrides_history() -> list:
+    try:
+        if _OVERRIDES_HISTORY_FILE.exists():
+            return json.loads(_OVERRIDES_HISTORY_FILE.read_text())
+    except Exception:
+        pass
+    return []
+
+def _append_overrides_history(before: dict, after: dict, reason: str, source_review_date: str | None = None):
+    history = _load_overrides_history()
+    from datetime import datetime as _dt
+    history.append({
+        "changed_at": _dt.utcnow().isoformat(),
+        "source_review_date": source_review_date,
+        "reason": reason,
+        "before": {k: before.get(k) for k in ("risk_pct", "max_position_pct", "min_ai_score", "stop_loss_pct")},
+        "after":  {k: after.get(k)  for k in ("risk_pct", "max_position_pct", "min_ai_score", "stop_loss_pct")},
+    })
+    _OVERRIDES_HISTORY_FILE.parent.mkdir(exist_ok=True)
+    _OVERRIDES_HISTORY_FILE.write_text(json.dumps(history[-50:], indent=2))  # keep last 50
+
 
 def _load_overrides() -> dict:
     try:
@@ -1280,11 +1317,12 @@ def get_strategy_overrides():
 
 
 class OverridesRequest(BaseModel):
-    risk_pct:         Optional[float] = None
-    max_position_pct: Optional[float] = None
-    min_ai_score:     Optional[float] = None
-    stop_loss_pct:    Optional[float] = None
-    reason:           Optional[str]   = None
+    risk_pct:           Optional[float] = None
+    max_position_pct:   Optional[float] = None
+    min_ai_score:       Optional[float] = None
+    stop_loss_pct:      Optional[float] = None
+    reason:             Optional[str]   = None
+    source_review_date: Optional[str]   = None
 
 
 @app.post("/api/strategy/overrides")
@@ -1292,14 +1330,58 @@ def save_strategy_overrides(req: OverridesRequest):
     """Save adopted parameter overrides to disk. Agents read these on next run."""
     from datetime import datetime as _dt
     existing = _load_overrides()
-    patch = {k: v for k, v in req.dict().items() if v is not None and k != "reason"}
+    patch = {k: v for k, v in req.dict().items() if v is not None and k not in ("reason", "source_review_date")}
     updated = {**existing, **patch, "reason": req.reason, "updated_at": _dt.utcnow().isoformat()}
     try:
         _OVERRIDES_FILE.parent.mkdir(exist_ok=True)
         _OVERRIDES_FILE.write_text(json.dumps(updated, indent=2))
+        _append_overrides_history(existing, updated, req.reason or "", req.source_review_date)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not save overrides: {e}")
     return updated
+
+
+@app.get("/api/strategy/overrides/history")
+def get_overrides_history():
+    """Return version history of all override changes."""
+    return _load_overrides_history()
+
+
+# ── Strategy Notes ─────────────────────────────────────────────────────────────
+
+class NoteRequest(BaseModel):
+    text: str
+    source_review_date: Optional[str] = None
+
+
+@app.get("/api/strategy/notes")
+def get_strategy_notes():
+    return _load_notes()
+
+
+@app.post("/api/strategy/notes")
+def add_strategy_note(req: NoteRequest):
+    import uuid as _uuid
+    from datetime import datetime as _dt
+    notes = _load_notes()
+    note = {
+        "id": str(_uuid.uuid4())[:8],
+        "text": req.text,
+        "source_review_date": req.source_review_date,
+        "created_at": _dt.utcnow().isoformat(),
+        "active": True,
+    }
+    notes.append(note)
+    _save_notes(notes)
+    return note
+
+
+@app.delete("/api/strategy/notes/{note_id}")
+def delete_strategy_note(note_id: str):
+    notes = _load_notes()
+    notes = [n for n in notes if n.get("id") != note_id]
+    _save_notes(notes)
+    return {"status": "deleted"}
 
 
 @app.post("/api/strategy/param-extract")

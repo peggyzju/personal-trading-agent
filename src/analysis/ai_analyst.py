@@ -9,7 +9,7 @@ from src.analysis.technical_indicators import compute_all, indicator_summary
 from src.config import get_anthropic_key
 
 
-def analyze(symbol: str, ohlcv: pd.DataFrame, quote: dict, news: list[dict] | None = None) -> dict:
+def analyze(symbol: str, ohlcv: pd.DataFrame, quote: dict, news: list[dict] | None = None, strategy_notes: list[str] | None = None) -> dict:
     client = anthropic.Anthropic(api_key=get_anthropic_key())
 
 
@@ -30,6 +30,11 @@ def analyze(symbol: str, ohlcv: pd.DataFrame, quote: dict, news: list[dict] | No
         headlines = "\n".join(f'- [{n.get("source", "")}] {n["title"]}' for n in news[:6])
         news_section = f"\nRecent news:\n{headlines}\n"
 
+    notes_section = ""
+    if strategy_notes:
+        notes_text = "\n".join(f"- {n}" for n in strategy_notes)
+        notes_section = f"\nActive strategy guidelines (from recent reviews — apply these as additional filters):\n{notes_text}\n"
+
     prompt = f"""You are a quantitative analyst. Analyze this US stock and give a trading recommendation.
 
 Symbol: {symbol}
@@ -38,7 +43,7 @@ Change today: {quote['change_pct']:+.2f}%
 
 Technical indicators:
 {ind_text}
-{news_section}
+{news_section}{notes_section}
 Recent 30-day OHLCV data:
 {recent}
 
