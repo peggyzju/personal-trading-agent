@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { api } from "../api/client";
-import type { StrategyReview, StrategyIterationOp, DebateResult, ParamChange, ParamExtractResult } from "../api/client";
+import type { StrategyReview, StrategyIterationOp, DebateResult, StockDebateResult } from "../api/client";
 
 interface Props { backendOnline: boolean }
 
@@ -316,11 +316,15 @@ function ReviewCard({ review: r }: { review: StrategyReview }) {
 
 type IterDecision = "adopt" | "hold" | "reject" | null;
 
-const REC_TO_DECISION: Record<string, IterDecision> = {
-  ADOPT: "adopt", HOLD: "hold", REJECT: "reject",
-};
-const REC_COLOR: Record<string, string> = {
+const VERDICT_COLOR: Record<string, string> = {
+  // iteration verdicts
   ADOPT: "#22c55e", HOLD: "#f59e0b", REJECT: "#ef4444",
+  // stock debate verdicts
+  STRONG_BUY: "#22c55e", BUY: "#86efac",
+  SELL: "#f87171", STRONG_SELL: "#ef4444", AVOID: "#ef4444",
+};
+const VERDICT_LABEL: Record<string, string> = {
+  ADOPT: "建议采纳", HOLD: "观察", REJECT: "不建议",
 };
 
 const ITER_STORE = "strategy_iter_decisions";
@@ -328,11 +332,9 @@ const ITER_STORE = "strategy_iter_decisions";
 function iterKey(reviewDate: string, title: string) {
   return `${reviewDate}::${title}`;
 }
-
 function readDecisions(): Record<string, IterDecision> {
   try { return JSON.parse(localStorage.getItem(ITER_STORE) ?? "{}"); } catch { return {}; }
 }
-
 function saveDecision(reviewDate: string, title: string, d: IterDecision) {
   try {
     const all = readDecisions();
@@ -346,184 +348,190 @@ function IterCard({ op, reviewDate }: { op: StrategyIterationOp; reviewDate: str
   const [decision, setDecision] = useState<IterDecision>(
     () => readDecisions()[iterKey(reviewDate, op.title)] ?? null
   );
-  const [showDebate, setShowDebate] = useState(false);
-  const [debate, setDebate]         = useState<DebateResult | null>(null);
-  const [debating, setDebating]     = useState(false);
-
-  // Param-confirm flow
-  const [extracting, setExtracting]           = useState(false);
-  const [paramResult, setParamResult]         = useState<ParamExtractResult | null>(null);
-  const [showConfirm, setShowConfirm]         = useState(false);
-  const [savingOverrides, setSavingOverrides] = useState(false);
+  const [showBasis, setShowBasis] = useState(false);
 
   function decide(d: IterDecision) {
-    setDecision(d);
-    saveDecision(reviewDate, op.title, d);
+    setDecision(d === decision ? null : d);
+    saveDecision(reviewDate, op.title, d === decision ? null : d);
   }
 
-  async function handleDebate() {
-    setShowDebate(s => !s);
-    if (debate || debating) return;
-    setDebating(true);
-    try {
-      const result = await api.debateIteration(op);
-      setDebate(result);
-      if (!decision) decide(REC_TO_DECISION[result.recommendation] ?? null);
-    } catch { /* ignore */ }
-    finally { setDebating(false); }
-  }
-
-  async function handleAdoptClick() {
-    if (decision === "adopt") {
-      // Toggle off — just clear
-      decide(null);
-      setShowConfirm(false);
-      setParamResult(null);
-      return;
-    }
-    // Extract params first
-    setExtracting(true);
-    setShowConfirm(false);
-    try {
-      const result = await api.extractParams(op);
-      setParamResult(result);
-      setShowConfirm(true);
-    } catch {
-      // Fallback: no params extracted, confirm with no changes
-      setParamResult({ mappable: false, note: "无法连接后端，仅记录决策。", params: [] });
-      setShowConfirm(true);
-    } finally {
-      setExtracting(false);
-    }
-  }
-
-  async function confirmAdopt() {
-    if (!paramResult) return;
-    setSavingOverrides(true);
-    try {
-      if (paramResult.mappable && paramResult.params.length > 0) {
-        const patch: Record<string, number | string> = { reason: `采纳: ${op.title}` };
-        for (const p of paramResult.params) patch[p.name] = p.proposed;
-        await api.saveOverrides(patch);
-      }
-      decide("adopt");
-      setShowConfirm(false);
-    } catch { /* still mark decision even if save failed */ decide("adopt"); setShowConfirm(false); }
-    finally { setSavingOverrides(false); }
-  }
-
-  const cardCls = `sr-iter-card${decision === "adopt" ? " sr-iter-adopted" : decision === "reject" ? " sr-iter-rejected" : ""}`;
+  const hasDebate = !!(op.trading_view || op.backtest_view);
+  const verdict   = op.verdict;
+  const cardCls   = `sr-iter-card${decision === "adopt" ? " sr-iter-adopted" : decision === "reject" ? " sr-iter-rejected" : ""}`;
 
   return (
     <div className={cardCls}>
+      {/* Header: title + priority + verdict */}
       <div className="sr-iter-header">
         <strong className="sr-iter-title">{op.title}</strong>
-        <span className="sr-priority-badge" style={{ color: PRIORITY_COLOR[op.priority] ?? "#64748b" }}>
-          {op.priority}
-        </span>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {verdict && (
+            <span className="sr-verdict-badge" style={{ color: VERDICT_COLOR[verdict] ?? "#f59e0b" }}>
+              {VERDICT_LABEL[verdict] ?? verdict}
+            </span>
+          )}
+          <span className="sr-priority-badge" style={{ color: PRIORITY_COLOR[op.priority] ?? "#64748b" }}>
+            {op.priority}
+          </span>
+        </div>
       </div>
-      <p className="sr-iter-desc">{op.description}</p>
+
+      {/* Synthesis — the conclusion, always visible */}
+      {op.synthesis ? (
+        <p className="sr-iter-synthesis">{op.synthesis}</p>
+      ) : op.description ? (
+        <p className="sr-iter-desc">{op.description}</p>
+      ) : null}
+
       <span className="sr-iter-impact">预期影响: {op.expected_impact}</span>
 
-      <div className="sr-iter-approval">
-        <button className="sr-iter-action-btn sia-adopt"
-          onClick={handleAdoptClick}
-          disabled={extracting}
-          style={{ opacity: decision && decision !== "adopt" ? 0.4 : 1, fontWeight: decision === "adopt" ? 700 : 600 }}>
-          {extracting ? "⏳ 解析中…" : decision === "adopt" ? "✓ 已采纳" : "✓ 采纳"}
-        </button>
-        <button className="sr-iter-action-btn sia-hold"
-          onClick={() => decide(decision === "hold" ? null : "hold")}
-          style={{ opacity: decision && decision !== "hold" ? 0.4 : 1 }}>
-          {decision === "hold" ? "○ 待定中" : "○ 待定"}
-        </button>
-        <button className="sr-iter-action-btn sia-reject"
-          onClick={() => decide(decision === "reject" ? null : "reject")}
-          style={{ opacity: decision && decision !== "reject" ? 0.4 : 1 }}>
-          {decision === "reject" ? "✕ 已忽略" : "✕ 忽略"}
-        </button>
+      {/* Collapsible debate basis */}
+      {hasDebate && (
         <button
-          className={`sr-iter-action-btn sia-debate${showDebate ? " active" : ""}`}
-          onClick={handleDebate}
-          disabled={debating && !showDebate}
+          className="sr-basis-toggle"
+          onClick={() => setShowBasis(s => !s)}
         >
-          {debating ? "⏳ 辩论中…" : "⚡ Agent 辩论"}
+          {showBasis ? "▲ 收起辩论依据" : "▶ 查看辩论依据"}
         </button>
-      </div>
+      )}
 
-      {/* Parameter confirmation panel */}
-      {showConfirm && paramResult && (
-        <div className="sr-param-confirm">
-          <div className="sr-param-confirm-title">
-            确认应用参数变更到 Agent？
-          </div>
-          {paramResult.mappable && paramResult.params.length > 0 ? (
-            <table className="sr-param-table">
-              <thead>
-                <tr>
-                  <th>参数</th>
-                  <th>当前值</th>
-                  <th>→</th>
-                  <th>新值</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paramResult.params.map(p => (
-                  <tr key={p.name}>
-                    <td className="sr-param-label">{p.label}</td>
-                    <td className="sr-param-cur">{p.display_current}</td>
-                    <td className="sr-param-arrow">→</td>
-                    <td className="sr-param-new">{p.display_proposed}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <p className="sr-param-note">{paramResult.note || "此建议不涉及数值参数变更，仅记录决策。"}</p>
+      {showBasis && hasDebate && (
+        <div className="sr-debate-panel">
+          {op.trading_view && (
+            <div className="sr-debate-side sr-debate-pro">
+              <div className="sr-debate-label">📈 交易 Agent · 执行视角</div>
+              <p className="sr-debate-text">{op.trading_view}</p>
+            </div>
           )}
-          <div className="sr-param-actions">
-            <button
-              className="sr-param-confirm-btn"
-              onClick={confirmAdopt}
-              disabled={savingOverrides}
-            >
-              {savingOverrides ? "保存中…" : "确认应用"}
-            </button>
-            <button
-              className="sr-param-cancel-btn"
-              onClick={() => setShowConfirm(false)}
-            >
-              取消
-            </button>
-          </div>
+          {op.backtest_view && (
+            <div className="sr-debate-side sr-debate-con">
+              <div className="sr-debate-label">📊 回测 Agent · 数据视角</div>
+              <p className="sr-debate-text">{op.backtest_view}</p>
+            </div>
+          )}
         </div>
       )}
 
-      {showDebate && (
-        <div className="sr-debate-panel">
-          {debating && !debate && (
-            <div className="sr-debate-loading">Agent Alpha 与 Beta 正在辩论中，约 5 秒…</div>
-          )}
-          {debate && (
+      {/* One-click decision buttons */}
+      <div className="sr-iter-approval">
+        <button
+          className="sr-iter-action-btn sia-adopt"
+          onClick={() => decide("adopt")}
+          style={{ opacity: decision && decision !== "adopt" ? 0.4 : 1, fontWeight: decision === "adopt" ? 700 : 600 }}
+        >
+          {decision === "adopt" ? "✓ 已采纳" : "✓ 采纳"}
+        </button>
+        <button
+          className="sr-iter-action-btn sia-hold"
+          onClick={() => decide("hold")}
+          style={{ opacity: decision && decision !== "hold" ? 0.4 : 1 }}
+        >
+          {decision === "hold" ? "○ 待定中" : "○ 待定"}
+        </button>
+        <button
+          className="sr-iter-action-btn sia-reject"
+          onClick={() => decide("reject")}
+          style={{ opacity: decision && decision !== "reject" ? 0.4 : 1 }}
+        >
+          {decision === "reject" ? "✕ 已忽略" : "✕ 忽略"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+// ── 3-Agent Debate Panel ──────────────────────────────────────────────────────
+
+const REC_LABEL: Record<string, string> = { ADOPT: "采纳", HOLD: "待定", REJECT: "忽略" };
+
+function ThreeAgentDebate({ debate }: { debate: DebateResult }) {
+  const tradingView = debate.trading_agent ?? debate.pro;
+  const backtestView = debate.backtest_agent ?? debate.con;
+  const reviewView = debate.review_agent ?? debate.synthesis;
+
+  return (
+    <>
+      <div className="sr-debate-side sr-debate-pro">
+        <div className="sr-debate-label">📈 交易 Agent (Rex) · 信号视角</div>
+        <p className="sr-debate-text">{tradingView}</p>
+      </div>
+      <div className="sr-debate-side sr-debate-con">
+        <div className="sr-debate-label">📊 回测 Agent · 数据视角</div>
+        <p className="sr-debate-text">{backtestView}</p>
+      </div>
+      <div className="sr-debate-synthesis">
+        <div className="sr-debate-label">⚖️ 复盘 Agent · 综合结论</div>
+        <p className="sr-debate-text">{reviewView}</p>
+        <div className="sr-debate-verdict">
+          建议：
+          <span style={{ color: REC_COLOR[debate.recommendation], fontWeight: 700 }}>
+            {REC_LABEL[debate.recommendation] ?? debate.recommendation}
+          </span>
+          <span className="sr-debate-confidence">置信度 {Math.round(debate.confidence * 100)}%</span>
+        </div>
+      </div>
+    </>
+  );
+}
+
+
+// ── Per-Stock Debate Panel ────────────────────────────────────────────────────
+
+export function StockDebatePanel({
+  symbol, action, context,
+}: {
+  symbol: string;
+  action: "BUY" | "HOLD" | "SELL";
+  context: Record<string, unknown>;
+}) {
+  const [open, setOpen]       = useState(false);
+  const [result, setResult]   = useState<StockDebateResult | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function run() {
+    if (result) { setOpen(o => !o); return; }
+    setOpen(true);
+    setLoading(true);
+    try {
+      const r = await api.debateStock(symbol, action, context);
+      setResult(r);
+    } catch { /* silent */ }
+    finally { setLoading(false); }
+  }
+
+  const verdictColor = result ? (VERDICT_COLOR[result.verdict] ?? "#f59e0b") : undefined;
+  const actionLabel  = action === "BUY" ? "买入" : action === "SELL" ? "卖出" : "持有";
+
+  return (
+    <div className="stock-debate-wrap">
+      <button className="sr-iter-action-btn sia-debate" onClick={run} disabled={loading && !open}>
+        {loading ? "⏳ 辩论中…" : result ? (open ? "收起辩论" : "⚡ 查看辩论") : `⚡ Agent 辩论 ${actionLabel}`}
+      </button>
+
+      {open && (
+        <div className="sr-debate-panel" style={{ marginTop: 8 }}>
+          {loading && <div className="sr-debate-loading">3 个 Agent 正在分析 {symbol} 的{actionLabel}决策…</div>}
+          {result && (
             <>
               <div className="sr-debate-side sr-debate-pro">
-                <div className="sr-debate-label">🟢 Agent Alpha · 赞成</div>
-                <p className="sr-debate-text">{debate.pro}</p>
+                <div className="sr-debate-label">📈 交易 Agent (Rex)</div>
+                <p className="sr-debate-text">{result.trading_agent}</p>
               </div>
               <div className="sr-debate-side sr-debate-con">
-                <div className="sr-debate-label">🔴 Agent Beta · 反对</div>
-                <p className="sr-debate-text">{debate.con}</p>
+                <div className="sr-debate-label">📊 回测 Agent</div>
+                <p className="sr-debate-text">{result.backtest_agent}</p>
               </div>
               <div className="sr-debate-synthesis">
-                <div className="sr-debate-label">⚖️ 综合结论</div>
-                <p className="sr-debate-text">{debate.synthesis}</p>
+                <div className="sr-debate-label">⚖️ 复盘 Agent</div>
+                <p className="sr-debate-text">{result.review_agent}</p>
                 <div className="sr-debate-verdict">
-                  建议：
-                  <span style={{ color: REC_COLOR[debate.recommendation], fontWeight: 700 }}>
-                    {debate.recommendation === "ADOPT" ? "采纳" : debate.recommendation === "HOLD" ? "待定" : "忽略"}
-                  </span>
-                  <span className="sr-debate-confidence">置信度 {Math.round(debate.confidence * 100)}%</span>
+                  判决：<span style={{ color: verdictColor, fontWeight: 700 }}>{result.verdict}</span>
+                  <span className="sr-debate-confidence">置信度 {Math.round(result.confidence * 100)}%</span>
                 </div>
+                {result.key_risk && (
+                  <div className="sr-debate-risk">⚠️ 主要风险：{result.key_risk}</div>
+                )}
               </div>
             </>
           )}

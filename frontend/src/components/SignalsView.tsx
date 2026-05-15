@@ -6,6 +6,7 @@ function toUTC(ts: string): Date {
 import { api } from "../api/client";
 import type { ScanCandidate, ScanResult, BudgetAllocation } from "../api/client";
 import { TradeModal } from "./TradeModal";
+import { StockDebatePanel } from "./StrategyReview";
 
 interface Props { backendOnline: boolean }
 
@@ -328,7 +329,7 @@ function AllSignalsView({
 
 // ── Big signal card ───────────────────────────────────────────────────────────
 
-type CardSection = "ai" | "sentiment" | null;
+type CardSection = "ai" | "sentiment" | "debate" | null;
 
 function SignalCard({
   rank, candidate: c, budget, backendOnline, inWatchlist, onAddToWatchlist,
@@ -500,6 +501,13 @@ function SignalCard({
           📰 舆情
         </button>
         <button
+          className={`sc-action-btn${section === "debate" ? " active" : ""}`}
+          onClick={() => setSection(s => s === "debate" ? null : "debate")}
+          disabled={!backendOnline}
+        >
+          ⚡ 辩论
+        </button>
+        <button
           className={`sc-action-wl${addedToWl ? " added" : ""}`}
           onClick={handleAddWl}
           disabled={addedToWl}
@@ -565,6 +573,25 @@ function SignalCard({
               ))}
             </>
           )}
+        </div>
+      )}
+
+      {/* ── Expand: Agent Debate ── */}
+      {section === "debate" && backendOnline && (
+        <div className="sc-expand-panel">
+          <StockDebatePanel
+            symbol={c.symbol}
+            action={c.signal === "SELL" ? "SELL" : "BUY"}
+            context={{
+              price: c.price,
+              rsi: c.rsi,
+              mom5: c.momentum_5d,
+              vs_ma20_pct: null,
+              signal: c.signal,
+              ai_score: c.ai_score,
+              reason: c.reason,
+            }}
+          />
         </div>
       )}
     </div>

@@ -1,6 +1,8 @@
 from __future__ import annotations
 import json
 import os
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -12,7 +14,14 @@ from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 
-app = FastAPI(title="Personal Trading Agent")
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    _start_scheduler()
+    yield
+
+
+app = FastAPI(title="Personal Trading Agent", lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1081,6 +1090,40 @@ def trigger_backtest(
     return {"status": "started", "symbols": sym_list}
 
 
+# ── Scheduler: auto-trigger after market close ────────────────────────────────
+
+def _start_scheduler():
+    """Background thread that triggers strategy review at 4:15 PM ET (Mon-Fri)."""
+    import time
+    from datetime import datetime, timezone, timedelta
+
+    ET = timezone(timedelta(hours=-4))   # EDT (switches to -5 in Nov, close enough)
+
+    def _loop():
+        triggered_dates: set[str] = set()
+        while True:
+            now_et = datetime.now(ET)
+            today_str = now_et.strftime("%Y-%m-%d")
+            h, m = now_et.hour, now_et.minute
+            is_weekday = now_et.weekday() < 5
+            after_close = (h, m) >= (16, 15)
+            already_done = today_str in triggered_dates or (
+                _review_cache.get("latest", {}).get("date") == today_str
+            )
+            if is_weekday and after_close and not already_done:
+                print(f"[scheduler] Market closed — triggering strategy review for {today_str}")
+                triggered_dates.add(today_str)
+                try:
+                    _run_strategy_review()
+                except Exception as e:
+                    print(f"[scheduler] Review error: {e}")
+            time.sleep(60)
+
+    t = threading.Thread(target=_loop, daemon=True, name="review-scheduler")
+    t.start()
+    print("[scheduler] Market-close review scheduler started (checks every 60s, fires at 4:15 PM ET)")
+
+
 # ── Strategy Review ──────────────────────────────────────────────────────────
 
 def _run_strategy_review():
@@ -1120,12 +1163,14 @@ def _run_strategy_review():
         except Exception as e:
             print(f"[review] Could not fetch orders: {e}")
 
+        backtest_data = _backtest_cache.get("result", {})
         review = generate_strategy_review(
             portfolio_history=history,
             executed_orders=executed_orders,
             agent_log=agent_log,
             agent_trades=agent_state_trades,
             scan_result=scan_result,
+            backtest_result=backtest_data if backtest_data.get("status") == "done" else None,
         )
 
         _review_cache[today] = review
@@ -1333,7 +1378,7 @@ Only include params that actually change. If mappable=false, params=[]."""
 
 @app.post("/api/strategy/debate")
 async def debate_iteration(body: dict):
-    """Agent Alpha vs Agent Beta debate a proposed strategy iteration."""
+    """3-agent debate: Trading Agent vs Backtest Agent, reviewed by Strategy Agent."""
     import re
     import json as _json
     import anthropic
@@ -1344,37 +1389,120 @@ async def debate_iteration(body: dict):
     priority        = body.get("priority", "MEDIUM")
     expected_impact = body.get("expected_impact", "")
 
-    client = anthropic.Anthropic(api_key=get_anthropic_key())
-    prompt = f"""You are facilitating a trading strategy debate between two AI agents.
+    # Pull recent backtest stats if available for grounding
+    bt_ctx = ""
+    bt = _review_cache.get("latest", {})
+    if bt:
+        perf = bt.get("performance", {})
+        bt_ctx = (
+            f"Recent performance: monthly {perf.get('monthly_return_pct', 0):+.1f}% "
+            f"(target {perf.get('target_monthly_pct', 10)}%), "
+            f"gap {perf.get('target_gap', 0):+.1f}%"
+        )
 
-Proposed change:
+    client = anthropic.Anthropic(api_key=get_anthropic_key())
+    prompt = f"""You are running a 3-agent strategy debate panel for a trading system.
+
+Context: {bt_ctx or 'No recent performance data.'}
+
+Proposed strategy change:
 Title: {title}
 Priority: {priority}
 Description: {description}
 Expected Impact: {expected_impact}
 
-Agent Alpha (Advocate) argues FOR this change — focus on benefits and upside.
-Agent Beta (Skeptic) argues AGAINST — focus on risks, edge-cases, and downsides.
-Then a neutral synthesis.
+The three agents each respond from their perspective:
+
+1. **交易 Agent (Rex)** — Live signal expert. Focused on current market conditions, signal quality, and execution feasibility. Argues based on what's happening NOW in the market.
+
+2. **回测 Agent** — Historical data expert. Argues based on what the numbers show: win rates, drawdowns, statistical significance. Skeptical of changes without backtest evidence.
+
+3. **复盘 Agent** — Strategic synthesizer. Weighs both views, flags risks, considers the 15%/month target. Makes the final call.
 
 Return ONLY valid JSON:
 {{
-  "pro": "Agent Alpha's strongest argument (2-3 sentences, concrete)",
-  "con": "Agent Beta's sharpest objection (2-3 sentences, risk-focused)",
-  "synthesis": "Balanced synthesis reconciling both views (1-2 sentences)",
-  "recommendation": "ADOPT" or "HOLD" or "REJECT",
+  "trading_agent": "Rex's take (2 sentences, signal/execution focused)",
+  "backtest_agent": "Backtest Agent's take (2 sentences, data/evidence focused)",
+  "review_agent": "Strategy Agent synthesis (2 sentences, balanced + decisive)",
+  "recommendation": "ADOPT" | "HOLD" | "REJECT",
   "confidence": 0.0-1.0
 }}"""
 
     msg = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1024,
+        temperature=0,
         messages=[{"role": "user", "content": prompt}],
     )
     text = msg.content[0].text
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
         raise HTTPException(status_code=500, detail="Debate parse failed")
+    result = _json.loads(match.group())
+    # Keep backward-compat fields for existing frontend
+    result["pro"]      = result.get("trading_agent", "")
+    result["con"]      = result.get("backtest_agent", "")
+    result["synthesis"] = result.get("review_agent", "")
+    return result
+
+
+@app.post("/api/strategy/debate/stock")
+async def debate_stock(body: dict):
+    """3-agent debate on whether to buy/hold/sell a specific stock."""
+    import re
+    import json as _json
+    import anthropic
+    from src.config import get_anthropic_key
+
+    symbol   = body.get("symbol", "").upper()
+    action   = body.get("action", "BUY")   # BUY | HOLD | SELL
+    context  = body.get("context", {})     # price, pnl, technicals, scan data
+
+    price       = context.get("price", 0)
+    pnl_pct     = context.get("unrealized_plpc", context.get("pnl_pct", 0))
+    rsi         = context.get("rsi", "N/A")
+    mom5        = context.get("mom5d_pct", context.get("mom5", "N/A"))
+    vs_ma20     = context.get("vs_ma20_pct", "N/A")
+    signal      = context.get("signal", "N/A")
+    ai_score    = context.get("ai_score", "N/A")
+    reason      = context.get("reason", "")
+
+    stock_ctx = (
+        f"{symbol} @ ${price} | P&L: {pnl_pct:+.1f}% | "
+        f"RSI={rsi} | 5d_mom={mom5:+.1f}% | vs_MA20={vs_ma20} | "
+        f"Signal={signal} score={ai_score}"
+    ) if price else f"{symbol} (no live data)"
+
+    client = anthropic.Anthropic(api_key=get_anthropic_key())
+    prompt = f"""3-agent panel debating a {action} decision for {symbol}.
+
+Stock data: {stock_ctx}
+Analyst note: {reason[:200] if reason else 'N/A'}
+
+1. **交易 Agent (Rex)** — Signal execution perspective. Is the technical setup right? Timing?
+2. **回测 Agent** — Historical pattern perspective. Does this setup have a positive edge historically?
+3. **复盘 Agent** — Risk/portfolio perspective. Position sizing, risk/reward, portfolio context.
+
+Return ONLY valid JSON:
+{{
+  "trading_agent": "Rex's view on the {action} decision (2 sentences)",
+  "backtest_agent": "Historical edge assessment (2 sentences)",
+  "review_agent": "Risk/portfolio synthesis (2 sentences)",
+  "verdict": "STRONG_{action}" | "{action}" | "HOLD" | "AVOID",
+  "confidence": 0.0-1.0,
+  "key_risk": "The single biggest risk in one sentence"
+}}"""
+
+    msg = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=800,
+        temperature=0,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = msg.content[0].text
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        raise HTTPException(status_code=500, detail="Stock debate parse failed")
     return _json.loads(match.group())
 
 
