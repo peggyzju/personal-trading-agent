@@ -3246,6 +3246,19 @@ body {
   letter-spacing: 0.01em;
 }
 .sr-basis-toggle:hover { color: #818cf8; }
+.sr-others-toggle {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  margin-top: 4px;
+}
+.sr-others-toggle:hover { color: #94a3b8; border-color: #475569; }
 
 /* ── Parameter confirmation panel ── */
 .sr-param-confirm {

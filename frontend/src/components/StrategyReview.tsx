@@ -90,20 +90,15 @@ export function StrategyReviewPanel({ backendOnline }: Props) {
       )}
 
       {review && <ReviewCard review={review} />}
-
-      <StrategyNotesPanel backendOnline={backendOnline} />
     </div>
   );
 }
 
 
 function ReviewCard({ review: r }: { review: StrategyReview }) {
-  const perf = r.performance;
-  const dailySign   = perf.daily_pl >= 0 ? "+" : "";
-  const monthSign   = perf.monthly_return_pct >= 0 ? "+" : "";
-  const plColor     = perf.daily_pl >= 0 ? "#22c55e" : "#ef4444";
-  const gapColor    = perf.target_gap <= 0 ? "#22c55e" : perf.target_gap < 5 ? "#f59e0b" : "#ef4444";
-  const progressPct = Math.min(100, Math.max(0, (perf.monthly_return_pct / perf.target_monthly_pct) * 100));
+  const adoptItems = r.iteration_opportunities.filter(op => op.verdict === "ADOPT");
+  const otherItems = r.iteration_opportunities.filter(op => op.verdict !== "ADOPT");
+  const [showOthers, setShowOthers] = useState(false);
 
   return (
     <div className="sr-card">
@@ -115,65 +110,24 @@ function ReviewCard({ review: r }: { review: StrategyReview }) {
         <span className="sr-one-line">{r.one_line_summary}</span>
       </div>
 
-      {/* Performance stats */}
-      <div className="sr-perf-row">
-        <div className="sr-perf-stat">
-          <span className="sr-perf-label">今日 P&L</span>
-          <span className="sr-perf-val" style={{ color: plColor }}>
-            {dailySign}${Math.abs(perf.daily_pl).toLocaleString("en-US", { maximumFractionDigits: 0 })}
-          </span>
-          <span className="sr-perf-sub" style={{ color: plColor }}>
-            {dailySign}{Math.abs(perf.daily_return_pct).toFixed(2)}%
-          </span>
-        </div>
-        <div className="sr-perf-stat">
-          <span className="sr-perf-label">月度收益</span>
-          <span className="sr-perf-val">{monthSign}{Math.abs(perf.monthly_return_pct).toFixed(2)}%</span>
-          <span className="sr-perf-sub" style={{ color: "#64748b" }}>目标 {perf.target_monthly_pct}%</span>
-        </div>
-        <div className="sr-perf-stat">
-          <span className="sr-perf-label">距目标</span>
-          <span className="sr-perf-val" style={{ color: gapColor }}>{perf.target_gap > 0 ? "+" : ""}{perf.target_gap.toFixed(1)}%</span>
-          <span className="sr-perf-sub" style={{ color: "#64748b" }}>还需</span>
-        </div>
-        <div className="sr-perf-stat sr-perf-equity">
-          <span className="sr-perf-label">组合总值</span>
-          <span className="sr-perf-val">${perf.current_equity.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
-        </div>
-      </div>
-
-      {/* Monthly progress bar */}
-      <div className="sr-progress-wrap">
-        <div className="sr-progress-track">
-          <div
-            className="sr-progress-fill"
-            style={{
-              width: `${progressPct}%`,
-              background: progressPct >= 100 ? "#22c55e" : progressPct >= 66 ? "#f59e0b" : "#6366f1",
-            }}
-          />
-          <div className="sr-progress-target" />
-        </div>
-        <div className="sr-progress-labels">
-          <span style={{ color: "#64748b" }}>0%</span>
-          <span style={{ color: "#64748b" }}>本月目标 {perf.target_monthly_pct}%</span>
-        </div>
-      </div>
-
-      {/* Market context */}
-      <div className="sr-section">
-        <h3 className="sr-section-title">🌍 市场背景</h3>
-        <p className="sr-text">{r.market_context}</p>
-      </div>
-
-      {/* Iteration opportunities */}
+      {/* Iteration opportunities — ADOPT first */}
       <div className="sr-section">
         <h3 className="sr-section-title">🔁 迭代机会</h3>
         <p className="sr-progress-note">{r.monthly_progress_note}</p>
         <div className="sr-iter-list">
-          {r.iteration_opportunities.map((op, i) => (
+          {adoptItems.map((op, i) => (
             <IterCard key={i} op={op} reviewDate={r.date} />
           ))}
+          {otherItems.length > 0 && (
+            <>
+              <button className="sr-others-toggle" onClick={() => setShowOthers(s => !s)}>
+                {showOthers ? "▲ 收起" : `▶ 查看其余 ${otherItems.length} 条观察`}
+              </button>
+              {showOthers && otherItems.map((op, i) => (
+                <IterCard key={`other-${i}`} op={op} reviewDate={r.date} />
+              ))}
+            </>
+          )}
         </div>
       </div>
 
