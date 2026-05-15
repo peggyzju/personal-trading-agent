@@ -125,85 +125,11 @@ export function StrategyReviewPanel({ backendOnline }: Props) {
         </div>
       )}
 
-      {displayed && <AutoInsights review={displayed} />}
       {displayed && <ReviewCard review={displayed} />}
     </div>
   );
 }
 
-function AutoInsights({ review: r }: { review: StrategyReview }) {
-  const perf = r.performance;
-  const moodColor = r.market_context.includes("风险") || r.market_context.includes("谨慎") ? "warn" : "good";
-  const onTrack = perf.target_gap <= 0;
-
-  const insights: { icon: string; iconClass: string; title: string; detail: string; badge?: string; badgeClass?: string }[] = [
-    {
-      icon: onTrack ? "✓" : "⚠",
-      iconClass: onTrack ? "sri-good" : "sri-warn",
-      title: onTrack ? "月度目标: 达标轨道" : "月度目标: 落后进度",
-      detail: `当前月收益 ${perf.monthly_return_pct >= 0 ? "+" : ""}${perf.monthly_return_pct.toFixed(2)}%，目标 ${perf.target_monthly_pct}%，差距 ${Math.abs(perf.target_gap).toFixed(1)}%`,
-      badge: onTrack ? "OK" : `差 ${perf.target_gap.toFixed(1)}%`,
-      badgeClass: onTrack ? "sib-ok" : "sib-medium",
-    },
-    {
-      icon: perf.daily_pl >= 0 ? "↑" : "↓",
-      iconClass: perf.daily_pl >= 0 ? "sri-good" : "sri-warn",
-      title: `今日 P&L: ${perf.daily_pl >= 0 ? "+" : ""}$${Math.abs(perf.daily_pl).toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-      detail: r.one_line_summary,
-      badge: `${perf.daily_return_pct >= 0 ? "+" : ""}${perf.daily_return_pct.toFixed(2)}%`,
-      badgeClass: perf.daily_return_pct >= 0 ? "sib-ok" : "sib-medium",
-    },
-    {
-      icon: "🌍",
-      iconClass: `sri-${moodColor}`,
-      title: "市场背景",
-      detail: r.market_context.slice(0, 120) + (r.market_context.length > 120 ? "…" : ""),
-    },
-    ...(r.what_worked.length > 0 ? [{
-      icon: "✓",
-      iconClass: "sri-good",
-      title: "有效策略",
-      detail: r.what_worked.slice(0, 2).join(" · "),
-      badge: `${r.what_worked.length} 项`,
-      badgeClass: "sib-ok",
-    }] : []),
-    ...(r.what_didnt.length > 0 ? [{
-      icon: "×",
-      iconClass: "sri-warn",
-      title: "待改进点",
-      detail: r.what_didnt.slice(0, 2).join(" · "),
-      badge: `${r.what_didnt.length} 项`,
-      badgeClass: "sib-medium",
-    }] : []),
-  ];
-
-  return (
-    <div className="sr-auto-insights" style={{ marginBottom: 16 }}>
-      <div className="sr-auto-insights-header">
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 13 }}>⚡</span>
-          <span style={{ fontWeight: 700, fontSize: 13 }}>Vera 自动化洞察</span>
-          <span style={{ fontSize: 11, color: "var(--muted)" }}>基于今日交易分析</span>
-        </div>
-        <span style={{ fontSize: 11, color: "var(--muted)" }}>
-          {new Date(r.generated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} 生成
-        </span>
-      </div>
-      {insights.map((ins, i) => (
-        <div key={i} className="sr-insight-item">
-          <div className={`sr-insight-icon ${ins.iconClass}`}>{ins.icon}</div>
-          <div className="sr-insight-body">
-            <div className="sr-insight-title">{ins.title}</div>
-            <div className="sr-insight-detail">{ins.detail}</div>
-          </div>
-          {ins.badge && (
-            <span className={`sr-insight-badge ${ins.badgeClass ?? ""}`}>{ins.badge}</span>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 function ReviewCard({ review: r }: { review: StrategyReview }) {
   const perf = r.performance;
@@ -272,26 +198,6 @@ function ReviewCard({ review: r }: { review: StrategyReview }) {
       <div className="sr-section">
         <h3 className="sr-section-title">🌍 市场背景</h3>
         <p className="sr-text">{r.market_context}</p>
-      </div>
-
-      {/* Strategy assessment */}
-      <div className="sr-section">
-        <h3 className="sr-section-title">📊 核心策略评估</h3>
-        <p className="sr-text">{r.core_strategy_assessment}</p>
-        <div className="sr-worked-grid">
-          <div>
-            <div className="sr-worked-label" style={{ color: "#22c55e" }}>✓ 有效的</div>
-            <ul className="sr-bullet-list">
-              {r.what_worked.map((w, i) => <li key={i}>{w}</li>)}
-            </ul>
-          </div>
-          <div>
-            <div className="sr-worked-label" style={{ color: "#ef4444" }}>✗ 待改进</div>
-            <ul className="sr-bullet-list">
-              {r.what_didnt.map((w, i) => <li key={i}>{w}</li>)}
-            </ul>
-          </div>
-        </div>
       </div>
 
       {/* Iteration opportunities */}
