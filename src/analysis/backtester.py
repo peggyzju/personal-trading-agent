@@ -58,17 +58,25 @@ def _precompute_signals(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _buy_signal(row: pd.Series) -> bool:
-    """True if all buy conditions are met at this row."""
+def _buy_signal(row) -> bool:
+    """True if all buy conditions are met at this row.
+    Works with both pd.Series (bracket access) and itertuples namedtuples (dot access).
+    """
     try:
+        # Support both Series and namedtuple (itertuples)
+        def g(field):
+            try:
+                return row[field]
+            except (KeyError, TypeError):
+                return getattr(row, field)
         return (
-            row["rsi"] < 75                    # not overbought (matches live scanner threshold)
-            and row["macd_hist"] > 0           # bullish momentum
-            and row["bb_pct_b"] > 0.55         # above BB midline — momentum continuation (matches scanner)
-            and row["bb_pct_b"] < 0.90         # not at extreme upper band (avoid chasing)
-            and row["Close"] > row["ma20"]     # above short-term trend
-            and row["vol_ratio"] > 1.05        # slight volume confirmation
-            and row["mom5"] > 0                # positive recent momentum
+            g("rsi") < 75                    # not overbought
+            and g("macd_hist") > 0           # bullish momentum
+            and g("bb_pct_b") > 0.55         # above BB midline
+            and g("bb_pct_b") < 0.90         # not at extreme upper band
+            and g("Close") > g("ma20")       # above short-term trend
+            and g("vol_ratio") > 1.05        # slight volume confirmation
+            and g("mom5") > 0                # positive recent momentum
         )
     except Exception:
         return False
