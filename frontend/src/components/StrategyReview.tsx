@@ -325,7 +325,7 @@ function IterCard({ op, reviewDate }: { op: StrategyIterationOp; reviewDate: str
           onClick={() => decide("adopt")}
           style={{ opacity: decision && decision !== "adopt" ? 0.4 : 1, fontWeight: decision === "adopt" ? 700 : 600 }}
         >
-          {decision === "adopt" ? "✓ 已采纳" : "✓ 采纳"}
+          {decision === "adopt" ? "📋 列入计划" : "✓ 采纳"}
         </button>
         <button
           className="sr-iter-action-btn sia-hold"
