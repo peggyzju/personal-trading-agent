@@ -2774,6 +2774,24 @@ body {
   cursor: pointer;
 }
 
+.hdr-stats-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,.04);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+.hdr-stats-row { display: flex; flex-direction: column; align-items: center; gap: 0; }
+.hdr-stats-val { font-size: 13px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.hdr-stats-label { font-size: 9px; color: var(--muted); letter-spacing: .3px; }
+.hdr-stats-div { width: 1px; height: 22px; background: var(--border); }
+
 .hdr-equity { display: flex; flex-direction: column; gap: 1px; }
 .hdr-eq-val { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
 .hdr-eq-sub { font-size: 10px; color: var(--muted); letter-spacing: .3px; }

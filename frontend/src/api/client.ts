@@ -365,11 +365,14 @@ export interface PendingTrade {
   volume_ratio?: number | null;
   near_breakout?: boolean | null;
   universe?: string | null;
-  status: "pending" | "approved" | "rejected" | "executed" | "expired" | "error";
+  status: "pending" | "approved" | "rejected" | "executed" | "expired" | "error" | "cancelled";
   created_at: string;
   expires_at: string;
   executed_order_id: string | null;
   error: string | null;
+  fill_status?: string | null;
+  fill_price?: number | null;
+  fill_qty?: number | null;
 }
 
 export interface GoalProgress {

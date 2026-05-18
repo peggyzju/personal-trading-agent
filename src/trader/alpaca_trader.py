@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Optional
 import alpaca_trade_api as tradeapi
 
@@ -11,6 +12,16 @@ def get_client():
     )
 
 
+def _alpaca_symbol(symbol: str) -> str:
+    """
+    Normalize symbol to Alpaca format.
+    yfinance/Wikipedia use hyphen for share classes (BRK-B, BF-B).
+    Alpaca uses slash (BRK/B, BF/B).
+    Pattern: trailing hyphen + 1-2 uppercase letters → replace with slash.
+    """
+    return re.sub(r'-([A-Z]{1,2})$', r'/\1', symbol)
+
+
 def get_account():
     return get_client().get_account()
 
@@ -18,7 +29,7 @@ def get_account():
 def get_position(symbol: str):
     api = get_client()
     try:
-        return api.get_position(symbol)
+        return api.get_position(_alpaca_symbol(symbol))
     except Exception:
         return None
 
@@ -41,7 +52,7 @@ def place_order(
     """
     api = get_client()
     kwargs: dict = {
-        "symbol": symbol,
+        "symbol": _alpaca_symbol(symbol),
         "side": side,
         "type": order_type,
         # Fractional/notional orders require "day"; whole-share orders use "gtc" for pre/post market
@@ -71,7 +82,13 @@ def place_order(
             if live_price > 0:
                 import math
                 computed_qty = math.floor(notional_val / live_price)
-                kwargs["qty"] = max(1, computed_qty)
+                if computed_qty >= 1:
+                    kwargs["qty"] = computed_qty
+                else:
+                    # Price > notional — can't buy even 1 share; fall back to plain notional order
+                    kwargs["notional"] = str(round(notional_val, 2))
+                    stop_loss = None
+                    take_profit = None
             else:
                 # Can't determine price — fall back to plain market order without bracket
                 stop_loss = None
@@ -90,7 +107,7 @@ def place_order(
 def close_position(symbol: str):
     """Close (liquidate) an entire position."""
     api = get_client()
-    return api.close_position(symbol)
+    return api.close_position(_alpaca_symbol(symbol))
 
 
 def cancel_order(order_id: str):

@@ -185,7 +185,7 @@ function IterCard({ op, reviewDate }: { op: StrategyIterationOp; reviewDate: str
 
   function showToast(msg: string) {
     setToast(msg);
-    setTimeout(() => setToast(null), 3000);
+    setTimeout(() => setToast(null), 8000);
   }
 
   async function handleAdopt() {
@@ -199,11 +199,16 @@ function IterCard({ op, reviewDate }: { op: StrategyIterationOp; reviewDate: str
         setParamChanges(result.params);
         setDec("adopt");
       } else {
-        // Qualitative — auto-add as strategy note
+        // Qualitative — auto-add as strategy note, then trigger Rex immediately
         const noteText = op.synthesis ?? op.description ?? op.title;
         await api.addNote(noteText, reviewDate);
-        setDec("adopt");
-        showToast("📝 已加入策略记忆，下次 Agent 运行时生效");
+        setDec("done");
+        try {
+          await api.runAgent();
+          showToast("📝 策略记忆已更新，Rex 已触发");
+        } catch {
+          showToast("📝 策略记忆已更新，Rex 下次运行时生效");
+        }
       }
     } catch {
       setDec("adopt");
@@ -220,7 +225,14 @@ function IterCard({ op, reviewDate }: { op: StrategyIterationOp; reviewDate: str
       for (const c of paramChanges) patch[c.name] = c.proposed;
       await api.saveOverrides(patch as Parameters<typeof api.saveOverrides>[0]);
       setParamChanges(null);
-      showToast("✅ 参数已应用，下次 Agent 运行时生效");
+      setDec("done");
+      // Immediately trigger Rex so new params take effect now
+      try {
+        await api.runAgent();
+        showToast("✅ 参数已应用，Rex 已触发");
+      } catch {
+        showToast("✅ 参数已保存，Rex 下次运行时生效");
+      }
     } catch {
       showToast("❌ 应用失败，请重试");
     } finally {
@@ -313,17 +325,16 @@ function IterCard({ op, reviewDate }: { op: StrategyIterationOp; reviewDate: str
       <div className="sr-iter-approval">
         <button
           className="sr-iter-action-btn sia-adopt"
-          onClick={handleAdopt}
-          disabled={extracting}
-          style={{ opacity: decision && decision !== "adopt" && decision !== "done" ? 0.4 : 1, fontWeight: decision === "adopt" || decision === "done" ? 700 : 600 }}
+          onClick={decision === "done" ? undefined : handleAdopt}
+          disabled={extracting || decision === "done"}
+          style={{
+            opacity: decision && decision !== "adopt" && decision !== "done" ? 0.4 : 1,
+            fontWeight: decision === "adopt" || decision === "done" ? 700 : 600,
+            cursor: decision === "done" ? "default" : undefined,
+          }}
         >
-          {extracting ? "分析中…" : decision === "done" ? "✓ 已完成" : decision === "adopt" ? "📋 列入计划" : "✓ 采纳"}
+          {extracting ? "分析中…" : decision === "done" ? "✅ 已应用" : decision === "adopt" ? "✓ 已选择" : "✓ 采纳"}
         </button>
-        {decision === "adopt" && (
-          <button className="sr-iter-action-btn sia-done" onClick={() => setDec("done")}>
-            → 标记完成
-          </button>
-        )}
         <button
           className="sr-iter-action-btn sia-hold"
           onClick={() => decide("hold")}
@@ -346,7 +357,8 @@ function IterCard({ op, reviewDate }: { op: StrategyIterationOp; reviewDate: str
 
 // ── Strategy Notes Panel ──────────────────────────────────────────────────────
 
-function StrategyNotesPanel({ backendOnline }: { backendOnline: boolean }) {
+// @ts-ignore -- reserved for future strategy notes UI
+function _StrategyNotesPanel({ backendOnline }: { backendOnline: boolean }) {
   const [notes, setNotes]     = useState<StrategyNote[]>([]);
   const [history, setHistory] = useState<OverrideHistoryEntry[]>([]);
   const [showHist, setShowHist] = useState(false);
@@ -434,7 +446,8 @@ function StrategyNotesPanel({ backendOnline }: { backendOnline: boolean }) {
 
 const REC_LABEL: Record<string, string> = { ADOPT: "采纳", HOLD: "待定", REJECT: "忽略" };
 
-function ThreeAgentDebate({ debate }: { debate: DebateResult }) {
+// @ts-ignore -- reserved for future 3-agent debate UI
+function _ThreeAgentDebate({ debate }: { debate: DebateResult }) {
   const tradingView = debate.trading_agent ?? debate.pro;
   const backtestView = debate.backtest_agent ?? debate.con;
   const reviewView = debate.review_agent ?? debate.synthesis;

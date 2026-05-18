@@ -17,6 +17,7 @@ load_dotenv()
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    _refresh_holdings()   # pre-warm holdings cache before scheduler first run
     _start_scheduler()
     yield
 
@@ -40,6 +41,7 @@ _news_cache: dict = {}
 _brief_cache: dict = {}
 _holdings_cache: dict = {}           # "sell_signals" -> list, "positions" -> list
 _scan_running: bool = False
+_last_cascade_at: float = 0.0        # unix timestamp of last cascade-to-agent
 
 
 def _load_scan_cache() -> dict:
@@ -282,100 +284,141 @@ def _sanitize_floats(obj):
 
 def _run_sp500_scan(cascade_agent: bool = False):
     """Run scan. If cascade_agent=True, auto-trigger agent after scan completes."""
-    global _scan_running
+    global _scan_running, _last_cascade_at
+
+    # Guard and flag-set BEFORE slow imports to minimize the race window
+    if _scan_running:
+        print("[scan] Already running — skipping duplicate trigger")
+        return
+    _scan_running = True
+    _scan_cache["sp500"] = {"status": "running", "candidates": [], "scanned_at": None, "progress": "starting"}
+
+    import threading
+    import time as _time
     from datetime import datetime
-    from src.monitor.sp500_scanner import get_scan_universe, quick_screen
+    from src.monitor.sp500_scanner import (
+        get_scan_universe, get_sp500_tickers, get_nasdaq100_tickers,
+        LAYER2_TICKERS, quick_screen, enrich_with_fundamentals,
+    )
     from src.analysis.stock_screener import ai_score_candidates
     from src.analysis.market_context import load_market_context
 
-    _scan_running = True
-    _scan_cache["sp500"] = {"status": "running", "candidates": [], "scanned_at": None}
+    SECTOR_MAP = {
+        "tech":          ["AAPL","MSFT","GOOGL","META","NVDA","AMD","AVGO","ORCL"],
+        "semiconductors":["NVDA","AMD","AVGO","QCOM","INTC","MU","AMAT","KLAC","LRCX","MRVL","SOXX"],
+        "healthcare":    ["UNH","JNJ","LLY","ABBV","MRK","TMO","ABT","DHR","ISRG","VRTX"],
+        "energy":        ["XOM","CVX","COP","SLB","EOG","PXD","MPC","VLO","PSX"],
+        "financials":    ["JPM","BAC","WFC","GS","MS","BLK","AXP","SPGI"],
+        "industrials":   ["CAT","HON","UPS","BA","RTX","LMT","DE","MMM","GE"],
+        "consumer":      ["AMZN","TSLA","HD","MCD","NKE","SBUX","TGT","LOW"],
+        "utilities":     ["NEE","DUK","SO","AEP","EXC","SRE"],
+    }
+
+    # Watchdog: reset _scan_running if scan hangs for >12 minutes
+    def _watchdog():
+        global _scan_running
+        _scan_running = False
+        print("[scan] watchdog: scan took >12 min, reset _scan_running")
+
+    watchdog = threading.Timer(720, _watchdog)
+    watchdog.daemon = True
+    watchdog.start()
+
+    def _set_progress(step: str):
+        if isinstance(_scan_cache.get("sp500"), dict):
+            _scan_cache["sp500"]["progress"] = step
+
     try:
-        # Load market context for sector bias adjustment
+        _set_progress("loading_market_context")
         ctx = load_market_context()
         sector_bias = ctx.get("sector_bias", {})
 
-        # Map sector names to stock symbols for bias lookup
-        SECTOR_MAP = {
-            "tech":          ["AAPL","MSFT","GOOGL","META","NVDA","AMD","AVGO","ORCL"],
-            "semiconductors":["NVDA","AMD","AVGO","QCOM","INTC","MU","AMAT","KLAC","LRCX","MRVL","SOXX"],
-            "healthcare":    ["UNH","JNJ","LLY","ABBV","MRK","TMO","ABT","DHR","ISRG","VRTX"],
-            "energy":        ["XOM","CVX","COP","SLB","EOG","PXD","MPC","VLO","PSX"],
-            "financials":    ["JPM","BAC","WFC","GS","MS","BLK","AXP","SPGI"],
-            "industrials":   ["CAT","HON","UPS","BA","RTX","LMT","DE","MMM","GE"],
-            "consumer":      ["AMZN","TSLA","HD","MCD","NKE","SBUX","TGT","LOW"],
-            "utilities":     ["NEE","DUK","SO","AEP","EXC","SRE"],
-        }
-        # Build symbol → bias dict
         symbol_bias: dict[str, str] = {}
         for sector, bias in sector_bias.items():
             if bias != "neutral":
                 for sym in SECTOR_MAP.get(sector, []):
-                    # positive sector wins over neutral, but negative always overrides
                     if sym not in symbol_bias or bias == "negative":
                         symbol_bias[sym] = bias
 
+        _set_progress("building_universe")
         print("[scan] Building scan universe (S&P 500 + NASDAQ-100 + Layer 2)…")
-        from src.monitor.sp500_scanner import get_sp500_tickers, get_nasdaq100_tickers, LAYER2_TICKERS
-        tickers = get_scan_universe()
-        # Build lookup sets for universe tagging
-        _sp500_set   = set(get_sp500_tickers())
-        _nasdaq_set  = set(get_nasdaq100_tickers())
-        _layer2_set  = set(LAYER2_TICKERS)
+        tickers     = get_scan_universe()
+        _sp500_set  = set(get_sp500_tickers())
+        _nasdaq_set = set(get_nasdaq100_tickers())
+        _layer2_set = set(LAYER2_TICKERS)
+
+        _set_progress("downloading_data")
         print(f"[scan] Quick-screening {len(tickers)} tickers…")
-        top_tech = quick_screen(tickers, top_n=25)
-        # Tag each candidate with its primary universe
+
+        def _progress_cb(step: str, done: int, total: int):
+            _set_progress(f"downloading ({done}/{total} chunks)")
+
+        top_tech = quick_screen(tickers, top_n=25, progress_cb=_progress_cb)
+
         for c in top_tech:
             sym = c["symbol"]
-            if sym in _sp500_set:
-                c["universe"] = "sp500"
-            elif sym in _nasdaq_set:
-                c["universe"] = "nasdaq100"
-            elif sym in _layer2_set:
-                c["universe"] = "layer2"
-            else:
-                c["universe"] = "other"
+            c["universe"] = (
+                "sp500" if sym in _sp500_set else
+                "nasdaq100" if sym in _nasdaq_set else
+                "layer2" if sym in _layer2_set else "other"
+            )
+
         print(f"[scan] {len(top_tech)} passed technical filter. Enriching with fundamentals…")
-        from src.monitor.sp500_scanner import enrich_with_fundamentals
+        _set_progress("enriching_fundamentals")
         top_tech = enrich_with_fundamentals(top_tech)
+
         print(f"[scan] Fundamentals enriched. Running AI scoring…")
+        _set_progress("ai_scoring")
         _scan_notes = [n["text"] for n in _load_notes() if n.get("active", True)]
         top_ai = _sanitize_floats(ai_score_candidates(top_tech, strategy_notes=_scan_notes or None))
 
-        # Apply sector bias: adjust ai_score ±1 based on sector momentum
+        # Apply sector bias: adjust ai_score ±1
         if symbol_bias and top_ai:
             for c in top_ai:
-                bias = symbol_bias.get(c["symbol"])
-                if bias == "positive" and c.get("ai_score", 0) < 10:
-                    c["ai_score"] = min(10, c["ai_score"] + 1)
-                    c["reason"] = f"[Sector momentum ↑] {c.get('reason','')}"
-                elif bias == "negative" and c.get("ai_score", 0) > 0:
-                    c["ai_score"] = max(0, c["ai_score"] - 1)
-                    c["reason"] = f"[Sector headwind ↓] {c.get('reason','')}"
-            # Re-sort after adjustment
+                bias  = symbol_bias.get(c["symbol"])
+                score = c.get("ai_score") or 0
+                if bias == "positive" and score < 10:
+                    c["ai_score"] = min(10, score + 1)
+                    c["reason"]   = f"[Sector momentum ↑] {c.get('reason','')}"
+                elif bias == "negative" and score > 0:
+                    c["ai_score"] = max(0, score - 1)
+                    c["reason"]   = f"[Sector headwind ↓] {c.get('reason','')}"
             top_ai = sorted(top_ai, key=lambda x: (
-                0 if x.get("signal") in ("STRONG_BUY","BUY") else 1,
-                -x.get("ai_score", 0)
+                0 if x.get("signal") in ("STRONG_BUY", "BUY") else 1,
+                -(x.get("ai_score") or 0),
             ))
 
+        ai_scored = sum(1 for c in top_ai if c.get("ai_score") is not None)
         _scan_cache["sp500"] = {
-            "status": "done",
-            "candidates": top_ai,
-            "scanned_at": datetime.utcnow().isoformat(),
+            "status":        "done",
+            "progress":      "done",
+            "candidates":    top_ai,
+            "scanned_at":    datetime.utcnow().isoformat(),
             "total_screened": len(tickers),
-            "tech_passed": len(top_tech),
+            "tech_passed":   len(top_tech),
+            "ai_scored":     ai_scored,
         }
         _save_scan_cache(_scan_cache)
-        print(f"[scan] Done. Top candidate: {top_ai[0]['symbol'] if top_ai else 'none'} | sector_bias applied to {sum(1 for s in symbol_bias if any(c['symbol']==s for c in top_ai))} stocks")
+        top_sym = top_ai[0]["symbol"] if top_ai else "none"
+        bias_ct = sum(1 for s in symbol_bias if any(c["symbol"] == s for c in top_ai))
+        print(f"[scan] Done. {ai_scored}/{len(top_ai)} AI-scored | top: {top_sym} | sector_bias: {bias_ct} stocks")
+
     except Exception as e:
-        _scan_cache["sp500"] = {"status": "error", "error": str(e), "candidates": []}
+        print(f"[scan] error: {e}")
+        _scan_cache["sp500"] = {"status": "error", "progress": "error", "error": str(e), "candidates": []}
     finally:
+        watchdog.cancel()
         _scan_running = False
 
-    # Cascade: auto-run agent after scan completes (both scheduled and manual)
+    # Cascade: auto-run agent — debounced to prevent rapid re-triggering
     if cascade_agent and _scan_cache.get("sp500", {}).get("status") == "done":
-        print("[scan] Cascading to trade agent…")
-        _run_agent_internal()
+        now = _time.time()
+        if now - _last_cascade_at > 120:   # at least 2 min between cascades
+            _last_cascade_at = now
+            print("[scan] Cascading to trade agent…")
+            _run_agent_internal()
+        else:
+            print(f"[scan] cascade skipped (last cascade {now - _last_cascade_at:.0f}s ago)")
 
 
 @app.get("/api/scan/sp500")
@@ -553,8 +596,10 @@ def _refresh_holdings():
     _holdings_cache["analyzed"] = False
     try:
         enriched = analyze_sell_signals(positions)
+        from datetime import datetime as _dt
         _holdings_cache["positions"] = enriched
         _holdings_cache["analyzed"] = True
+        _holdings_cache["refreshed_at"] = _dt.utcnow().isoformat()
     except Exception as e:
         print(f"[holdings] auto-refresh error: {e}")
 
@@ -684,9 +729,20 @@ def get_orders():
     from src.trader.alpaca_trader import get_client
     try:
         alpaca = get_client()
-        orders = alpaca.list_orders(status="all", limit=20)
-        return [
-            {
+        # Fetch all currently open orders (no limit — these are active and must all be visible)
+        open_orders = alpaca.list_orders(status="open")
+        # Fetch recent closed/filled/cancelled for activity history (last 30)
+        recent_orders = alpaca.list_orders(status="closed", limit=30)
+        # Merge: open orders first, then recent history (dedup by id)
+        seen: set = set()
+        merged = []
+        for o in list(open_orders) + list(recent_orders):
+            if o.id not in seen:
+                seen.add(o.id)
+                merged.append(o)
+
+        def _fmt(o):
+            return {
                 "id": o.id,
                 "symbol": o.symbol,
                 "side": o.side,
@@ -697,8 +753,7 @@ def get_orders():
                 "created_at": str(o.created_at),
                 "type": o.type,
             }
-            for o in orders
-        ]
+        return [_fmt(o) for o in merged]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -817,9 +872,10 @@ def _run_agent_internal():
     from src.trader.trade_agent import run_agent as _run_agent
     from src.analysis.market_context import load_market_context
 
-    # Auto-scan if missing or stale
+    # Auto-scan if missing or stale — never block Rex; kick off scan in background instead
     scan_data  = _scan_cache.get("sp500", {})
     scanned_at = scan_data.get("scanned_at")
+    scan_status = scan_data.get("status", "not_run")
     needs_scan = True
     age_hours  = 0
     if scanned_at:
@@ -829,9 +885,18 @@ def _run_agent_internal():
         except Exception:
             needs_scan = True
 
-    if needs_scan:
-        print(f"[agent] Scan {'missing' if not scanned_at else f'stale ({age_hours:.1f}h)'} — scanning first…")
-        _run_sp500_scan(cascade_agent=False)   # no re-cascade
+    # Only scan during market hours (8:00–16:30 ET) — post-market data is garbage
+    from datetime import timezone as _tz, timedelta as _td
+    _et_now = datetime.now(_tz(_td(hours=-4)))
+    _in_scan_window = _et_now.weekday() < 5 and (8, 0) <= (_et_now.hour, _et_now.minute) <= (16, 30)
+
+    if scan_status == "running" or _scan_running:
+        print("[agent] Scan already in progress — running Rex with last cached results")
+    elif needs_scan and _in_scan_window:
+        print(f"[agent] Scan {'missing' if not scanned_at else f'stale ({age_hours:.1f}h)'} — launching background scan & continuing with cached data")
+        threading.Thread(target=_run_sp500_scan, kwargs={"cascade_agent": False}, daemon=True, name="bg-scan").start()
+    elif needs_scan:
+        print(f"[agent] Scan stale ({age_hours:.1f}h) but outside market hours — using cached data, will rescan at market open")
     else:
         print(f"[agent] Using cached scan (age={age_hours:.1f}h)")
 
@@ -1103,7 +1168,7 @@ def _start_scheduler():
     # ── Shared state ────────────────────────────────────────────────────────────
     review_triggered:  set[str] = set()   # dates where close-review ran
     vera_extra_dates:  set[str] = set()   # dates where intraday Vera already fired
-    rex_last_run:      dict = {"ts": 0.0} # last Rex run timestamp (epoch seconds)
+    rex_last_run:      dict = {"ts": time.time()} # last Rex run timestamp; init to now to avoid immediate fire on startup
     last_regime:       dict = {"value": None}
 
     REX_INTERVAL_SECS  = 30 * 60   # 30 minutes
@@ -1180,9 +1245,18 @@ def _start_scheduler():
 
             # ── Close-of-day Vera at 4:15 PM ──────────────────────────────────
             after_close = (h, m) >= (16, 15)
-            review_done = today_str in review_triggered or (
-                _review_cache.get("latest", {}).get("date") == today_str
-            )
+            def _close_review_done(today_str: str) -> bool:
+                if today_str in review_triggered:
+                    return True
+                gen_at = _review_cache.get("latest", {}).get("generated_at", "")
+                if not gen_at or gen_at[:10] != today_str:
+                    return False
+                try:
+                    gen_et = datetime.fromisoformat(gen_at).astimezone(ET)
+                    return gen_et.hour >= 16
+                except Exception:
+                    return False
+            review_done = _close_review_done(today_str)
             if is_weekday and after_close and not review_done:
                 print(f"[scheduler] Market closed — triggering end-of-day review for {today_str}")
                 review_triggered.add(today_str)

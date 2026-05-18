@@ -89,14 +89,41 @@ def _save_log(log: list[dict]):
 _pending: dict[str, dict] = _load_from_disk()
 _run_log: list[dict] = _load_log()
 _agent_running: bool = False
+_reduce_today: dict[str, str] = {}   # symbol -> date string; prevents repeat REDUCE same day
+_sell_hold_count: dict[str, int] = {}  # symbol -> consecutive HOLD count; cancel only after >= 2
 
-PENDING_TTL_HOURS = 4     # increased from 2h — more time to review pre-market signals
 ERROR_TTL_HOURS   = 24    # auto-clear error trades after 24 h
 MAX_LOG = 20
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _next_session_close() -> datetime:
+    """Return the next trading session's 4:30 PM ET as UTC datetime.
+
+    Trades generated any time today survive until today's close (if market still open)
+    or next weekday's close (if market is closed / after hours).
+    """
+    try:
+        import zoneinfo
+        et = zoneinfo.ZoneInfo("America/New_York")
+    except ImportError:
+        et = timezone(timedelta(hours=-4))
+
+    from datetime import time as dtime
+    now_et = _now().astimezone(et)
+    close_time = dtime(16, 30)  # 30-min buffer after 4 PM close
+
+    candidate = now_et.replace(hour=16, minute=30, second=0, microsecond=0)
+    if now_et.time() >= close_time or now_et.weekday() >= 5:
+        # already past close or weekend — advance to next weekday
+        candidate = candidate + timedelta(days=1)
+        while candidate.weekday() >= 5:
+            candidate = candidate + timedelta(days=1)
+
+    return candidate.astimezone(timezone.utc)
 
 
 def _is_market_hours() -> bool:
@@ -160,7 +187,7 @@ def _make_trade(
         "universe": universe,
         "status": "pending",
         "created_at": now.isoformat(),
-        "expires_at": (now + timedelta(hours=PENDING_TTL_HOURS)).isoformat(),
+        "expires_at": _next_session_close().isoformat(),
         "executed_order_id": None,
         "error": None,
     }
@@ -196,17 +223,18 @@ def get_agent_log() -> list[dict]:
     return list(reversed(_run_log))
 
 
-def _add_trade(trade: dict, existing_symbols: set[str]) -> bool:
+def _add_trade(trade: dict, existing_symbols: set[str], allow_add_to_position: bool = False) -> bool:
     """
     Add trade to queue if no duplicate pending for same symbol+side.
     `existing_symbols` = symbols we already own (skip buy if already held).
+    `allow_add_to_position` = True when cash is very high and signal is strong (score ≥ 8).
     Returns True if added.
     """
     sym = trade["symbol"]
     side = trade["side"]
 
-    # Don't buy what we already own
-    if side == "buy" and sym in existing_symbols:
+    # Don't buy what we already own (unless adding to position is explicitly allowed)
+    if side == "buy" and sym in existing_symbols and not allow_add_to_position:
         print(f"[agent] skip {sym} buy — already in portfolio")
         return False
 
@@ -346,8 +374,20 @@ def run_agent(
     try:
         # ── Load user-adopted strategy overrides ──────────────────────────────
         _ov           = _load_strategy_overrides()
-        risk_pct      = _ov.get("risk_pct",        0.02)
-        max_pos_pct   = _ov.get("max_position_pct", 0.10)
+
+        # Scale defaults to account size — small accounts need higher % per trade
+        if portfolio_value < 5_000:
+            _default_risk    = 0.08   # 8% risk per trade for tiny accounts
+            _default_max_pos = 0.25   # 25% max position
+        elif portfolio_value < 20_000:
+            _default_risk    = 0.04
+            _default_max_pos = 0.15
+        else:
+            _default_risk    = 0.02
+            _default_max_pos = 0.10
+
+        risk_pct      = _ov.get("risk_pct",        _default_risk)
+        max_pos_pct   = _ov.get("max_position_pct", _default_max_pos)
         stop_loss_pct = _ov.get("stop_loss_pct",    0.03)
         max_notional  = portfolio_value * max_pos_pct
         if _ov:
@@ -383,6 +423,24 @@ def run_agent(
             min_ai_score = max(min_ai_score, float(_ov["min_ai_score"]))
             print(f"[agent] min_ai_score={min_ai_score} (user override)")
 
+        # ── Cash deployment pressure: lower threshold when cash is excessive ──
+        # Count only market-hours runs (9:25–16:05 ET) that produced no trades
+        def _was_market_hours_run(r: dict) -> bool:
+            try:
+                import zoneinfo
+                et = zoneinfo.ZoneInfo("America/New_York")
+            except ImportError:
+                et = timezone(timedelta(hours=-4))
+            from datetime import time as dtime
+            ts = datetime.fromisoformat(r["run_at"]).astimezone(et)
+            return ts.weekday() < 5 and dtime(9, 25) <= ts.time() <= dtime(16, 5)
+
+        recent_runs = _run_log[-6:] if _run_log else []
+        dry_runs = sum(
+            1 for r in recent_runs
+            if r.get("trades_queued", 0) == 0 and r.get("status") == "ok" and _was_market_hours_run(r)
+        )
+
         if regime["block_buys"]:
             print(f"[agent] Buys BLOCKED by regime — {regime['reason']}")
             summary["status"] = "buys_blocked"
@@ -405,17 +463,73 @@ def run_agent(
         owned_symbols: set[str] = set()
         slots_remaining = 10    # fallback
         alpaca_positions: list = []
+        alpaca_open_sell_symbols: set[str] = set()
+        _open_orders_fetched: bool = False   # track whether list_orders() succeeded
         try:
             from src.trader.alpaca_trader import get_client, get_account
             acct = get_account()
             cash = float(acct.cash)
-            alpaca_positions = get_client().list_positions()   # fetch ONCE
+            client = get_client()
+            alpaca_positions = client.list_positions()   # fetch ONCE
             owned_symbols = {p.symbol for p in alpaca_positions}
             slots_remaining = max(0, 10 - len(alpaca_positions))
+            # Track symbols with open sell orders to avoid duplicate submissions
+            open_orders = client.list_orders(status="open")
+            alpaca_open_sell_symbols = {o.symbol for o in open_orders if o.side == "sell"}
+            _open_orders_fetched = True
+            if alpaca_open_sell_symbols:
+                print(f"[agent] Open sell orders in Alpaca: {alpaca_open_sell_symbols}")
+
+            # ── Signal-reversal auto-cancel ────────────────────────────────────
+            # If holdings monitor now says HOLD/ADD for a symbol that has an open
+            # AI-triggered sell order, cancel it. Hard-stop orders are never cancelled.
+            cache_age_hours = None
+            refreshed_at = holdings_cache.get("refreshed_at")
+            if refreshed_at:
+                try:
+                    cache_age_hours = (datetime.utcnow() - datetime.fromisoformat(refreshed_at)).total_seconds() / 3600
+                except Exception:
+                    pass
+
+            cache_fresh = cache_age_hours is not None and cache_age_hours < 4
+            if cache_fresh and holdings_cache.get("analyzed"):
+                signal_map = {p["symbol"]: p.get("sell_signal", "HOLD")
+                              for p in holdings_cache.get("positions", [])}
+                open_sell_orders = [o for o in open_orders if o.side == "sell"]
+                for o in open_sell_orders:
+                    current_signal = signal_map.get(o.symbol, "HOLD")
+                    if current_signal in ("HOLD", "ADD"):
+                        _sell_hold_count[o.symbol] = _sell_hold_count.get(o.symbol, 0) + 1
+                        print(f"[agent] {o.symbol} HOLD/ADD signal — hold_count={_sell_hold_count[o.symbol]}/2 (cancel after 2 consecutive)")
+                        if _sell_hold_count[o.symbol] >= 2:
+                            # Check our internal queue — skip if it was a hard-stop trade
+                            is_hard_stop = any(
+                                t.get("source") == "hard_stop" and t.get("symbol") == o.symbol
+                                and t.get("status") in ("pending", "executed")
+                                for t in _pending.values()
+                            )
+                            if not is_hard_stop:
+                                try:
+                                    from src.trader.alpaca_trader import cancel_order as _cancel
+                                    _cancel(o.id)
+                                    _sell_hold_count[o.symbol] = 0
+                                    print(f"[agent] Auto-cancelled sell order {o.id} for {o.symbol} — 2 consecutive HOLD signals")
+                                    summary.setdefault("cancelled_orders", []).append(o.symbol)
+                                except Exception as ce:
+                                    print(f"[agent] Failed to cancel {o.symbol} order: {ce}")
+                    else:
+                        if _sell_hold_count.get(o.symbol, 0) > 0:
+                            print(f"[agent] {o.symbol} signal back to {current_signal} — resetting hold_count")
+                        _sell_hold_count[o.symbol] = 0
         except Exception as e:
             print(f"[agent] account check failed: {e}")
             # fall back: use holdings_cache
             owned_symbols = {p["symbol"] for p in holdings_cache.get("positions", [])}
+            # SAFETY: if list_orders() never succeeded, block ALL sell submissions this cycle
+            # to prevent duplicate orders (Alpaca rejects with "insufficient qty available")
+            if not _open_orders_fetched:
+                alpaca_open_sell_symbols = owned_symbols
+                print(f"[agent] WARNING: could not fetch open orders — blocking sell submissions to prevent duplicates")
 
         if slots_remaining == 0:
             print("[agent] No open slots — skipping buy signals")
@@ -431,12 +545,27 @@ def run_agent(
             and not breaker.get("triggered", False)
         )
 
+        # ── Cash pressure: lower threshold when cash is piling up ────────────
+        cash_pct = cash / portfolio_value if portfolio_value > 0 else 0
+        if can_buy and cash_pct > 0.30 and dry_runs >= 2 and regime["regime"] != "BEAR":
+            relaxed = max(5, min_ai_score - 1)
+            print(f"[agent] Cash pressure: {cash_pct:.0%} cash, {dry_runs} dry runs → relaxing min_ai_score {min_ai_score}→{relaxed}")
+            min_ai_score = relaxed
+        elif can_buy and cash_pct > 0.50 and regime["regime"] != "BEAR":
+            relaxed = max(5, min_ai_score - 1)
+            print(f"[agent] High cash ({cash_pct:.0%}) → relaxing min_ai_score {min_ai_score}→{relaxed}")
+            min_ai_score = relaxed
+        summary["cash_pct"] = round(cash_pct * 100, 1)
+        summary["min_ai_score_used"] = min_ai_score
+
+        MIN_ORDER_NOTIONAL = max(10.0, portfolio_value * 0.005)  # at least 0.5% of portfolio or $10
+
         def _size(price: float, stop: float) -> float:
             """Risk-based notional, scaled by regime size_factor. Never exceeds spendable cash."""
             risk_per_share = max(price - stop, 0.01)
             shares = (portfolio_value * risk_pct) / risk_per_share
             raw = min(round(shares * price, 2), max_notional, spendable_cash * 0.95)
-            return round(raw * size_factor, 2)
+            return round(max(raw * size_factor, MIN_ORDER_NOTIONAL), 2)
 
         # ── Problem 4: earnings check helper ─────────────────────────────────
         from src.monitor.news_monitor import earnings_within_days
@@ -469,11 +598,8 @@ def run_agent(
             for c in scan.get("candidates", []):
                 signal   = c.get("signal", "")
                 ai_score = c.get("ai_score") or 0
-                # STRONG_BUY: regime threshold (7 in BULL) | BUY: stricter (+1)
-                if signal == "STRONG_BUY" and ai_score >= min_ai_score:
+                if signal in ("STRONG_BUY", "BUY") and ai_score >= min_ai_score:
                     pass   # allowed
-                elif signal == "BUY" and ai_score >= min_ai_score + 1:
-                    pass   # allowed (higher bar for BUY)
                 else:
                     continue
                 # Problem 4: skip if earnings this week
@@ -505,7 +631,14 @@ def run_agent(
                     near_breakout=c.get("near_breakout"),
                     universe=c.get("universe"),
                 )
-                if _add_trade(trade, owned_symbols):
+                # Allow adding to existing position when cash is very high and signal is strong,
+                # but only if the combined position stays within max_pos_pct of portfolio.
+                allow_add = False
+                if cash_pct > 0.50 and (c.get("ai_score") or 0) >= 8:
+                    cur_mv = next((float(p.market_value) for p in alpaca_positions if p.symbol == symbol), 0.0)
+                    new_total = cur_mv + (trade["notional"] or 0)
+                    allow_add = new_total <= max_notional
+                if _add_trade(trade, owned_symbols, allow_add_to_position=allow_add):
                     summary["signals_found"] += 1
                     summary["trades_queued"] += 1
                     scanner_added += 1
@@ -596,6 +729,9 @@ def run_agent(
         holdings_added = 0
         hard_stop_symbols: set[str] = set()
         for ap in alpaca_positions:
+            if ap.symbol in alpaca_open_sell_symbols:
+                print(f"[agent] skip {ap.symbol} hard stop — open sell order already in Alpaca")
+                continue
             plpc = float(ap.unrealized_plpc) * 100   # Alpaca returns as decimal
             if plpc <= HARD_STOP_PCT:
                 print(f"[agent] Hard stop: {ap.symbol} down {plpc:.1f}% (threshold {HARD_STOP_PCT:.1f}%)")
@@ -616,6 +752,12 @@ def run_agent(
                     _new_trade_ids.add(trade["id"])
 
         # Second pass: AI sell signals from holdings cache (skip already handled)
+        today_str = _now().strftime("%Y-%m-%d")
+        # Purge stale entries from prior days
+        for k in list(_reduce_today.keys()):
+            if _reduce_today[k] != today_str:
+                del _reduce_today[k]
+
         for pos in holdings_cache.get("positions", []):
             sell_signal = pos.get("sell_signal")
             if sell_signal not in ("SELL", "REDUCE"):
@@ -625,6 +767,12 @@ def run_agent(
                 continue
             if pos["symbol"] in hard_stop_symbols:
                 continue   # already queued via hard stop
+            if pos["symbol"] in alpaca_open_sell_symbols:
+                print(f"[agent] skip {pos['symbol']} {sell_signal} — open sell order already in Alpaca")
+                continue
+            if sell_signal == "REDUCE" and _reduce_today.get(pos["symbol"]) == today_str:
+                print(f"[agent] skip {pos['symbol']} REDUCE — already reduced today")
+                continue
             qty = float(pos.get("qty", 0))
             close_qty = max(1, math.floor(qty * 0.5)) if sell_signal == "REDUCE" else None
             trade = _make_trade(
@@ -642,6 +790,8 @@ def run_agent(
                 summary["trades_queued"] += 1
                 holdings_added += 1
                 _new_trade_ids.add(trade["id"])
+                if sell_signal == "REDUCE":
+                    _reduce_today[pos["symbol"]] = today_str
 
         if holdings_added:
             summary["sources"].append("holdings")
@@ -649,7 +799,7 @@ def run_agent(
         # ── Auto-approve: execute high-confidence trades from THIS run only ──
         # Only auto-approves trades queued in this run — not stale ones from prior runs.
         auto_threshold = _get_auto_approve_threshold()
-        if auto_threshold is not None and auto_threshold > 0:
+        if auto_threshold is not None and auto_threshold >= 0:
             auto_approved = 0
             for trade in list(_pending.values()):
                 if trade["id"] not in _new_trade_ids:

@@ -27,14 +27,19 @@ interface PCC {
   goal: GoalProgress | null;
   account: Account | null;
   quotes: Record<string, Quote>;
+  openSellSymbols: Set<string>;
+  cancellingSymbols: Set<string>;
+  errorSellSymbols: Set<string>;
+  allOrders: import("../api/client").Order[];
 }
 
 export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, autoApprove }: Props) {
-  const [data, setData] = useState<PCC>({ budget: null, holdings: null, positions: [], scan: null, agent: null, history: null, pipeline: null, goal: null, account: null, quotes: {} });
+  const [data, setData] = useState<PCC>({ budget: null, holdings: null, positions: [], scan: null, agent: null, history: null, pipeline: null, goal: null, account: null, quotes: {}, openSellSymbols: new Set(), cancellingSymbols: new Set(), errorSellSymbols: new Set(), allOrders: [] });
+  const [tradeLogTab, setTradeLogTab] = useState<"open" | "filled" | "failed" | "cancelled">("open");
 
   const load = useCallback(async () => {
     if (!backendOnline) return;
-    const [budget, holdings, positions, scan, agent, history, pipeline, goal, account] = await Promise.allSettled([
+    const [budget, holdings, positions, scan, agent, history, pipeline, goal, account, orders] = await Promise.allSettled([
       api.getBudget(),
       api.getHoldings(),
       api.getPositions(),
@@ -44,7 +49,25 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
       api.getPipelineStatus(),
       api.getGoalProgress(),
       api.getAccount(),
+      api.getOrders(),
     ]);
+    const allOrders = orders.status === "fulfilled" ? orders.value : [];
+    const openSellSymbols = new Set(
+      allOrders
+        .filter((o: import("../api/client").Order) => o.side === "sell" && ["new", "accepted", "pending_new", "pending_cancel"].includes(o.status))
+        .map((o: import("../api/client").Order) => o.symbol)
+    );
+    const cancellingSymbols = new Set(
+      allOrders
+        .filter((o: import("../api/client").Order) => o.side === "sell" && o.status === "pending_cancel")
+        .map((o: import("../api/client").Order) => o.symbol)
+    );
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const errorSellSymbols = new Set(
+      (agent.status === "fulfilled" ? agent.value.trades : [])
+        .filter((t: import("../api/client").PendingTrade) => t.status === "error" && t.side === "sell" && t.created_at.startsWith(todayStr))
+        .map((t: import("../api/client").PendingTrade) => t.symbol)
+    );
     const newData = {
       budget: budget.status === "fulfilled" ? budget.value : null,
       holdings: holdings.status === "fulfilled" ? holdings.value : null,
@@ -55,6 +78,10 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
       pipeline: pipeline.status === "fulfilled" ? pipeline.value : null,
       goal: goal.status === "fulfilled" ? goal.value : null,
       account: account.status === "fulfilled" ? account.value : null,
+      openSellSymbols,
+      cancellingSymbols,
+      errorSellSymbols,
+      allOrders,
       quotes: {},
     };
     setData(newData);
@@ -139,25 +166,51 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
   const pendingSymbols = new Set(pendingTrades.map(t => t.symbol + t.side));
   // Only show sell signals for symbols actually in the real Alpaca account
   const alpacaSymbols = new Set(alpacaPositions.map(p => p.symbol));
-  const sellSignals = mergedPositions.filter(p =>
+  void mergedPositions.filter(p =>
     alpacaSymbols.has(p.symbol) &&
     (p.sell_signal === "SELL" || p.sell_signal === "REDUCE") &&
     !pendingSymbols.has(p.symbol + "sell")
   );
-  const buySignals = scanCandidates
+  void scanCandidates
     .filter(c => !pendingSymbols.has(c.symbol + "buy"))
     .sort((a, b) => (a.owned ? 1 : 0) - (b.owned ? 1 : 0));
 
   // Agent log entries (most recent 5)
   const agentLogEntries = (data.agent?.log ?? []).slice(0, 5);
-  // Trade log — today's executed/error trades only (rejected are user-driven, shown separately)
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const tradeLogEntries = (data.agent?.trades ?? [])
-    .filter(t => t.status === "executed" || t.status === "error")
-    .filter(t => t.created_at.startsWith(todayStr))
-    .slice(0, 8);
-  const rejectedToday = (data.agent?.trades ?? [])
-    .filter(t => t.status === "rejected" && t.created_at.startsWith(todayStr));
+
+  // Trade log — grouped by status
+  const ALPACA_OPEN = new Set(["new", "held", "accepted", "pending_new", "accepted_for_bidding"]);
+  const alpacaOrderById = new Map(data.allOrders.map(o => [o.id, o]));
+
+  const allTrades = (data.agent?.trades ?? []).filter(t => t.status !== "pending");
+
+  // Categorise each trade
+  const grouped = allTrades.reduce<{
+    open: PendingTrade[]; filled: PendingTrade[]; failed: PendingTrade[]; cancelled: PendingTrade[];
+  }>((acc, t) => {
+    if (t.status === "cancelled" || t.status === "expired") {
+      acc.cancelled.push(t);
+    } else if (t.status === "rejected" || t.status === "error") {
+      acc.failed.push(t);
+    } else if (t.status === "executed") {
+      const alpacaOrder = t.executed_order_id ? alpacaOrderById.get(t.executed_order_id) : undefined;
+      // If we already have local fill data, it's definitely filled
+      if (t.fill_status === "filled" || t.fill_price != null) {
+        acc.filled.push(t);
+      } else if (alpacaOrder?.status === "filled") {
+        acc.filled.push(t);
+      } else if (alpacaOrder?.status === "canceled" || alpacaOrder?.status === "cancelled" || alpacaOrder?.status === "expired") {
+        // Order was cancelled in Alpaca — show under 已撤销 even if local status says "executed"
+        acc.cancelled.push(t);
+      } else if (alpacaOrder && ALPACA_OPEN.has(alpacaOrder.status)) {
+        acc.open.push(t);
+      } else {
+        // No conclusive info — treat as open (order submitted, awaiting fill confirmation)
+        acc.open.push(t);
+      }
+    }
+    return acc;
+  }, { open: [], filled: [], cancelled: [], failed: [] });
 
   return (
     <div className="pcc-container">
@@ -279,6 +332,9 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
                     quote={data.quotes[p.symbol] ?? null}
                     allocPct={allocPct}
                     onRefresh={load}
+                    hasOpenSell={data.openSellSymbols.has(p.symbol)}
+                    isCancelling={data.cancellingSymbols.has(p.symbol)}
+                    hasSellError={data.errorSellSymbols.has(p.symbol)}
                   />
                 );
               })}
@@ -373,73 +429,93 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
           </div>
         </div>
 
-        {/* Trade log */}
+        {/* Trade log — grouped */}
         <div className="pcc-log-card">
           <div className="pcc-log-header">
-            <span className="pcc-section-title" style={{ margin: 0 }}>今日交易记录</span>
-            <span className="pcc-log-tag pcc-log-tag-trade">
-              ✓ {tradeLogEntries.filter(t => t.status === "executed").length} 已执行
-            </span>
-            {rejectedToday.length > 0 && (
-              <span style={{ fontSize: 11, color: "var(--muted)" }}>
-                {rejectedToday.length} 已拒绝
-              </span>
-            )}
+            <span className="pcc-section-title" style={{ margin: 0 }}>交易记录</span>
           </div>
+
+          {/* Group filter tabs */}
+          <div style={{ display: "flex", gap: 6, padding: "0 12px 10px", borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}>
+            {(["open", "filled", "failed", "cancelled"] as const).map(tab => {
+              const labels: Record<string, string> = { open: "挂单中", filled: "已成交", failed: "失败/拒绝", cancelled: "已撤销" };
+              const counts = { open: grouped.open.length, filled: grouped.filled.length, failed: grouped.failed.length, cancelled: grouped.cancelled.length };
+              const active = tradeLogTab === tab;
+              const colors: Record<string, string> = { open: "#60a5fa", filled: "#22c55e", failed: "#ef4444", cancelled: "#64748b" };
+              return (
+                <button key={tab} onClick={() => setTradeLogTab(tab)} style={{
+                  fontSize: 11, padding: "3px 9px", borderRadius: 6, border: "1px solid",
+                  borderColor: active ? colors[tab] : "var(--border)",
+                  background: active ? colors[tab] + "22" : "transparent",
+                  color: active ? colors[tab] : "var(--muted)",
+                  cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
+                  fontWeight: active ? 600 : 400,
+                }}>
+                  {labels[tab]}
+                  {counts[tab] > 0 && (
+                    <span style={{
+                      background: active ? colors[tab] : "#334155",
+                      color: active ? "#fff" : "var(--muted)",
+                      borderRadius: 10, padding: "0 5px", fontSize: 10, fontWeight: 700,
+                    }}>{counts[tab]}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
           <div className="pcc-log-list">
-            {tradeLogEntries.length === 0 && rejectedToday.length === 0 ? (
+            {grouped[tradeLogTab].length === 0 ? (
               <div className="pcc-log-item dimmed">
                 <div className="pcc-log-icon pcc-log-icon-sys">—</div>
                 <div className="pcc-log-body">
-                  <span className="pcc-log-title" style={{ color: "var(--muted)" }}>今日暂无成交</span>
-                  <span className="pcc-log-sub">批准信号后将在此显示</span>
+                  <span className="pcc-log-title" style={{ color: "var(--muted)" }}>
+                    {{ open: "暂无挂单", filled: "暂无成交记录", failed: "无失败/拒绝记录", cancelled: "无撤销记录" }[tradeLogTab]}
+                  </span>
                 </div>
               </div>
             ) : (
-              <>
-                {tradeLogEntries.map(t => {
-                  const isBuy = t.side === "buy";
-                  const isErr = t.status === "error";
-                  return (
-                    <div key={t.id} className="pcc-log-item">
-                      <div className={`pcc-log-icon ${!isErr ? (isBuy ? "pcc-log-icon-buy" : "pcc-log-icon-sell") : "pcc-log-icon-sys"}`}>
-                        {isErr ? "⚠" : "✓"}
-                      </div>
-                      <div className="pcc-log-body">
-                        <span className="pcc-log-title">
-                          <span style={{ color: isBuy ? "#22c55e" : "#ef4444" }}>
-                            {isBuy ? "买入" : "卖出"}
-                          </span> · {t.symbol}
-                          {t.notional ? ` $${t.notional.toFixed(0)}` : t.qty ? ` ×${t.qty}` : ""}
-                        </span>
-                        <span className="pcc-log-sub">
-                          {!isErr ? "已成交" : `失败: ${t.error ?? "未知"}`}
-                          {t.price ? ` · $${t.price.toFixed(2)}` : ""}
-                        </span>
-                        <span className="pcc-log-time">
-                          {new Date(t.created_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-                {rejectedToday.map(t => (
-                  <div key={t.id} className="pcc-log-item" style={{ opacity: 0.5 }}>
-                    <div className="pcc-log-icon pcc-log-icon-sys">✕</div>
+              grouped[tradeLogTab].map(t => {
+                const isBuy = t.side === "buy";
+                const isErr = t.status === "error";
+                const isRej = t.status === "rejected";
+                const isCancelled = t.status === "cancelled" || t.status === "expired";
+                const alpacaOrder = t.executed_order_id ? alpacaOrderById.get(t.executed_order_id) : undefined;
+
+                let iconClass = isBuy ? "pcc-log-icon-buy" : "pcc-log-icon-sell";
+                let iconChar = isBuy ? "↑" : "↓";
+                if (isErr) { iconClass = "pcc-log-icon-sys"; iconChar = "⚠"; }
+                else if (isRej || isCancelled) { iconClass = "pcc-log-icon-sys"; iconChar = "✕"; }
+
+                const alpacaCancelled = alpacaOrder?.status === "canceled" || alpacaOrder?.status === "cancelled" || alpacaOrder?.status === "expired";
+                let subText = "";
+                if (isErr) subText = t.error ? `失败: ${t.error.slice(0, 60)}` : "提交失败";
+                else if (isRej) subText = t.reason ? t.reason.slice(0, 60) : "已拒绝";
+                else if (isCancelled || alpacaCancelled) subText = t.status === "expired" || alpacaOrder?.status === "expired" ? "已过期" : "已撤销";
+                else if (t.fill_price != null) subText = `成交均价 $${t.fill_price.toFixed(2)}`;
+                else if (alpacaOrder?.status === "filled") subText = `成交均价 $${alpacaOrder.filled_avg_price?.toFixed(2) ?? "—"}`;
+                else if (tradeLogTab === "open") subText = "挂单等待成交";
+                else subText = "成交均价获取中…";
+
+                return (
+                  <div key={t.id} className="pcc-log-item" style={{ opacity: isCancelled || isRej ? 0.55 : 1 }}>
+                    <div className={`pcc-log-icon ${iconClass}`}>{iconChar}</div>
                     <div className="pcc-log-body">
-                      <span className="pcc-log-title" style={{ textDecoration: "line-through" }}>
-                        <span style={{ color: t.side === "buy" ? "#22c55e" : "#ef4444" }}>
-                          {t.side === "buy" ? "买入" : "卖出"}
-                        </span> · {t.symbol}
+                      <span className="pcc-log-title" style={{ textDecoration: isRej || isCancelled ? "line-through" : undefined }}>
+                        <span style={{ color: isBuy ? "#22c55e" : "#ef4444" }}>{isBuy ? "买入" : "卖出"}</span>
+                        {" · "}{t.symbol}
+                        {t.notional ? ` $${t.notional.toFixed(0)}` : t.qty ? ` ×${t.qty}` : ""}
+                        {t.price ? <span style={{ color: "var(--muted)", fontWeight: 400 }}> @ ${t.price.toFixed(2)}</span> : null}
                       </span>
-                      <span className="pcc-log-sub">已拒绝</span>
+                      <span className="pcc-log-sub">{subText}</span>
                       <span className="pcc-log-time">
                         {new Date(t.created_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+                        {" · "}{new Date(t.created_at).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })}
                       </span>
                     </div>
                   </div>
-                ))}
-              </>
+                );
+              })
             )}
           </div>
         </div>
@@ -452,11 +528,14 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 
-function HoldingRow({ position: p, quote, allocPct, onRefresh }: {
+function HoldingRow({ position: p, quote, allocPct, onRefresh, hasOpenSell, isCancelling, hasSellError }: {
   position: HoldingPosition;
   quote: Quote | null;
   allocPct: number;
   onRefresh: () => void;
+  hasOpenSell?: boolean;
+  isCancelling?: boolean;
+  hasSellError?: boolean;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -483,6 +562,13 @@ function HoldingRow({ position: p, quote, allocPct, onRefresh }: {
         {sig !== "HOLD" && (
           <span className="signal-badge" style={{ background: signalColor[sig] ?? "#64748b", fontSize: 11, padding: "1px 6px" }}>{sig}</span>
         )}
+        {isCancelling ? (
+          <span style={{ fontSize: 10, color: "#64748b", background: "#1e293b", border: "1px solid #334155", borderRadius: 4, padding: "1px 5px" }}>撤单中</span>
+        ) : hasOpenSell ? (
+          <span style={{ fontSize: 10, color: "#94a3b8", background: "#1e293b", border: "1px solid #334155", borderRadius: 4, padding: "1px 5px" }}>挂单中</span>
+        ) : hasSellError ? (
+          <span style={{ fontSize: 10, color: "#f97316", background: "#1e293b", border: "1px solid #f9731640", borderRadius: 4, padding: "1px 5px" }}>⚠ 提交失败</span>
+        ) : null}
         {todayPct != null && (
           <span style={{ color: todayColor, fontSize: 12, fontWeight: 600 }}>
             {todayPct >= 0 ? "+" : ""}{todayPct.toFixed(2)}% 今日
@@ -685,7 +771,8 @@ function PendingCard({
   );
 }
 
-function SellSignalRow({ position: p, onRefresh }: { position: HoldingPosition; onRefresh: () => void }) {
+// @ts-ignore -- reserved for future sell signal UI
+function _SellSignalRow({ position: p, onRefresh }: { position: HoldingPosition; onRefresh: () => void }) {
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -739,7 +826,8 @@ const SIGNAL_BG: Record<string, string> = {
 
 type PccSection = "ai" | "sentiment" | null;
 
-function BuySignalRow({ rank, candidate: c, budget, backendOnline }: { rank: number; candidate: ScanCandidate; budget: BudgetAllocation | null; backendOnline: boolean }) {
+// @ts-ignore -- reserved for future buy signal UI
+function _BuySignalRow({ rank, candidate: c, budget, backendOnline }: { rank: number; candidate: ScanCandidate; budget: BudgetAllocation | null; backendOnline: boolean }) {
   const [showModal, setShowModal] = useState(false);
   const [section, setSection] = useState<PccSection>(null);
   const [aiResult, setAiResult] = useState<import("../api/client").Analysis | null>(null);

@@ -5,7 +5,16 @@
       "name": "frontend",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "port": 5173
+      "cwd": "/Users/tingaling97/personal-trading-agent/frontend",
+      "port": 5173,
+      "autoPort": false
+    },
+    {
+      "name": "design-prototype",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd /Users/tingaling97/personal-trading-agent && python3 -m http.server 8080"],
+      "port": 8080,
+      "autoPort": false
     }
   ]
 }

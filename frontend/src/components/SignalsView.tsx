@@ -601,7 +601,7 @@ function SignalCard({
 // ── Watchlist view ────────────────────────────────────────────────────────────
 
 function WatchlistView({
-  watchlist, analysis, loading, budget, backendOnline,
+  watchlist, analysis, loading, budget: _budget, backendOnline,
   onAdd, onRemove, onAnalyze, addInput, setAddInput, addLoading,
 }: {
   watchlist: string[];

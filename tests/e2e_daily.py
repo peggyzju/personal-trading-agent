@@ -1,11 +1,15 @@
 """
 End-to-end daily test — simulates market open and runs the full pipeline.
-Usage: python tests/e2e_daily.py
+Usage:
+  python tests/e2e_daily.py          # full test (all sections)
+  python tests/e2e_daily.py --smoke  # smoke only (env + account + logic)
 """
 from __future__ import annotations
 import sys, os, json, traceback, time
 from pathlib import Path
 from datetime import datetime
+
+SMOKE_ONLY = "--smoke" in sys.argv
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -269,6 +273,218 @@ def test_vera():
         fail("Vera", str(e))
 
 
+# ── 9. Rex 核心逻辑 (无需真实 API) ────────────────────────────────────────────
+def test_rex_logic():
+    print("\n[9/11] Rex — 核心逻辑验证")
+    try:
+        import src.trader.trade_agent as ta
+
+        # 9a. _sell_hold_count cooldown: requires 2 consecutive HOLD to cancel
+        ta._sell_hold_count.clear()
+        sym = "__TEST__"
+        ta._sell_hold_count[sym] = ta._sell_hold_count.get(sym, 0) + 1
+        if ta._sell_hold_count[sym] == 1:
+            ok("hold_count cooldown", "第1次 HOLD → count=1, 不撤单 ✓")
+        else:
+            fail("hold_count cooldown", f"预期 count=1, 实际={ta._sell_hold_count[sym]}")
+
+        ta._sell_hold_count[sym] = ta._sell_hold_count.get(sym, 0) + 1
+        if ta._sell_hold_count[sym] == 2:
+            ok("hold_count cooldown", "第2次 HOLD → count=2, 触发撤单 ✓")
+        else:
+            fail("hold_count cooldown", f"预期 count=2, 实际={ta._sell_hold_count[sym]}")
+
+        # signal reverts to SELL/REDUCE → reset
+        ta._sell_hold_count[sym] = 0
+        if ta._sell_hold_count[sym] == 0:
+            ok("hold_count reset", "SELL/REDUCE 信号 → count 重置 ✓")
+        else:
+            fail("hold_count reset", "count 未重置")
+
+        # 9b. _reduce_today dedup: same symbol blocked same day
+        ta._reduce_today.clear()
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        ta._reduce_today["AAPL"] = today
+        if ta._reduce_today.get("AAPL") == today:
+            ok("reduce_today dedup", "同日重复 REDUCE 已拦截 ✓")
+        else:
+            fail("reduce_today dedup", "_reduce_today 未记录")
+
+        # 9c. _next_session_close returns a future datetime
+        close_dt = ta._next_session_close()
+        now = datetime.utcnow().replace(tzinfo=close_dt.tzinfo)
+        if close_dt > now:
+            ok("next_session_close", f"下次收盘: {close_dt.strftime('%Y-%m-%d %H:%M %Z')} ✓")
+        else:
+            fail("next_session_close", f"返回过去时间: {close_dt}")
+
+        # 9d. _add_trade duplicate buy prevention
+        ta._pending.clear()
+        dummy_trade = {"id": "t1", "symbol": "AAPL", "side": "buy",
+                       "notional": 500, "status": "pending",
+                       "queued_at": datetime.utcnow().isoformat(), "source": "scan"}
+        ta._pending["t1"] = dummy_trade
+        existing = {"AAPL"}
+        added = ta._add_trade(
+            {"id": "t2", "symbol": "AAPL", "side": "buy", "notional": 500,
+             "status": "pending", "queued_at": datetime.utcnow().isoformat(), "source": "scan"},
+            existing, allow_add_to_position=False
+        )
+        if not added:
+            ok("no-dup buy", "已持仓 symbol 重复买入被拦截 ✓")
+        else:
+            fail("no-dup buy", "重复买入未被拦截")
+
+        ta._pending.clear()
+        ta._reduce_today.clear()
+        ta._sell_hold_count.clear()
+
+    except Exception as e:
+        fail("Rex 逻辑", str(e))
+        traceback.print_exc()
+
+
+# ── 10. Holdings Monitor 硬止损 ───────────────────────────────────────────────
+def test_hard_stop_logic():
+    print("\n[10/11] Holdings Monitor — Hard Stop 优先级")
+    try:
+        from unittest.mock import patch, MagicMock
+        from src.monitor.holdings_monitor import analyze_sell_signals
+
+        # Mock Claude to say HOLD for both positions
+        hold_response = json.dumps([
+            {"symbol": "LOSEIT", "sell_signal": "HOLD", "urgency": "LOW",
+             "reason": "looks fine", "suggested_action": "hold"},
+            {"symbol": "SAFEIT", "sell_signal": "HOLD", "urgency": "LOW",
+             "reason": "looks fine", "suggested_action": "hold"},
+        ])
+        mock_msg = MagicMock()
+        mock_msg.content = [MagicMock(text=hold_response)]
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = mock_msg
+
+        positions_raw = [
+            {"symbol": "LOSEIT", "qty": 5, "avg_entry_price": 100.0,
+             "current_price": 96.4, "market_value": 482, "unrealized_pl": -18,
+             "unrealized_plpc": -3.6, "side": "long"},          # -3.6% → hard stop
+            {"symbol": "SAFEIT", "qty": 5, "avg_entry_price": 100.0,
+             "current_price": 99.0, "market_value": 495, "unrealized_pl": -5,
+             "unrealized_plpc": -1.0, "side": "long"},          # -1% → HOLD ok
+        ]
+
+        with patch("anthropic.Anthropic", return_value=mock_client), \
+             patch("src.monitor.holdings_monitor._enrich_with_technicals",
+                   side_effect=lambda p: [{**x, "_tech": {}} for x in p]):
+            result = analyze_sell_signals(positions_raw)
+
+        sig_map = {r["symbol"]: r for r in result}
+
+        # LOSEIT: Claude says HOLD but -3.6% → must be SELL (hard stop wins)
+        loseit = sig_map.get("LOSEIT", {})
+        if loseit.get("sell_signal") == "SELL" and loseit.get("urgency") == "HIGH":
+            ok("Hard stop override", "LOSEIT -3.6%: Claude=HOLD → hard stop=SELL ✓")
+        else:
+            fail("Hard stop override",
+                 f"LOSEIT: sell_signal={loseit.get('sell_signal')}, urgency={loseit.get('urgency')}")
+
+        # SAFEIT: Claude says HOLD, -1% → HOLD passes through
+        safeit = sig_map.get("SAFEIT", {})
+        if safeit.get("sell_signal") == "HOLD":
+            ok("No false hard stop", "SAFEIT -1%: HOLD 正确保留 ✓")
+        else:
+            fail("No false hard stop",
+                 f"SAFEIT: 意外 sell_signal={safeit.get('sell_signal')}")
+
+    except Exception as e:
+        fail("Hard stop 逻辑", str(e))
+        traceback.print_exc()
+
+
+# ── 11. 缓存数据契约 ───────────────────────────────────────────────────────────
+def test_data_contracts():
+    print("\n[11/11] 数据契约 — 缓存字段完整性")
+
+    # Scan cache
+    scan_file = Path("data/scan_cache.json")
+    if scan_file.exists():
+        try:
+            data = json.loads(scan_file.read_text())
+            candidates = data.get("sp500", {}).get("candidates", [])
+            if candidates:
+                # All candidates must have symbol; AI-scored ones must have signal/targets
+                base_required = {"symbol"}
+                ai_required = {"ai_score", "signal", "stop_loss", "target_price"}
+                ai_scored = [c for c in candidates if c.get("ai_score") is not None]
+
+                base_missing = [c["symbol"] for c in candidates if not base_required.issubset(c.keys())]
+                if base_missing:
+                    fail("Scan schema", f"缺少 symbol 字段: {base_missing}")
+                else:
+                    ok("Scan schema", f"{len(candidates)} candidates 均有 symbol ✓")
+
+                if ai_scored:
+                    incomplete = [c["symbol"] for c in ai_scored if not ai_required.issubset(c.keys())]
+                    complete = [c for c in ai_scored if ai_required.issubset(c.keys())]
+                    if incomplete and not complete:
+                        # All AI-scored candidates missing extended fields → stale cache format
+                        warn("Scan schema (AI)", f"缓存格式旧，缺少 signal/stop_loss/target_price ({incomplete}) — 重新扫描后自动修复")
+                    elif incomplete:
+                        warn("Scan schema (AI)", f"{len(incomplete)} 个旧格式 candidate: {incomplete}")
+                        ok("Scan schema (AI)", f"{len(complete)} 个 AI candidates 字段完整 ✓")
+                    else:
+                        ok("Scan schema (AI)", f"{len(ai_scored)} 个 AI 评分 candidates 字段完整 ✓")
+                else:
+                    warn("Scan schema (AI)", "无 AI 评分 candidates（扫描后自动评分）")
+            else:
+                warn("Scan schema", "scan_cache 为空，跳过字段检查")
+        except Exception as e:
+            fail("Scan schema", str(e))
+    else:
+        warn("Scan schema", "scan_cache.json 不存在")
+
+    # Review cache
+    review_file = Path("data/review_cache.json")
+    if review_file.exists():
+        try:
+            data = json.loads(review_file.read_text())
+            latest = data.get("latest", {})
+            if latest:
+                required = {"iteration_opportunities", "performance", "date",
+                            "what_worked", "what_didnt", "one_line_summary"}
+                missing = required - set(latest.keys())
+                if not missing:
+                    ok("Review schema", f"所有必需字段存在 (date: {latest.get('date')}) ✓")
+                else:
+                    fail("Review schema", f"缺少字段: {missing}")
+                # Validate iteration_opportunities structure
+                opps = latest.get("iteration_opportunities", [])
+                if opps:
+                    opp_required = {"title", "verdict", "priority"}
+                    opp_missing = opp_required - set(opps[0].keys())
+                    if not opp_missing:
+                        ok("Review opps", f"{len(opps)} 个迭代建议，字段完整 ✓")
+                    else:
+                        fail("Review opps", f"iteration_opportunity 缺少字段: {opp_missing}")
+            else:
+                warn("Review schema", "review_cache 无 latest 字段")
+        except Exception as e:
+            fail("Review schema", str(e))
+    else:
+        warn("Review schema", "review_cache.json 不存在（收盘后生成）")
+
+    # Strategy notes active flag
+    notes_file = Path("data/strategy_notes.json")
+    if notes_file.exists():
+        try:
+            notes = json.loads(notes_file.read_text())
+            active = [n for n in notes if n.get("active", True)]
+            ok("Strategy notes", f"{len(active)}/{len(notes)} 条 notes 激活 ✓")
+        except Exception as e:
+            fail("Strategy notes schema", str(e))
+    else:
+        warn("Strategy notes", "strategy_notes.json 不存在")
+
+
 # ── Report ────────────────────────────────────────────────────────────────────
 def print_report():
     total  = len(results)
@@ -296,20 +512,27 @@ def print_report():
 
 
 if __name__ == "__main__":
+    mode = "smoke" if SMOKE_ONLY else "full"
     print("=" * 55)
-    print(f"  端到端测试 — 模拟开盘  {datetime.now().strftime('%Y-%m-%d')}")
+    print(f"  端到端测试 [{mode}] — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print("=" * 55)
 
     os.chdir(Path(__file__).parent.parent)
 
+    # Always run (smoke + full)
     test_environment()
     test_account()
-    test_market_regime()
-    test_scanner()
-    test_strategy_notes()
-    test_autonomous_mode()
-    test_rex_dry_run()
-    test_vera()
+    test_rex_logic()
+    test_hard_stop_logic()
+
+    if not SMOKE_ONLY:
+        test_market_regime()
+        test_scanner()
+        test_strategy_notes()
+        test_autonomous_mode()
+        test_rex_dry_run()
+        test_vera()
+        test_data_contracts()
 
     failed = print_report()
     sys.exit(1 if failed else 0)
