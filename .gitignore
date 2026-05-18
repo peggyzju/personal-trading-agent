@@ -10,3 +10,20 @@ build/
 .DS_Store
 frontend/node_modules/
 frontend/dist/
+frontend/public/design-prototype*.html
+frontend/public/dashboard-prototype.html
+frontend/dashboard-prototype.html
+design-prototype.html
+
+# Runtime data (auto-generated, not versioned)
+data/agent_log.json
+data/auto_approve.json
+data/backend.err
+data/circuit_breaker.json
+data/market_context.json
+data/regime_cache.json
+data/review_cache.json
+data/scan_cache.json
+data/sector_cache.json
+data/strategy_notes.json
+api/data/
