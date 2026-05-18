@@ -52,9 +52,21 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
       api.getOrders(),
     ]);
     const allOrders = orders.status === "fulfilled" ? orders.value : [];
+    const agentTrades: import("../api/client").PendingTrade[] = agent.status === "fulfilled" ? agent.value.trades : [];
+    // Only Rex-initiated sell orders count as "挂单中" — bracket child legs (take-profit / stop-loss)
+    // are auto-created by Alpaca and their IDs never appear in our executed_order_id list.
+    const ourSellOrderIds = new Set(
+      agentTrades
+        .filter(t => t.side === "sell" && t.executed_order_id)
+        .map(t => t.executed_order_id as string)
+    );
     const openSellSymbols = new Set(
       allOrders
-        .filter((o: import("../api/client").Order) => o.side === "sell" && ["new", "accepted", "pending_new", "pending_cancel"].includes(o.status))
+        .filter((o: import("../api/client").Order) =>
+          o.side === "sell" &&
+          ["new", "accepted", "pending_new", "pending_cancel"].includes(o.status) &&
+          ourSellOrderIds.has(o.id)
+        )
         .map((o: import("../api/client").Order) => o.symbol)
     );
     const cancellingSymbols = new Set(
@@ -64,7 +76,7 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
     );
     const todayStr = new Date().toISOString().slice(0, 10);
     const errorSellSymbols = new Set(
-      (agent.status === "fulfilled" ? agent.value.trades : [])
+      agentTrades
         .filter((t: import("../api/client").PendingTrade) => t.status === "error" && t.side === "sell" && t.created_at.startsWith(todayStr))
         .map((t: import("../api/client").PendingTrade) => t.symbol)
     );
