@@ -635,7 +635,7 @@ def run_agent(
                 # but only if the combined position stays within max_pos_pct of portfolio.
                 allow_add = False
                 if cash_pct > 0.50 and (c.get("ai_score") or 0) >= 8:
-                    cur_mv = next((float(p.market_value) for p in alpaca_positions if p.symbol == symbol), 0.0)
+                    cur_mv = next((float(p.market_value) for p in alpaca_positions if p.symbol == c["symbol"]), 0.0)
                     new_total = cur_mv + (trade["notional"] or 0)
                     allow_add = new_total <= max_notional
                 if _add_trade(trade, owned_symbols, allow_add_to_position=allow_add):
