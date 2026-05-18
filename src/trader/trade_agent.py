@@ -595,7 +595,7 @@ def run_agent(
         scan = scan_cache.get("sp500", {})
         if scan.get("status") == "done" and can_buy:
             scanner_added = 0
-            for c in scan.get("candidates", []):
+            for c in list(scan.get("candidates", [])):
                 signal   = c.get("signal", "")
                 ai_score = c.get("ai_score") or 0
                 if signal in ("STRONG_BUY", "BUY") and ai_score >= min_ai_score:
@@ -655,15 +655,15 @@ def run_agent(
             in_market  = _is_market_hours()
             import time as _time
 
-            for symbol in watchlist:
-                cached = cache.get(symbol)
+            for wl_sym in watchlist:
+                cached = cache.get(wl_sym)
 
                 # Problem 8: discard stale cache (> 4 h old during market hours)
                 if cached and in_market:
-                    ts = ts_cache.get(symbol, 0)
+                    ts = ts_cache.get(wl_sym, 0)
                     age = _time.time() - ts
                     if age > CACHE_MAX_AGE_SECONDS:
-                        print(f"[agent] {symbol} cache stale ({age/3600:.1f}h) — refreshing")
+                        print(f"[agent] {wl_sym} cache stale ({age/3600:.1f}h) — refreshing")
                         cached = None   # force re-fetch below
 
                 # If no (valid) cache and market is open, run fresh analysis
@@ -672,16 +672,16 @@ def run_agent(
                         from src.monitor.price_monitor import get_quote, get_ohlcv
                         from src.monitor.news_monitor import get_news
                         from src.analysis.ai_analyst import analyze
-                        quote = get_quote(symbol)
-                        ohlcv = get_ohlcv(symbol)
-                        news  = get_news(symbol, limit=5)
-                        cached = analyze(symbol, ohlcv, quote, news=news, strategy_notes=_strategy_notes or None)
+                        quote = get_quote(wl_sym)
+                        ohlcv = get_ohlcv(wl_sym)
+                        news  = get_news(wl_sym, limit=5)
+                        cached = analyze(wl_sym, ohlcv, quote, news=news, strategy_notes=_strategy_notes or None)
                         if analysis_cache is not None:
-                            analysis_cache[symbol] = cached
+                            analysis_cache[wl_sym] = cached
                         if analysis_timestamps is not None:
-                            analysis_timestamps[symbol] = _time.time()
+                            analysis_timestamps[wl_sym] = _time.time()
                     except Exception as e:
-                        print(f"[agent] watchlist {symbol} analysis error: {e}")
+                        print(f"[agent] watchlist {wl_sym} analysis error: {e}")
                         continue
                 elif not cached:
                     # Off-hours and no cache — skip
@@ -693,11 +693,11 @@ def run_agent(
                 wl_min_conf = 0.75 if regime.get("regime") == "CAUTION" else 0.70
                 if sig == "BUY" and conf >= wl_min_conf:
                     # Problem 4: skip if earnings this week
-                    if not _earnings_safe(symbol):
+                    if not _earnings_safe(wl_sym):
                         summary["signals_found"] += 1
                         continue
                     # Problem 5: skip if sector concentration limit reached
-                    if not _sector_safe(symbol):
+                    if not _sector_safe(wl_sym):
                         summary["signals_found"] += 1
                         continue
                     price = cached.get("price") or 0
@@ -706,7 +706,7 @@ def run_agent(
                                min(portfolio_value * risk_pct * 3 * size_factor, max_notional)
 
                     trade = _make_trade(
-                        symbol=symbol, side="buy",
+                        symbol=wl_sym, side="buy",
                         notional=notional, qty=None,
                         signal="BUY", confidence=conf,
                         reason=cached.get("reasoning", "Watchlist AI signal"),
