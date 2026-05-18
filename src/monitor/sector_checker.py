@@ -22,8 +22,8 @@ import yfinance as yf
 _SECTOR_CACHE_FILE = Path(__file__).parent.parent.parent / "data" / "sector_cache.json"
 _SECTOR_CACHE_TTL  = 86_400   # 24 hours
 
-MAX_PER_SECTOR  = 2     # max positions per sector
-MAX_SECTOR_PCT  = 40.0  # max % of portfolio in one sector
+MAX_PER_SECTOR  = 4     # max positions per sector
+MAX_SECTOR_PCT  = 50.0  # max % of portfolio in one sector
 
 
 # ── Sector cache ──────────────────────────────────────────────────────────────

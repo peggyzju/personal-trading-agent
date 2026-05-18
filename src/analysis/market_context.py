@@ -143,8 +143,8 @@ def generate_market_context() -> dict:
         # Override: market too risky, cap at normal
         aggression = "conservative" if regime == "BEAR" else min(aggression, "normal")
 
-    # min_ai_score: aggressive=6, normal=7, conservative=8
-    min_ai_score_map = {"aggressive": 6, "normal": 7, "conservative": 8}
+    # min_ai_score: aggressive=6, normal=6, conservative=7
+    min_ai_score_map = {"aggressive": 6, "normal": 6, "conservative": 7}
     # size_scale: scales position size up/down
     size_scale_map   = {"aggressive": 1.1, "normal": 1.0, "conservative": 0.75}
 

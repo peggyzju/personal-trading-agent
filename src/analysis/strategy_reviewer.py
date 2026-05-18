@@ -24,9 +24,22 @@ def _safe_float(v, default=0.0) -> float:
 
 
 def _parse_json(text: str) -> dict | list:
-    text = re.sub(r"^```(?:json)?\s*", "", text.strip())
-    text = re.sub(r"\s*```$", "", text)
-    return json.loads(text)
+    text = text.strip()
+    # Strip markdown code fences
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        # Try extracting the first {...} or [...] block in case there's surrounding text
+        for pattern in (r"\{.*\}", r"\[.*\]"):
+            m = re.search(pattern, text, re.DOTALL)
+            if m:
+                try:
+                    return json.loads(m.group())
+                except json.JSONDecodeError:
+                    pass
+        raise
 
 
 # ── Agent 1: 交易 Agent Analyst ───────────────────────────────────────────────
@@ -233,7 +246,7 @@ verdict 要明确：ADOPT（立即采纳）/ HOLD（观察1-2天）/ REJECT（�
 
     msg = anthropic.Anthropic(api_key=get_anthropic_key()).messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=2000,
+        max_tokens=4096,
         temperature=0,
         messages=[{"role": "user", "content": prompt}],
     )
