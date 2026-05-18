@@ -69,6 +69,8 @@ LAYER2_TICKERS: list[str] = [
     "TENB","RPD",
     # Air mobility
     "JOBY","ACHR",
+    # 中概股 ADR（流动性 >5M 日均成交量）
+    "NIO","XPEV","LI","FUTU","BILI","EDU","TCOM","VIPS",
 ]
 
 
