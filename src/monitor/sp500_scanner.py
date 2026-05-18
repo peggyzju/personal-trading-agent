@@ -42,6 +42,7 @@ def get_nasdaq100_tickers() -> list[str]:
 
 # ── Layer 2: High-growth mid-caps outside typical S&P 500 / NASDAQ-100 coverage
 LAYER2_TICKERS: list[str] = [
+    # Original coverage
     "SOUN","IONQ","BBAI","RKLB","LUNR","BTDR",
     "WOLF","ACLS","ONTO","AEHR","FORM",
     "KTOS","CACI",
@@ -50,24 +51,58 @@ LAYER2_TICKERS: list[str] = [
     "RXRX","CRSP","BEAM",
     "ARRY","CHPT","EVGO",
     "CAVA","MOD","ARM",
+    # Education tech
+    "COUR","DUOL","INST",
+    # Mid-cap SaaS / consumer tech
+    "BRZE","IOT","HIMS","BROS",
+    # Biotech / gene editing
+    "NTLA","VERV","EDIT","FATE","NVCR",
+    # Clean energy
+    "STEM","PLUG","BLNK","BE",
+    # Quantum / AI hardware
+    "QUBT","RGTI",
+    # Fintech
+    "DAVE","MQ","STEP",
+    # Space / defense
+    "ASTS","PL",
+    # Cybersecurity
+    "TENB","RPD",
+    # Air mobility
+    "JOBY","ACHR",
 ]
 
 
-def get_scan_universe() -> list[str]:
+def get_scan_universe(include_dynamic: bool = True) -> list[str]:
+    """
+    Build scan universe: S&P 500 + Nasdaq-100 + Layer2 + (optionally) today's
+    dynamic tickers discovered by Scout.
+    """
     sp500  = get_sp500_tickers()
     ndq100 = get_nasdaq100_tickers()
     layer2 = LAYER2_TICKERS
 
+    # Load today's Scout-discovered dynamic tickers
+    dynamic: list[str] = []
+    if include_dynamic:
+        try:
+            from src.monitor.scout import get_dynamic_tickers
+            dynamic = get_dynamic_tickers()
+        except Exception:
+            pass
+
     seen: set[str] = set()
     combined: list[str] = []
-    for sym in sp500 + ndq100 + layer2:
+    for sym in sp500 + ndq100 + layer2 + dynamic:
         if sym not in seen:
             seen.add(sym)
             combined.append(sym)
 
+    l2_unique  = len([s for s in layer2   if s not in set(sp500 + ndq100)])
+    dyn_unique = len([s for s in dynamic  if s not in set(sp500 + ndq100 + layer2)])
     print(f"[scanner] Universe: {len(sp500)} S&P500 + "
           f"{len([s for s in ndq100 if s not in set(sp500)])} NDQ100-unique "
-          f"+ {len([s for s in layer2 if s not in seen - set(layer2)])} Layer2-unique "
+          f"+ {l2_unique} Layer2-unique "
+          f"+ {dyn_unique} dynamic "
           f"= {len(combined)} total")
     return combined
 

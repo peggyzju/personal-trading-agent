@@ -514,6 +514,54 @@ def trigger_scan(background_tasks: BackgroundTasks):
     return {"status": "started", "cascade": "agent will auto-run after scan"}
 
 
+# ── Scout endpoints ────────────────────────────────────────────────────────────
+
+_scout_running: bool = False
+
+@app.get("/api/scout/preview")
+def get_scout_preview():
+    """Return today's Scout-discovered dynamic tickers (from cache)."""
+    from pathlib import Path
+    scout_file = Path(__file__).parent.parent / "data" / "dynamic_tickers.json"
+    try:
+        data = json.loads(scout_file.read_text())
+        return {
+            "status":       "ok",
+            "date":         data.get("date"),
+            "tickers":      data.get("tickers", []),
+            "count":        len(data.get("tickers", [])),
+            "sources":      data.get("sources", {}),
+            "generated_at": data.get("generated_at"),
+        }
+    except FileNotFoundError:
+        return {"status": "not_run", "tickers": [], "count": 0}
+    except Exception as e:
+        return {"status": "error", "error": str(e), "tickers": [], "count": 0}
+
+
+@app.post("/api/scout/run")
+def trigger_scout(background_tasks: BackgroundTasks):
+    """Manually trigger Scout dynamic discovery (runs in background)."""
+    global _scout_running
+    if _scout_running:
+        return {"status": "already_running"}
+
+    def _run_scout():
+        global _scout_running
+        _scout_running = True
+        try:
+            from src.monitor.scout import run as scout_run
+            tickers = scout_run()
+            print(f"[scout] Manual trigger done: {len(tickers)} tickers")
+        except Exception as e:
+            print(f"[scout] Manual trigger error: {e}")
+        finally:
+            _scout_running = False
+
+    background_tasks.add_task(_run_scout)
+    return {"status": "started"}
+
+
 @app.get("/api/pipeline/status")
 def get_pipeline_status():
     """Current state of the full pipeline — for UI status display."""
@@ -1168,6 +1216,7 @@ def _start_scheduler():
     # ── Shared state ────────────────────────────────────────────────────────────
     review_triggered:  set[str] = set()   # dates where close-review ran
     vera_extra_dates:  set[str] = set()   # dates where intraday Vera already fired
+    scout_run_dates:   set[str] = set()   # dates where Scout already ran
     rex_last_run:      dict = {"ts": time.time()} # last Rex run timestamp; init to now to avoid immediate fire on startup
     last_regime:       dict = {"value": None}
 
@@ -1228,6 +1277,28 @@ def _start_scheduler():
             h, m    = now_et.hour, now_et.minute
             is_weekday = now_et.weekday() < 5
 
+            # ── P0: Scout pre-market discovery at 8:45 AM ET ──────────────────
+            pre_market_scout = is_weekday and (h, m) == (8, 45)
+            if pre_market_scout and today_str not in scout_run_dates:
+                scout_run_dates.add(today_str)
+                print(f"[scheduler] 8:45 AM pre-market — running Scout dynamic discovery")
+                try:
+                    import threading as _threading
+                    def _scout_bg():
+                        global _scout_running
+                        _scout_running = True
+                        try:
+                            from src.monitor.scout import run as scout_run
+                            tickers = scout_run()
+                            print(f"[scheduler] Scout done: {len(tickers)} dynamic tickers added")
+                        except Exception as _e:
+                            print(f"[scheduler] Scout error: {_e}")
+                        finally:
+                            _scout_running = False
+                    _threading.Thread(target=_scout_bg, daemon=True, name="scout").start()
+                except Exception as e:
+                    print(f"[scheduler] Scout launch error: {e}")
+
             # ── P1: Rex every 30 min during market hours ───────────────────────
             if _market_open(now_et):
                 elapsed = time.time() - rex_last_run["ts"]
@@ -1269,7 +1340,7 @@ def _start_scheduler():
 
     t = threading.Thread(target=_loop, daemon=True, name="trading-scheduler")
     t.start()
-    print("[scheduler] Autonomous scheduler started: Rex every 30 min (market hours) + Vera at 4:15 PM ET")
+    print("[scheduler] Autonomous scheduler started: Scout 8:45 AM + Rex every 30 min (market hours) + Vera at 4:15 PM ET")
 
 
 # ── Strategy Review ──────────────────────────────────────────────────────────
