@@ -210,7 +210,7 @@ def ai_score_candidates(
         prompt = _build_prompt(batch, strategy_notes, news_map, market_context, sector_bias)
         try:
             msg = client.messages.create(
-                model="claude-sonnet-4-6",
+                model="claude-opus-4-7",
                 max_tokens=4096,
                 temperature=0,
                 messages=[{"role": "user", "content": prompt}],
