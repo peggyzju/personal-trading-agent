@@ -798,20 +798,33 @@ def run_agent(
 
         # ── Auto-approve: execute high-confidence trades from THIS run only ──
         # Only auto-approves trades queued in this run — not stale ones from prior runs.
+        # Track running cash spend so we never exceed spendable_cash across batch approvals.
         auto_threshold = _get_auto_approve_threshold()
         if auto_threshold is not None and auto_threshold >= 0:
             auto_approved = 0
+            committed_this_run = 0.0   # cumulative notional approved in this run
             for trade in list(_pending.values()):
                 if trade["id"] not in _new_trade_ids:
                     continue   # only act on trades queued this run
                 if trade["status"] != "pending":
                     continue
                 if trade["confidence"] >= auto_threshold:
+                    # Guard: ensure we still have enough spendable cash after prior approvals
+                    if trade["side"] == "buy":
+                        notional = trade.get("notional") or 0
+                        if committed_this_run + notional > spendable_cash:
+                            print(f"[agent] Auto-approve SKIP {trade['symbol']} — "
+                                  f"would exceed spendable cash "
+                                  f"(committed=${committed_this_run:.0f} + ${notional:.0f} > ${spendable_cash:.0f})")
+                            continue
                     try:
                         approve_trade(trade["id"])
+                        if trade["side"] == "buy":
+                            committed_this_run += trade.get("notional") or 0
                         auto_approved += 1
                         print(f"[agent] Auto-approved {trade['side'].upper()} {trade['symbol']} "
-                              f"(conf={trade['confidence']:.2f} ≥ {auto_threshold})")
+                              f"(conf={trade['confidence']:.2f} ≥ {auto_threshold}, "
+                              f"committed=${committed_this_run:.0f}/{spendable_cash:.0f})")
                     except Exception as e:
                         print(f"[agent] Auto-approve failed for {trade['id']}: {e}")
             if auto_approved:
