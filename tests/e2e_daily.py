@@ -265,10 +265,6 @@ def test_vera():
         else:
             warn("Review cache", "无复盘缓存（收盘后自动生成）")
 
-        # Check scheduler logic parses correctly
-        from api.app import _start_scheduler
-        ok("Scheduler", "_start_scheduler 可导入")
-
     except Exception as e:
         fail("Vera", str(e))
 
@@ -485,6 +481,86 @@ def test_data_contracts():
         warn("Strategy notes", "strategy_notes.json 不存在")
 
 
+# ── 12. 调度器架构 ────────────────────────────────────────────────────────────
+def test_scheduler_design():
+    print("\n[12/12] 调度器架构 — 单一 APScheduler 验证")
+    import inspect
+
+    # 1. app.py lifespan 不应再调用 _start_scheduler（双调度器已消除）
+    try:
+        import api.app as app_module
+        lifespan_src = inspect.getsource(app_module._lifespan)
+        if "_start_scheduler()" not in lifespan_src:
+            ok("No dual scheduler", "lifespan 未调用 _start_scheduler() ✓")
+        else:
+            fail("No dual scheduler", "lifespan 仍调用 _start_scheduler() — 双调度器未修复")
+    except Exception as e:
+        fail("No dual scheduler", str(e))
+
+    # 2. main.py 不应有独立 Rex cron（run_trade_agent 已删除）
+    try:
+        import main as main_module
+        if not hasattr(main_module, "run_trade_agent"):
+            ok("No Rex cron", "run_trade_agent 已从 main.py 移除 ✓")
+        else:
+            fail("No Rex cron", "run_trade_agent 仍存在 — Rex 独立 30 分钟轮询未移除")
+    except Exception as e:
+        fail("No Rex cron", str(e))
+
+    # 3. 盘中 Vera 事件触发已移除（Vera 仅 4:15 PM 收盘后跑）
+    try:
+        import main as main_module
+        has_event  = hasattr(main_module, "check_event_triggers")
+        has_regime = hasattr(main_module, "check_regime_change")
+        if not has_event and not has_regime:
+            ok("Vera only at close", "check_event_triggers / check_regime_change 已移除 ✓")
+        else:
+            leftovers = [n for n, f in [("check_event_triggers", has_event),
+                                         ("check_regime_change", has_regime)] if f]
+            fail("Vera only at close", f"仍存在: {leftovers}")
+    except Exception as e:
+        fail("Vera only at close", str(e))
+
+    # 4. Scout 函数存在于 main.py
+    try:
+        import main as main_module
+        if hasattr(main_module, "run_scout"):
+            ok("Scout in main", "run_scout 已加入 main.py ✓")
+        else:
+            fail("Scout in main", "run_scout 不存在于 main.py")
+    except Exception as e:
+        fail("Scout in main", str(e))
+
+    # 5. run_holdings_refresh 包含 Rex cascade（卖出信号事件驱动）
+    try:
+        import main as main_module
+        src = inspect.getsource(main_module.run_holdings_refresh)
+        if "_run_agent_internal" in src:
+            ok("Holdings→Rex cascade", "run_holdings_refresh 持仓刷新后 cascade 到 Rex ✓")
+        else:
+            fail("Holdings→Rex cascade", "run_holdings_refresh 缺少 _run_agent_internal cascade")
+    except Exception as e:
+        fail("Holdings→Rex cascade", str(e))
+
+    # 6. run_sp500_scan 使用 cascade_agent=True（买入 Rex 事件驱动）
+    try:
+        import main as main_module
+        src = inspect.getsource(main_module.run_sp500_scan)
+        if "cascade_agent=True" in src:
+            ok("Scan→Rex cascade", "run_sp500_scan 扫描完成后 cascade 到 Rex ✓")
+        else:
+            fail("Scan→Rex cascade", "run_sp500_scan 缺少 cascade_agent=True")
+    except Exception as e:
+        fail("Scan→Rex cascade", str(e))
+
+    # 7. Scout 模块可导入（src/monitor/scout.py 存在）
+    try:
+        from src.monitor.scout import run as scout_run, get_dynamic_tickers
+        ok("Scout module", "scout.run / get_dynamic_tickers 可导入 ✓")
+    except Exception as e:
+        fail("Scout module", str(e))
+
+
 # ── Report ────────────────────────────────────────────────────────────────────
 def print_report():
     total  = len(results)
@@ -533,6 +609,7 @@ if __name__ == "__main__":
         test_rex_dry_run()
         test_vera()
         test_data_contracts()
+        test_scheduler_design()
 
     failed = print_report()
     sys.exit(1 if failed else 0)

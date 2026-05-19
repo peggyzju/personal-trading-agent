@@ -18,6 +18,7 @@ WATCHLIST_DEFAULT = ["AAPL", "NVDA", "MSFT", "TSLA"]
 ANALYSIS_MAX_AGE_HOURS = 2    # re-analyze if cache older than this
 ANALYSIS_MOVE_THRESHOLD = 1.5  # re-analyze if price moved more than this %
 
+
 def run_analysis_cycle():
     import json
     import time as _t
@@ -60,6 +61,19 @@ def run_analysis_cycle():
             print(f"  [ERROR] {symbol}: {e}")
 
 
+def run_scout():
+    """Pre-market dynamic ticker discovery via Finviz (9:00 AM ET Mon–Fri).
+    Scout caches results for the day; calling it again is a no-op if already ran.
+    """
+    print("[scheduler] Running pre-market Scout discovery…")
+    try:
+        from src.monitor.scout import run as scout_run
+        tickers = scout_run()
+        print(f"[scheduler] Scout done: {len(tickers)} dynamic tickers discovered")
+    except Exception as e:
+        print(f"[scheduler] Scout error: {e}")
+
+
 def run_market_context():
     """Step 1 of pipeline — generate market context (regime + goal progress + sector bias).
     Runs at 8:00 AM ET, before scan and agent."""
@@ -84,7 +98,9 @@ def run_sp500_scan():
 
 
 def run_holdings_refresh():
-    """Refresh paper holdings and sell signals every 30 min during market hours."""
+    """Refresh paper holdings and sell signals every 30 min during market hours.
+    After analysis completes, cascade to Rex so sell signals are acted on immediately.
+    """
     from src.monitor.holdings_monitor import get_paper_positions, analyze_sell_signals
     from api.app import _holdings_cache
     print("[scheduler] Refreshing holdings & sell signals…")
@@ -96,6 +112,16 @@ def run_holdings_refresh():
         _holdings_cache["analyzed"] = True
     except Exception as e:
         print(f"[scheduler] holdings error: {e}")
+        return
+
+    # ── Cascade to Rex (sell-signal execution) ────────────────────────────────
+    if positions:
+        print("[scheduler] Holdings refresh done → cascading to Rex (sell signals)…")
+        try:
+            from api.app import _run_agent_internal
+            _run_agent_internal()
+        except Exception as e:
+            print(f"[scheduler] Rex cascade error: {e}")
 
 
 def sync_order_fills():
@@ -106,56 +132,12 @@ def sync_order_fills():
         print(f"[scheduler] Fill sync: {len(changed)} order(s) updated")
 
 
+
 def run_daily_review():
     """Generate end-of-day strategy review. 4:15 PM ET = UTC 20:15."""
     from api.app import _run_strategy_review
     print("[scheduler] Generating daily strategy review…")
     _run_strategy_review()
-
-
-def run_trade_agent():
-    """Step 3 of pipeline — run signal engine using market context for dynamic params."""
-    import json
-    from pathlib import Path
-    from api.app import _scan_cache, _holdings_cache, _analysis_cache, _analysis_timestamps
-    from src.trader.trade_agent import run_agent
-    from src.analysis.market_context import load_market_context
-
-    wl_file = Path("watchlist.json")
-    watchlist = json.loads(wl_file.read_text()) if wl_file.exists() else WATCHLIST_DEFAULT
-
-    portfolio_value = 100_000.0
-    try:
-        from src.trader.alpaca_trader import get_account
-        portfolio_value = float(get_account().portfolio_value)
-    except Exception:
-        pass
-
-    # ── Read market context → derive agent params ──────────────────────────
-    ctx            = load_market_context()
-    min_ai_score   = ctx.get("min_ai_score", 7)       # 6 / 7 / 8 based on aggression
-    size_scale     = ctx.get("size_scale", 1.0)        # 0.75 / 1.0 / 1.1
-    aggression     = ctx.get("aggression", "normal")
-    goal_ctx       = ctx.get("goal_context", {})
-
-    print(
-        f"[scheduler] Running trade agent | aggression={aggression} "
-        f"min_score={min_ai_score} size_scale={size_scale} "
-        f"day {goal_ctx.get('days_elapsed','?')}/{goal_ctx.get('days_elapsed',0)+goal_ctx.get('days_remaining',0)-1} "
-        f"gap={goal_ctx.get('gap_pct',0):.1f}%"
-    )
-
-    summary = run_agent(
-        scan_cache=_scan_cache,
-        holdings_cache=_holdings_cache,
-        watchlist=watchlist,
-        portfolio_value=portfolio_value,
-        analysis_cache=_analysis_cache,
-        analysis_timestamps=_analysis_timestamps,
-        min_ai_score_override=min_ai_score,
-        size_scale_override=size_scale,
-    )
-    print(f"[scheduler] Agent done — {summary.get('trades_queued', 0)} trades queued")
 
 
 if __name__ == "__main__":
@@ -166,30 +148,54 @@ if __name__ == "__main__":
     ET = "America/New_York"
     scheduler = BackgroundScheduler(timezone=ET)
 
-    # ── Pipeline: 市场分析 → 选股 → 执行 ────────────────────────────────────
-    # Step 1: Market context (8:00 AM ET) — regime + goal progress + sector bias
-    scheduler.add_job(run_market_context, "cron", day_of_week="mon-fri", hour=8, minute=0)
-    # Step 2: S&P 500 scan (9:31 AM ET open + 12:30 PM midday) — uses market context
-    scheduler.add_job(run_sp500_scan, "cron", day_of_week="mon-fri", hour=9, minute=31)
-    scheduler.add_job(run_sp500_scan, "cron", day_of_week="mon-fri", hour=12, minute=30)
-    # Step 3: Trade agent — cascades automatically from scan (9:31→agent, 12:30→agent)
-    #         Also runs every 30 min intraday to catch sell signals & new setups
-    scheduler.add_job(run_trade_agent, "cron", day_of_week="mon-fri", hour="10-15", minute="2,32")
+    # ── Pipeline: 市场分析 → 选股 → 执行 ─────────────────────────────────────
+    #
+    #  8:00 AM  Market context (regime + goal progress + sector bias)
+    #  9:00 AM  Scout pre-market dynamic discovery
+    #  9:31 AM  Morning scan  → cascade → Rex (buy signals)
+    # 12:30 PM  Midday scan   → cascade → Rex (buy signals)
+    #  every 30 min  Holdings refresh → cascade → Rex (sell signals only)
+    #  every 5  min  Fill sync (order status)
+    #  4:15 PM  Daily strategy review (Vera)
+    #
+    #  Rex买入: 仅在扫描完成后触发（2次/天）
+    #  Rex卖出: 每30分钟持仓监控完成后触发
+    # ──────────────────────────────────────────────────────────────────────────
 
-    # Analysis cycle + holdings: every 30 min during market hours Mon–Fri (9 AM–3 PM ET)
-    scheduler.add_job(run_analysis_cycle, "cron", day_of_week="mon-fri", hour="9-15", minute="*/30")
-    scheduler.add_job(run_holdings_refresh, "cron", day_of_week="mon-fri", hour="9-15", minute="*/30")
+    # Step 1: Market context
+    scheduler.add_job(run_market_context, "cron", day_of_week="mon-fri", hour=8, minute=0,
+                      id="market_context", name="Market context (8:00 AM ET)")
+
+    # Step 0 (pre-market): Scout dynamic ticker discovery
+    scheduler.add_job(run_scout, "cron", day_of_week="mon-fri", hour=9, minute=0,
+                      id="scout", name="Scout pre-market discovery (9:00 AM ET)")
+
+    # Step 2: S&P 500 scan — cascade_agent=True → auto-triggers Rex on completion
+    scheduler.add_job(run_sp500_scan, "cron", day_of_week="mon-fri", hour=9, minute=31,
+                      id="scan_morning", name="Morning scan + Rex cascade (9:31 AM ET)")
+    scheduler.add_job(run_sp500_scan, "cron", day_of_week="mon-fri", hour=12, minute=30,
+                      id="scan_midday", name="Midday scan + Rex cascade (12:30 PM ET)")
+
+    # Step 3: Holdings refresh every 30 min → cascades to Rex for sell execution
+    scheduler.add_job(run_holdings_refresh, "cron", day_of_week="mon-fri", hour="9-15", minute="*/30",
+                      id="holdings_refresh", name="Holdings refresh + Rex sell cascade (every 30 min)")
+
+    # Watchlist analysis cycle: every 30 min (independent of Rex)
+    scheduler.add_job(run_analysis_cycle, "cron", day_of_week="mon-fri", hour="9-15", minute="*/30",
+                      id="analysis_cycle", name="Watchlist analysis cycle (every 30 min)")
 
     # Order fill sync: every 5 min during market hours
-    scheduler.add_job(sync_order_fills, "cron", day_of_week="mon-fri", hour="9-16", minute="*/5")
+    scheduler.add_job(sync_order_fills, "cron", day_of_week="mon-fri", hour="9-16", minute="*/5",
+                      id="fill_sync", name="Order fill sync (every 5 min)")
 
     # Daily strategy review: 4:15 PM ET Mon–Fri (after market close)
     scheduler.add_job(run_daily_review, "cron", day_of_week="mon-fri", hour=16, minute=15,
                       id="daily_review", name="Daily strategy review (4:15 PM ET)")
 
     scheduler.start()
-    print("[scheduler] Started — timezone: US/Eastern")
-    print("  8:30 AM  pre-market agent | 9:31 AM scan | every 30 min analysis | 12:30 PM scan | 4:15 PM review\n")
+    print("[scheduler] Started (single source of truth — APScheduler, US/Eastern)")
+    print("  9:00 AM  Scout  |  9:31 AM scan→Rex  |  every 30 min holdings→Rex  |  12:30 PM scan→Rex  |  4:15 PM review")
+    print("  Rex买入: 仅扫描后触发 (2次/天)  |  Rex卖出: 持仓监控后触发 (每30分钟)\n")
 
     from api.app import app
     uvicorn.run(app, host="0.0.0.0", port=8000)

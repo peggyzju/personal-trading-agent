@@ -17,8 +17,8 @@ load_dotenv()
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    _refresh_holdings()   # pre-warm holdings cache before scheduler first run
-    _start_scheduler()
+    _refresh_holdings()   # pre-warm holdings cache on startup
+    # Scheduling is managed exclusively by main.py APScheduler (single source of truth).
     yield
 
 
