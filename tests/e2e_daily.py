@@ -560,6 +560,34 @@ def test_scheduler_design():
     except Exception as e:
         fail("Scout module", str(e))
 
+    # 8. Maya aggression: daily_return_needed > 0.2% → normal（不是 conservative）
+    try:
+        from src.analysis.market_context import _compute_goal_context
+        from src.trader.alpaca_trader import get_account
+        equity = float(get_account().equity)
+        gc = _compute_goal_context(equity)
+        agg  = gc["aggression"]
+        need = gc["daily_return_needed"]
+        if need <= 0.2:
+            ok("Maya aggression", f"need={need:.2f}%/day → {agg} 合理（目标接近达成）✓")
+        elif agg != "conservative":
+            ok("Maya aggression", f"need={need:.2f}%/day → aggression={agg} ✓")
+        else:
+            fail("Maya aggression", f"need={need:.2f}%/day 但 aggression=conservative — 应为 normal/aggressive")
+    except Exception as e:
+        fail("Maya aggression", str(e))
+
+    # 9. auto_approve threshold ≤ 75%（门槛过高会卡住有效信号）
+    try:
+        cfg = json.load(open("data/auto_approve.json"))
+        threshold = cfg.get("threshold", 1.0)
+        if threshold <= 0.75:
+            ok("Auto threshold", f"threshold={threshold:.0%} ≤ 75% ✓")
+        else:
+            fail("Auto threshold", f"threshold={threshold:.0%} 过高 — 建议 ≤ 70%")
+    except Exception as e:
+        fail("Auto threshold", str(e))
+
 
 # ── Report ────────────────────────────────────────────────────────────────────
 def print_report():

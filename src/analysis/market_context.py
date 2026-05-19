@@ -68,8 +68,8 @@ def _compute_goal_context(current_equity: float) -> dict:
         aggression = "conservative"   # already at/past target
     elif daily_return_needed > 1.5:
         aggression = "aggressive"     # need >1.5%/day — push harder
-    elif daily_return_needed > 0.5:
-        aggression = "normal"
+    elif daily_return_needed > 0.2:
+        aggression = "normal"         # need >0.2%/day — stay deployed (was 0.5)
     else:
         aggression = "conservative"
 
@@ -143,8 +143,9 @@ def generate_market_context() -> dict:
         # Override: market too risky, cap at normal
         aggression = "conservative" if regime == "BEAR" else min(aggression, "normal")
 
-    # min_ai_score: aggressive=6, normal=6, conservative=7
-    min_ai_score_map = {"aggressive": 6, "normal": 6, "conservative": 7}
+    # min_ai_score: aggressive=6, normal=6, conservative=6
+    # (conservative only differs in size_scale, not signal count)
+    min_ai_score_map = {"aggressive": 6, "normal": 6, "conservative": 6}
     # size_scale: scales position size up/down
     size_scale_map   = {"aggressive": 1.1, "normal": 1.0, "conservative": 0.75}
 
