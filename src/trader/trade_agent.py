@@ -476,6 +476,7 @@ def run_agent(
 
         # ── Guard: check cash and open slots ─────────────────────────────────
         cash = portfolio_value   # fallback
+        equity = portfolio_value  # fallback (updated below with acct.equity)
         owned_symbols: set[str] = set()
         slots_remaining = 10    # fallback
         alpaca_positions: list = []
@@ -746,6 +747,51 @@ def run_agent(
             if wl_added:
                 summary["sources"].append("watchlist")
 
+        # ── 0. Over-allocation rebalance ─────────────────────────────────────
+        # If total invested > 95% of equity (margin territory), sell weakest positions
+        # until allocation drops back to 90%. Runs BEFORE normal sell logic.
+        OVERALLOC_THRESHOLD = 0.95
+        OVERALLOC_TARGET    = 0.90
+        _overalloc_symbols: set[str] = set()
+        if alpaca_positions and equity > 0:
+            invested    = sum(float(p.market_value) for p in alpaca_positions)
+            alloc_pct   = invested / equity
+            if alloc_pct > OVERALLOC_THRESHOLD:
+                need_to_sell = invested - equity * OVERALLOC_TARGET
+                print(f"[agent] ⚠️  Over-allocated {alloc_pct:.1%} → selling ${need_to_sell:,.0f} "
+                      f"to reach {OVERALLOC_TARGET:.0%} target")
+                # Sell worst P&L first; break ties by largest position size
+                sell_cands = sorted(
+                    alpaca_positions,
+                    key=lambda p: (float(p.unrealized_plpc), -float(p.market_value))
+                )
+                sold_so_far = 0.0
+                for sp in sell_cands:
+                    if sold_so_far >= need_to_sell:
+                        break
+                    if sp.symbol in alpaca_open_sell_symbols:
+                        continue
+                    mv = float(sp.market_value)
+                    plpc = float(sp.unrealized_plpc) * 100
+                    print(f"[agent] Over-alloc sell: {sp.symbol} mv=${mv:,.0f} P&L={plpc:+.1f}%")
+                    trade = _make_trade(
+                        symbol=sp.symbol, side="sell",
+                        notional=None, qty=None,
+                        signal="SELL", confidence=0.95,
+                        reason=f"Over-allocation rebalance: {alloc_pct:.1%} invested, "
+                               f"reducing to {OVERALLOC_TARGET:.0%} of equity",
+                        source="overalloc",
+                        price=float(sp.current_price),
+                    )
+                    if _add_trade(trade, owned_symbols):
+                        summary["signals_found"] += 1
+                        summary["trades_queued"] += 1
+                        sold_so_far += mv
+                        _overalloc_symbols.add(sp.symbol)
+                        _new_trade_ids.add(trade["id"])
+                if _overalloc_symbols:
+                    summary.setdefault("sources", []).append("overalloc")
+
         # ── 3. Holdings: SELL / REDUCE ────────────────────────────────────────
         # First pass: hard stop-loss from live Alpaca positions (no cache dependency)
         HARD_STOP_PCT = -stop_loss_pct * 100   # e.g. -3.0%
@@ -755,6 +801,8 @@ def run_agent(
             if ap.symbol in alpaca_open_sell_symbols:
                 print(f"[agent] skip {ap.symbol} hard stop — open sell order already in Alpaca")
                 continue
+            if ap.symbol in _overalloc_symbols:
+                continue   # already queued by over-allocation rebalance
             plpc = float(ap.unrealized_plpc) * 100   # Alpaca returns as decimal
             if plpc <= HARD_STOP_PCT:
                 print(f"[agent] Hard stop: {ap.symbol} down {plpc:.1f}% (threshold {HARD_STOP_PCT:.1f}%)")
@@ -790,6 +838,8 @@ def run_agent(
                 continue
             if pos["symbol"] in hard_stop_symbols:
                 continue   # already queued via hard stop
+            if pos["symbol"] in _overalloc_symbols:
+                continue   # already queued by over-allocation rebalance
             if pos["symbol"] in alpaca_open_sell_symbols:
                 print(f"[agent] skip {pos['symbol']} {sell_signal} — open sell order already in Alpaca")
                 continue
