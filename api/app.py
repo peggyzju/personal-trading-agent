@@ -857,8 +857,12 @@ def place_trade(req: TradeRequest):
     if req.side == "buy":
         try:
             acct = get_account()
-            cash = float(acct.cash)
             portfolio_value = float(acct.portfolio_value)
+            # Use equity-based cash to avoid margin spending
+            from src.trader.alpaca_trader import get_client as _get_client
+            _positions = _get_client().list_positions()
+            _invested = sum(float(p.market_value) for p in _positions)
+            cash = max(0.0, float(acct.equity) - _invested)
             min_reserve = portfolio_value * MIN_CASH_PCT
             cost = req.notional or 0
             if req.qty and not req.notional:

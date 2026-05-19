@@ -484,10 +484,17 @@ def run_agent(
         try:
             from src.trader.alpaca_trader import get_client, get_account
             acct = get_account()
-            cash = float(acct.cash)
             client = get_client()
             alpaca_positions = client.list_positions()   # fetch ONCE
             owned_symbols = {p.symbol for p in alpaca_positions}
+            # Use equity-based cash to avoid margin: never spend more than we own
+            positions_market_value = sum(float(p.market_value) for p in alpaca_positions)
+            equity = float(acct.equity)
+            cash = max(0.0, equity - positions_market_value)
+            if float(acct.cash) < 0:
+                print(f"[agent] ⚠️  Margin detected: acct.cash=${float(acct.cash):,.0f}, "
+                      f"equity=${equity:,.0f}, positions=${positions_market_value:,.0f} "
+                      f"→ true_cash=${cash:,.0f}")
             slots_remaining = max(0, 10 - len(alpaca_positions))
             # Track symbols with open sell orders to avoid duplicate submissions
             open_orders = client.list_orders(status="open")
