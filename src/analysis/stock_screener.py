@@ -10,7 +10,13 @@ _REQUIRED = {"symbol", "ai_score", "signal", "reason"}
 _VALID_SIGNALS = {"STRONG_BUY", "BUY", "HOLD", "SELL"}
 
 
-def _build_prompt(candidates: list[dict], strategy_notes: list[str] | None) -> str:
+def _build_prompt(
+    candidates: list[dict],
+    strategy_notes: list[str] | None,
+    news_map: dict[str, dict] | None = None,
+    market_context: dict | None = None,
+    sector_bias: dict[str, str] | None = None,
+) -> str:
     def _fmt_mktcap(mc) -> str:
         if not mc:
             return "N/A"
@@ -20,15 +26,67 @@ def _build_prompt(candidates: list[dict], strategy_notes: list[str] | None) -> s
             return f"${mc/1e9:.1f}B"
         return f"${mc/1e6:.0f}M"
 
-    rows = "\n".join(
-        f'{i+1}. {c["symbol"]} ({c.get("company_name") or c["symbol"]}) | '
-        f'sector={c.get("sector","?") or "?"} | '
-        f'pe={c.get("pe_ratio","N/A")} | mkt_cap={_fmt_mktcap(c.get("market_cap"))} | '
-        f'beta={c.get("beta","N/A")} | momentum={c["momentum_5d"]:+.1f}% | '
-        f'vol_ratio={c["volume_ratio"]:.1f}x | rsi={c["rsi"]:.0f} | '
-        f'breakout={c["near_breakout"]} | tech_score={c["tech_score"]:.1f} | price=${c["price"]}'
-        for i, c in enumerate(candidates)
-    )
+    def _52w_pos(c) -> str:
+        lo  = c.get("week52_low")
+        hi  = c.get("week52_high")
+        px  = c.get("price")
+        if lo and hi and hi > lo and px:
+            pct = (px - lo) / (hi - lo) * 100
+            return f"{pct:.0f}%"
+        return "N/A"
+
+    def _sector_tag(sector: str) -> str:
+        if not sector_bias or not sector:
+            return sector or "?"
+        # Match sector name loosely
+        sector_lower = sector.lower()
+        for key, bias in sector_bias.items():
+            if key in sector_lower or sector_lower in key:
+                arrow = "↑" if bias == "positive" else ("↓" if bias == "negative" else "")
+                return f"{sector}{(' ' + arrow) if arrow else ''}"
+        return sector
+
+    rows_parts = []
+    for i, c in enumerate(candidates):
+        sym      = c["symbol"]
+        row_line = (
+            f'{i+1}. {sym} ({c.get("company_name") or sym}) | '
+            f'sector={_sector_tag(c.get("sector","") or "")} | '
+            f'pe={c.get("pe_ratio","N/A")} | mkt_cap={_fmt_mktcap(c.get("market_cap"))} | '
+            f'beta={c.get("beta","N/A")} | momentum={c["momentum_5d"]:+.1f}% | '
+            f'vol_ratio={c["volume_ratio"]:.1f}x | rsi={c["rsi"]:.0f} | '
+            f'breakout={c["near_breakout"]} | 52w_pos={_52w_pos(c)} | '
+            f'tech_score={c["tech_score"]:.1f} | price=${c["price"]}'
+        )
+        extras = []
+        info = (news_map or {}).get(sym, {})
+        headlines = info.get("headlines", [])
+        if headlines:
+            extras.append("   News: " + " | ".join(f'"{h}"' for h in headlines[:2]))
+        earnings_warning = info.get("earnings_warning")
+        if earnings_warning:
+            extras.append(f"   ⚠️  Earnings: {earnings_warning}")
+        rows_parts.append(row_line + ("\n" + "\n".join(extras) if extras else ""))
+
+    rows = "\n".join(rows_parts)
+
+    # Market context header
+    ctx_section = ""
+    if market_context:
+        regime     = market_context.get("regime", "NEUTRAL")
+        aggression = market_context.get("aggression", "normal")
+        ctx_section = f"\nMarket context: {regime} regime, {aggression} aggression.\n"
+
+    # Sector bias summary
+    bias_section = ""
+    if sector_bias:
+        pos = [s for s, b in sector_bias.items() if b == "positive"]
+        neg = [s for s, b in sector_bias.items() if b == "negative"]
+        parts = []
+        if pos: parts.append(f"outperforming: {', '.join(pos)}")
+        if neg: parts.append(f"underperforming: {', '.join(neg)}")
+        if parts:
+            bias_section = f"Sector rotation today — {'; '.join(parts)}.\n"
 
     notes_section = ""
     if strategy_notes:
@@ -36,14 +94,14 @@ def _build_prompt(candidates: list[dict], strategy_notes: list[str] | None) -> s
         notes_section = f"\nActive strategy guidelines:\n{notes_text}\n"
 
     return f"""You are a professional equity analyst. Rate each stock that passed a technical momentum screen.
-{notes_section}
+{ctx_section}{bias_section}{notes_section}
 {rows}
 
 Return a JSON array of {len(candidates)} objects. Each object must have exactly these fields:
 - "symbol": string
 - "ai_score": integer 1-10
 - "signal": one of "STRONG_BUY", "BUY", "HOLD", "SELL"
-- "reason": one sentence on what the company does + one sentence on the key trading factor
+- "reason": one sentence on what the company does + one sentence on the key trading factor (incorporate news if relevant)
 - "entry_note": "at market" | "on pullback to $X" | "on breakout above $X" | "avoid for now"
 - "stop_loss_pct": number (e.g. 3.5 means 3.5% below current price)
 - "target_pct": number (upside %, use 0 for SELL)
@@ -54,6 +112,8 @@ Signal guidelines:
 - BUY: good setup but one concern (high RSI, thin volume, etc.)
 - HOLD: mixed signals, unclear risk/reward
 - SELL: overextended, RSI>75, weak volume
+- Downgrade by 1 level if earnings are within 5 days (gap risk)
+- Downgrade by 1 level if sector is underperforming and stock has no independent catalyst
 
 Output raw JSON array only. No markdown, no explanation."""
 
@@ -125,12 +185,18 @@ def _validate_and_fill(item: dict, tech: dict) -> dict:
 def ai_score_candidates(
     candidates: list[dict],
     strategy_notes: list[str] | None = None,
+    news_map: dict[str, dict] | None = None,
+    market_context: dict | None = None,
+    sector_bias: dict[str, str] | None = None,
 ) -> list[dict]:
     """
     Send top technical candidates to Claude. Returns candidates with AI scores.
     - Sends at most 15 candidates to reduce latency
     - Retries once if parse fails or all signals are missing
     - Fills field defaults instead of returning None
+    - news_map: {symbol: {"headlines": [...], "earnings_warning": str|None}}
+    - market_context: from market_context.json (regime, aggression, etc.)
+    - sector_bias: {sector: "positive"/"negative"/"neutral"}
     """
     if not candidates:
         return []
@@ -141,7 +207,7 @@ def ai_score_candidates(
     tech_map = {c["symbol"]: c for c in candidates}
 
     for attempt in range(2):
-        prompt = _build_prompt(batch, strategy_notes)
+        prompt = _build_prompt(batch, strategy_notes, news_map, market_context, sector_bias)
         try:
             msg = client.messages.create(
                 model="claude-sonnet-4-6",

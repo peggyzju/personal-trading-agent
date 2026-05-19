@@ -367,22 +367,47 @@ def _run_sp500_scan(cascade_agent: bool = False):
         _set_progress("enriching_fundamentals")
         top_tech = enrich_with_fundamentals(top_tech)
 
-        print(f"[scan] Fundamentals enriched. Running AI scoring…")
+        print(f"[scan] Fundamentals enriched. Fetching news for top candidates…")
+        _set_progress("fetching_news")
+
+        # Fetch news + earnings warnings for top 15 candidates in parallel
+        from concurrent.futures import ThreadPoolExecutor as _TPE
+        from src.monitor.news_monitor import get_news as _get_news, earnings_within_days as _earnings_check
+
+        def _fetch_news_info(c: dict) -> tuple[str, dict]:
+            sym = c["symbol"]
+            try:
+                items    = _get_news(sym, limit=4)
+                headlines = [n["title"] for n in items if n.get("title")][:2]
+            except Exception:
+                headlines = []
+            try:
+                has_earn, earn_date = _earnings_check(sym, days=5)
+                earn_warn = f"earnings on {earn_date}" if has_earn else None
+            except Exception:
+                earn_warn = None
+            return sym, {"headlines": headlines, "earnings_warning": earn_warn}
+
+        with _TPE(max_workers=8) as _pool:
+            _news_results = list(_pool.map(_fetch_news_info, top_tech[:15]))
+        news_map = dict(_news_results)
+        news_ct  = sum(1 for v in news_map.values() if v.get("headlines"))
+        earn_ct  = sum(1 for v in news_map.values() if v.get("earnings_warning"))
+        print(f"[scan] News fetched: {news_ct} stocks with headlines, {earn_ct} with earnings warning")
+
+        print(f"[scan] Running AI scoring (with news + regime + sector context)…")
         _set_progress("ai_scoring")
         _scan_notes = [n["text"] for n in _load_notes() if n.get("active", True)]
-        top_ai = _sanitize_floats(ai_score_candidates(top_tech, strategy_notes=_scan_notes or None))
+        top_ai = _sanitize_floats(ai_score_candidates(
+            top_tech,
+            strategy_notes=_scan_notes or None,
+            news_map=news_map,
+            market_context=ctx,
+            sector_bias=sector_bias,
+        ))
 
-        # Apply sector bias: adjust ai_score ±1
-        if symbol_bias and top_ai:
-            for c in top_ai:
-                bias  = symbol_bias.get(c["symbol"])
-                score = c.get("ai_score") or 0
-                if bias == "positive" and score < 10:
-                    c["ai_score"] = min(10, score + 1)
-                    c["reason"]   = f"[Sector momentum ↑] {c.get('reason','')}"
-                elif bias == "negative" and score > 0:
-                    c["ai_score"] = max(0, score - 1)
-                    c["reason"]   = f"[Sector headwind ↓] {c.get('reason','')}"
+        # Sector bias post-sort only (scoring already incorporates bias via prompt)
+        if top_ai:
             top_ai = sorted(top_ai, key=lambda x: (
                 0 if x.get("signal") in ("STRONG_BUY", "BUY") else 1,
                 -(x.get("ai_score") or 0),
