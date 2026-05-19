@@ -866,7 +866,28 @@ def run_agent(
                 _save_reduce_streak(_streak)
 
             qty = float(pos.get("qty", 0))
-            close_qty = max(1, math.floor(qty * 0.5)) if effective_signal == "REDUCE" else None
+            pos_mv    = float(pos.get("market_value") or 0)
+            cur_price = float(pos.get("current_price") or 0)
+            MIN_REMNANT = max(500.0, portfolio_value * 0.003)   # min $500 or 0.3% of portfolio
+
+            # ── Tiny-position guard: if already a fragment, sell the whole thing ──
+            if effective_signal == "REDUCE" and pos_mv < MIN_REMNANT * 2:
+                effective_signal = "SELL"
+                print(f"[agent] {pos['symbol']} REDUCE → full SELL (tiny position ${pos_mv:.0f} < ${MIN_REMNANT*2:.0f})")
+
+            if effective_signal == "REDUCE":
+                half_qty = max(1, math.floor(qty * 0.5))
+                remaining_value = (qty - half_qty) * cur_price if cur_price else 0
+                # If selling half would leave a tiny remnant, sell the whole thing
+                if remaining_value < MIN_REMNANT:
+                    effective_signal = "SELL"
+                    print(f"[agent] {pos['symbol']} REDUCE → full SELL "
+                          f"(remnant ${remaining_value:.0f} < ${MIN_REMNANT:.0f})")
+                    close_qty = None
+                else:
+                    close_qty = half_qty
+            else:
+                close_qty = None
             trade = _make_trade(
                 symbol=pos["symbol"], side="sell",
                 notional=None,
