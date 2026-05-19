@@ -2,9 +2,71 @@ from __future__ import annotations
 import json
 import os
 import re
+from datetime import datetime, timezone
+from pathlib import Path
 
 import anthropic
 from src.config import get_anthropic_key
+
+# ── Trailing stop config ──────────────────────────────────────────────────────
+_TRAILING_FILE = Path(__file__).parent.parent.parent / "data" / "trailing_stops.json"
+TRAIL_PCT = 6.0   # trail 6% below high watermark (wider than 3% hard stop → lets winners run)
+
+
+def _load_trailing_stops() -> dict:
+    try:
+        return json.loads(_TRAILING_FILE.read_text())
+    except Exception:
+        return {}
+
+
+def _save_trailing_stops(data: dict):
+    try:
+        _TRAILING_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _TRAILING_FILE.write_text(json.dumps(data, indent=2))
+    except Exception as e:
+        print(f"[holdings] trailing stop save error: {e}")
+
+
+def _update_trailing_stops(positions: list[dict]) -> dict:
+    """
+    Update high watermarks for all open positions and compute trailing stops.
+    Initialises new positions at current price.
+    Removes entries for positions that are no longer open.
+    Returns {symbol: {"trailing_stop": float, "high_watermark": float, ...}}
+    """
+    stops = _load_trailing_stops()
+    open_syms = {p["symbol"] for p in positions}
+
+    for p in positions:
+        sym   = p["symbol"]
+        price = float(p.get("current_price") or 0)
+        if not price:
+            continue
+        if sym not in stops:
+            stops[sym] = {
+                "high_watermark":  price,
+                "trail_pct":       TRAIL_PCT,
+                "initialized_at":  datetime.now(timezone.utc).isoformat(),
+            }
+            print(f"[holdings] Trailing stop initialised for {sym} @ ${price:.2f}")
+        elif price > stops[sym].get("high_watermark", 0):
+            old_wm = stops[sym]["high_watermark"]
+            stops[sym]["high_watermark"] = price
+            print(f"[holdings] {sym} watermark updated ${old_wm:.2f} → ${price:.2f}")
+
+        wm = stops[sym]["high_watermark"]
+        pct = stops[sym].get("trail_pct", TRAIL_PCT)
+        stops[sym]["trailing_stop"] = round(wm * (1 - pct / 100), 2)
+
+    # Purge closed positions
+    for sym in list(stops.keys()):
+        if sym not in open_syms:
+            print(f"[holdings] Removing trailing stop for closed position {sym}")
+            del stops[sym]
+
+    _save_trailing_stops(stops)
+    return stops
 
 # Demo paper portfolio when Alpaca keys are not configured
 DEMO_POSITIONS = [
@@ -166,6 +228,9 @@ For each position return a JSON object:
 
 Return ONLY a JSON array."""
 
+    # Update trailing stops BEFORE asking Claude — used in override logic below
+    trailing_stops = _update_trailing_stops(enriched)
+
     msg = client.messages.create(
         model="claude-haiku-4-5",
         max_tokens=1024,
@@ -175,13 +240,31 @@ Return ONLY a JSON array."""
 
     HARD_STOP_PCT = -3.0   # hard stop regardless of Claude output
 
-    def _hard_stop_defaults(p: dict) -> dict:
-        """Apply hard stop-loss rule independent of Claude analysis."""
+    def _rule_based_override(p: dict) -> dict | None:
+        """
+        Returns a forced sell dict if any rule-based condition is met, else None.
+        Priority: hard stop > trailing stop > (Claude signal used as-is)
+        """
+        sym  = p["symbol"]
         plpc = p.get("unrealized_plpc", 0)
+        price = float(p.get("current_price") or 0)
+
+        # 1. Hard stop (absolute loss)
         if plpc <= HARD_STOP_PCT:
             return {"sell_signal": "SELL", "urgency": "HIGH",
                     "reason": f"Hard stop: position down {plpc:.1f}% (threshold {HARD_STOP_PCT}%)"}
-        return {"sell_signal": "HOLD", "urgency": "LOW", "reason": ""}
+
+        # 2. Trailing stop (protect profits)
+        ts_data = trailing_stops.get(sym, {})
+        ts      = ts_data.get("trailing_stop")
+        wm      = ts_data.get("high_watermark")
+        if ts and price and price <= ts:
+            drawdown = (price - wm) / wm * 100 if wm else 0
+            return {"sell_signal": "SELL", "urgency": "HIGH",
+                    "reason": f"Trailing stop hit: ${price:.2f} ≤ ${ts:.2f} "
+                              f"({drawdown:.1f}% from high of ${wm:.2f})"}
+
+        return None
 
     text = msg.content[0].text
     match = re.search(r"\[.*?\]", text, re.DOTALL)
@@ -195,13 +278,12 @@ Return ONLY a JSON array."""
 
     result = []
     for p in enriched:
-        default = _hard_stop_defaults(p)
-        ai_sig  = sig_map.get(p["symbol"], {})
-        # Claude overrides hard stop only if it also says SELL/REDUCE
-        merged  = {**default, **ai_sig} if ai_sig.get("sell_signal") in ("SELL", "REDUCE") else {**default, **{k: v for k, v in ai_sig.items() if k != "sell_signal" and k != "urgency"}}
-        # Hard stop always wins when plpc <= threshold
-        if p.get("unrealized_plpc", 0) <= HARD_STOP_PCT:
-            merged["sell_signal"] = "SELL"
-            merged["urgency"]     = "HIGH"
+        override = _rule_based_override(p)
+        ai_sig   = sig_map.get(p["symbol"], {})
+        if override:
+            # Rule-based overrides always win
+            merged = {**ai_sig, **override}
+        else:
+            merged = ai_sig if ai_sig else {"sell_signal": "HOLD", "urgency": "LOW", "reason": ""}
         result.append({k: v for k, v in {**p, **merged}.items() if k != "_tech"})
     return result

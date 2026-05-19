@@ -89,7 +89,23 @@ def _save_log(log: list[dict]):
 _pending: dict[str, dict] = _load_from_disk()
 _run_log: list[dict] = _load_log()
 _agent_running: bool = False
-_reduce_today: dict[str, str] = {}   # symbol -> date string; prevents repeat REDUCE same day
+_reduce_today:   dict[str, str] = {}   # symbol -> date string; prevents repeat REDUCE same day
+_REDUCE_STREAK_FILE = Path(__file__).parent.parent.parent / "data" / "reduce_streak.json"
+
+
+def _load_reduce_streak() -> dict:
+    try:
+        return json.loads(_REDUCE_STREAK_FILE.read_text())
+    except Exception:
+        return {}
+
+
+def _save_reduce_streak(data: dict):
+    try:
+        _REDUCE_STREAK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _REDUCE_STREAK_FILE.write_text(json.dumps(data, indent=2))
+    except Exception:
+        pass
 _sell_hold_count: dict[str, int] = {}  # symbol -> consecutive HOLD count; cancel only after >= 2
 
 ERROR_TTL_HOURS   = 24    # auto-clear error trades after 24 h
@@ -773,15 +789,34 @@ def run_agent(
             if sell_signal == "REDUCE" and _reduce_today.get(pos["symbol"]) == today_str:
                 print(f"[agent] skip {pos['symbol']} REDUCE — already reduced today")
                 continue
+
+            # ── REDUCE streak escalation ───────────────────────────────────────
+            # If the same position has been REDUCE'd 2+ times → escalate to full SELL
+            _streak = _load_reduce_streak()
+            streak  = _streak.get(pos["symbol"], 0)
+            effective_signal = sell_signal
+            effective_conf   = 0.8 if sell_signal == "SELL" else 0.6
+            effective_reason = pos.get("reason", "Holdings monitor sell signal")
+
+            if sell_signal == "REDUCE" and streak >= 2:
+                effective_signal = "SELL"
+                effective_conf   = 0.85
+                effective_reason = (
+                    f"[Auto-escalated REDUCE×{streak+1}→SELL] {effective_reason}"
+                )
+                print(f"[agent] {pos['symbol']} REDUCE×{streak+1} → escalated to full SELL")
+                _streak.pop(pos["symbol"], None)
+                _save_reduce_streak(_streak)
+
             qty = float(pos.get("qty", 0))
-            close_qty = max(1, math.floor(qty * 0.5)) if sell_signal == "REDUCE" else None
+            close_qty = max(1, math.floor(qty * 0.5)) if effective_signal == "REDUCE" else None
             trade = _make_trade(
                 symbol=pos["symbol"], side="sell",
                 notional=None,
                 qty=close_qty,
-                signal=sell_signal,
-                confidence=0.8 if sell_signal == "SELL" else 0.6,
-                reason=pos.get("reason", "Holdings monitor sell signal"),
+                signal=effective_signal,
+                confidence=effective_conf,
+                reason=effective_reason,
                 source="holdings",
                 price=pos.get("current_price"),
             )
@@ -790,8 +825,14 @@ def run_agent(
                 summary["trades_queued"] += 1
                 holdings_added += 1
                 _new_trade_ids.add(trade["id"])
-                if sell_signal == "REDUCE":
+                if effective_signal == "REDUCE":
                     _reduce_today[pos["symbol"]] = today_str
+                    _streak[pos["symbol"]] = streak + 1
+                    _save_reduce_streak(_streak)
+                elif sell_signal == "SELL":
+                    # Full SELL (not escalated) — reset streak
+                    _streak.pop(pos["symbol"], None)
+                    _save_reduce_streak(_streak)
 
         if holdings_added:
             summary["sources"].append("holdings")
