@@ -335,14 +335,56 @@ def test_rex_logic():
         ta._reduce_today.clear()
         ta._sell_hold_count.clear()
 
+        # 9e. REDUCE streak: 2 consecutive REDUCEs → escalate to SELL
+        from src.trader.trade_agent import _load_reduce_streak, _save_reduce_streak
+        import tempfile, os
+        from unittest.mock import patch
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tf:
+            streak_path = tf.name
+            tf.write("{}")
+
+        try:
+            with patch("src.trader.trade_agent._REDUCE_STREAK_FILE",
+                       __import__("pathlib").Path(streak_path)):
+                # First REDUCE: streak → 1, signal stays REDUCE
+                streak_data = _load_reduce_streak()
+                streak_data["TESTX"] = 0
+                _save_reduce_streak(streak_data)
+                streak_data["TESTX"] += 1
+                _save_reduce_streak(streak_data)
+                if _load_reduce_streak().get("TESTX") == 1:
+                    ok("REDUCE streak +1", "첫 REDUCE → streak=1, 신호 유지 ✓")
+                else:
+                    fail("REDUCE streak +1", "streak 未增加到 1")
+
+                # Second REDUCE: streak >= 2 → should escalate
+                streak_data["TESTX"] += 1
+                _save_reduce_streak(streak_data)
+                loaded = _load_reduce_streak()
+                if loaded.get("TESTX") >= 2:
+                    ok("REDUCE streak escalate", "streak=2 → 应升级为 SELL ✓")
+                else:
+                    fail("REDUCE streak escalate", f"streak={loaded.get('TESTX')} 未达到 2")
+
+                # Reset after escalation
+                streak_data.pop("TESTX", None)
+                _save_reduce_streak(streak_data)
+                if "TESTX" not in _load_reduce_streak():
+                    ok("REDUCE streak reset", "升级后 streak 重置 ✓")
+                else:
+                    fail("REDUCE streak reset", "升级后 streak 未清除")
+        finally:
+            os.unlink(streak_path)
+
     except Exception as e:
         fail("Rex 逻辑", str(e))
         traceback.print_exc()
 
 
-# ── 10. Holdings Monitor 硬止损 ───────────────────────────────────────────────
+# ── 10. Holdings Monitor 硬止损 + Trailing Stop ───────────────────────────────
 def test_hard_stop_logic():
-    print("\n[10/11] Holdings Monitor — Hard Stop 优先级")
+    print("\n[10/11] Holdings Monitor — Hard Stop + Trailing Stop")
     try:
         from unittest.mock import patch, MagicMock
         from src.monitor.holdings_monitor import analyze_sell_signals
@@ -393,6 +435,67 @@ def test_hard_stop_logic():
 
     except Exception as e:
         fail("Hard stop 逻辑", str(e))
+        traceback.print_exc()
+
+    # ── Trailing stop tests ───────────────────────────────────────────────────
+    try:
+        from unittest.mock import patch, MagicMock
+        from src.monitor.holdings_monitor import analyze_sell_signals
+
+        hold_response = json.dumps([
+            {"symbol": "RUNIT", "sell_signal": "HOLD", "urgency": "LOW",
+             "reason": "still looks ok", "suggested_action": "hold"},
+            {"symbol": "SAFEX", "sell_signal": "HOLD", "urgency": "LOW",
+             "reason": "fine", "suggested_action": "hold"},
+        ])
+        mock_msg = MagicMock()
+        mock_msg.content = [MagicMock(text=hold_response)]
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = mock_msg
+
+        positions_ts = [
+            # RUNIT: watermark=$120, trailing_stop=$112.8 (6%), current=$110 → SELL
+            {"symbol": "RUNIT", "qty": 10, "avg_entry_price": 100.0,
+             "current_price": 110.0, "market_value": 1100, "unrealized_pl": 100,
+             "unrealized_plpc": 10.0, "side": "long"},
+            # SAFEX: watermark=$105, trailing_stop=$98.7, current=$103 → HOLD
+            {"symbol": "SAFEX", "qty": 10, "avg_entry_price": 100.0,
+             "current_price": 103.0, "market_value": 1030, "unrealized_pl": 30,
+             "unrealized_plpc": 3.0, "side": "long"},
+        ]
+        # Mock trailing stops: RUNIT's stop is above current price
+        mock_trailing = {
+            "RUNIT": {"high_watermark": 120.0, "trailing_stop": 112.8, "trail_pct": 6.0},
+            "SAFEX": {"high_watermark": 105.0, "trailing_stop": 98.7,  "trail_pct": 6.0},
+        }
+
+        with patch("anthropic.Anthropic", return_value=mock_client), \
+             patch("src.monitor.holdings_monitor._enrich_with_technicals",
+                   side_effect=lambda p: [{**x, "_tech": {}} for x in p]), \
+             patch("src.monitor.holdings_monitor._update_trailing_stops",
+                   return_value=mock_trailing):
+            result_ts = analyze_sell_signals(positions_ts)
+
+        ts_map = {r["symbol"]: r for r in result_ts}
+
+        # RUNIT: price $110 < trailing_stop $112.8 → must SELL despite Claude=HOLD
+        runit = ts_map.get("RUNIT", {})
+        if runit.get("sell_signal") == "SELL" and runit.get("urgency") == "HIGH":
+            ok("Trailing stop trigger", "RUNIT $110 < stop $112.8: Claude=HOLD → trailing=SELL ✓")
+        else:
+            fail("Trailing stop trigger",
+                 f"RUNIT: sell_signal={runit.get('sell_signal')}, urgency={runit.get('urgency')}")
+
+        # SAFEX: price $103 > trailing_stop $98.7 → HOLD passes through
+        safex = ts_map.get("SAFEX", {})
+        if safex.get("sell_signal") == "HOLD":
+            ok("No false trailing stop", "SAFEX $103 > stop $98.7: HOLD 正确保留 ✓")
+        else:
+            fail("No false trailing stop",
+                 f"SAFEX: 意外 sell_signal={safex.get('sell_signal')}")
+
+    except Exception as e:
+        fail("Trailing stop 逻辑", str(e))
         traceback.print_exc()
 
 
