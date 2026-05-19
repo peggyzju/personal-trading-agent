@@ -89,17 +89,58 @@ def test_account():
 # ── 3. Market regime (Maya) ───────────────────────────────────────────────────
 def test_market_regime():
     print("\n[3/8] Maya — 市场 regime")
+    VALID_REGIMES     = {"BULL", "NEUTRAL", "CAUTION", "BEAR"}
+    VALID_AGGRESSIONS = {"aggressive", "normal", "conservative"}
+    SIZE_SCALE_MAP    = {"aggressive": 1.1, "normal": 1.0, "conservative": 0.75}
+
     try:
         from src.monitor.market_regime import get_market_regime
+        from src.analysis.market_context import load_market_context
+
+        # 3a. Regime output structure
         r = get_market_regime()
-        regime  = r.get("regime", "?")
-        reason  = r.get("reason", "")[:60]
-        block   = r.get("block_buys", False)
-        ok("Market regime", f"{regime} — {reason}")
+        regime = r.get("regime", "?")
+        if regime in VALID_REGIMES:
+            ok("Regime value", f"regime={regime} ∈ {VALID_REGIMES} ✓")
+        else:
+            fail("Regime value", f"regime={regime!r} 不是合法值，期望 {VALID_REGIMES}")
+
+        required_keys = {"regime", "reason", "block_buys", "size_factor"}
+        missing = required_keys - set(r.keys())
+        if not missing:
+            ok("Regime schema", f"所有必需字段存在 ✓")
+        else:
+            fail("Regime schema", f"缺少字段: {missing}")
+
+        block = r.get("block_buys", False)
         if block:
             warn("Buy gate", "当前 regime 阻止买入")
         else:
-            ok("Buy gate", "买入未被阻止")
+            ok("Buy gate", "买入未被阻止 ✓")
+
+        # 3b. Market context: aggression + size_scale 内部一致
+        ctx = load_market_context()
+        aggression = ctx.get("aggression", "?")
+        size_scale = ctx.get("size_scale")
+        min_ai     = ctx.get("min_ai_score")
+
+        if aggression in VALID_AGGRESSIONS:
+            ok("Aggression value", f"aggression={aggression} ✓")
+        else:
+            fail("Aggression value", f"aggression={aggression!r} 不合法")
+
+        expected_scale = SIZE_SCALE_MAP.get(aggression)
+        if expected_scale and abs((size_scale or 0) - expected_scale) < 0.01:
+            ok("size_scale consistent", f"aggression={aggression} → size_scale={size_scale} ✓")
+        else:
+            fail("size_scale consistent",
+                 f"aggression={aggression} 期望 size_scale={expected_scale}，实际={size_scale}")
+
+        if isinstance(min_ai, (int, float)) and 1 <= min_ai <= 10:
+            ok("min_ai_score range", f"min_ai_score={min_ai} ∈ [1,10] ✓")
+        else:
+            fail("min_ai_score range", f"min_ai_score={min_ai!r} 超出合法范围")
+
     except Exception as e:
         fail("Market regime", str(e))
 
@@ -107,6 +148,7 @@ def test_market_regime():
 # ── 4. Scanner (Scout) ────────────────────────────────────────────────────────
 def test_scanner():
     print("\n[4/8] Scout — 扫描缓存")
+    VALID_SIGNALS = {"STRONG_BUY", "BUY", "HOLD", "SELL"}
     cache_file = Path("data/scan_cache.json")
     try:
         if not cache_file.exists():
@@ -114,18 +156,75 @@ def test_scanner():
             return
         data = json.loads(cache_file.read_text())
         sp500 = data.get("sp500", {})
-        status = sp500.get("status", "?")
+        status     = sp500.get("status", "?")
         candidates = sp500.get("candidates", [])
         scanned_at = sp500.get("scanned_at", "unknown")
-        if status == "done" and candidates:
-            ok("Scan cache", f"{len(candidates)} candidates, 扫描于 {scanned_at[:16]}")
-            # Check ai_score present
-            with_score = [c for c in candidates if c.get("ai_score") is not None]
-            ok("AI scores", f"{len(with_score)}/{len(candidates)} 有 ai_score")
-        elif status == "running":
+
+        if status == "running":
             warn("Scan cache", "扫描进行中")
-        else:
+            return
+        if status != "done" or not candidates:
             warn("Scan cache", f"status={status}, {len(candidates)} candidates")
+            return
+
+        ok("Scan cache", f"{len(candidates)} candidates, 扫描于 {scanned_at[:16]}")
+
+        # 4a. 每个 candidate 必须有 symbol + price
+        base_ok = [c for c in candidates if c.get("symbol") and c.get("price")]
+        if len(base_ok) == len(candidates):
+            ok("Candidate base fields", f"全部 {len(candidates)} 个有 symbol+price ✓")
+        else:
+            fail("Candidate base fields", f"{len(candidates)-len(base_ok)} 个缺少 symbol 或 price")
+
+        # 4b. AI 评分字段完整性
+        ai_scored = [c for c in candidates if c.get("ai_score") is not None]
+        if ai_scored:
+            bad_signal  = [c["symbol"] for c in ai_scored if c.get("signal") not in VALID_SIGNALS]
+            bad_score   = [c["symbol"] for c in ai_scored
+                           if not isinstance(c.get("ai_score"), (int, float))
+                           or not (1 <= c["ai_score"] <= 10)]
+            bad_stop    = [c["symbol"] for c in ai_scored if c.get("stop_loss") is None]
+            # target_price only required for BUY/STRONG_BUY signals
+            buy_scored  = [c for c in ai_scored if c.get("signal") in ("BUY", "STRONG_BUY")]
+            bad_target  = [c["symbol"] for c in buy_scored if c.get("target_price") is None]
+
+            if not bad_signal:
+                ok("Signal values", f"{len(ai_scored)} 个 AI 评分均有合法 signal ✓")
+            else:
+                fail("Signal values", f"非法 signal: {bad_signal}")
+
+            if not bad_score:
+                ok("AI score range", f"ai_score 均在 [1,10] ✓")
+            else:
+                fail("AI score range", f"超出范围: {bad_score}")
+
+            if not bad_stop:
+                ok("Stop loss set", f"全部 AI 评分有 stop_loss ✓")
+            else:
+                fail("Stop loss set", f"缺少 stop_loss: {bad_stop}")
+
+            if not bad_target:
+                ok("Target price set", f"{len(buy_scored)} 个 BUY/STRONG_BUY 均有 target_price ✓")
+            else:
+                fail("Target price set", f"BUY 信号缺少 target_price: {bad_target}")
+        else:
+            warn("AI scores", "无 AI 评分 candidates（扫描后自动评分）")
+
+        # 4c. STRONG_BUY / BUY 排在前面（排序正确）
+        buy_signals = {"STRONG_BUY", "BUY"}
+        first_non_buy = next(
+            (i for i, c in enumerate(candidates) if c.get("signal") not in buy_signals
+             and c.get("signal") in VALID_SIGNALS), None
+        )
+        first_buy_after_hold = next(
+            (i for i, c in enumerate(candidates)
+             if i > (first_non_buy or 999) and c.get("signal") in buy_signals), None
+        )
+        if first_buy_after_hold is None:
+            ok("Sort order", "BUY/STRONG_BUY 排在 HOLD/SELL 前面 ✓")
+        else:
+            fail("Sort order", f"位置 {first_buy_after_hold} 出现 BUY，但位置 {first_non_buy} 已有 HOLD")
+
     except Exception as e:
         fail("Scan cache", str(e))
 
@@ -244,26 +343,79 @@ def test_rex_dry_run():
 # ── 8. Vera / strategy review ────────────────────────────────────────────────
 def test_vera():
     print("\n[8/8] Vera — 复盘系统")
+    REQUIRED_FIELDS = {"date", "one_line_summary", "what_worked", "what_didnt",
+                       "iteration_opportunities", "performance"}
+    OPP_REQUIRED    = {"title", "verdict", "priority"}
+    VALID_VERDICTS  = {"ADOPT", "HOLD", "REJECT"}
+    VALID_PRIORITIES = {"HIGH", "MEDIUM", "LOW"}
+
     try:
+        # 8a. Function importable with expected signature
         from src.analysis.strategy_reviewer import generate_strategy_review
         import inspect
-        sig = inspect.signature(generate_strategy_review)
-        params = list(sig.parameters.keys())
-        ok("Vera import", f"generate_strategy_review 可导入，参数: {params}")
-
-        # Check review cache
-        review_cache = Path("data/review_cache.json")
-        if review_cache.exists():
-            data = json.loads(review_cache.read_text())
-            latest = data.get("latest", {})
-            date = latest.get("date", "?")
-            one_line = latest.get("one_line_summary", "")[:50]
-            if date != "?":
-                ok("Review cache", f"最新复盘: {date} — {one_line}")
-            else:
-                warn("Review cache", "缓存存在但无 latest 字段")
+        params = set(inspect.signature(generate_strategy_review).parameters.keys())
+        expected_params = {"portfolio_history", "executed_orders", "agent_log"}
+        missing_params = expected_params - params
+        if not missing_params:
+            ok("Vera signature", f"generate_strategy_review 参数完整 ✓")
         else:
+            fail("Vera signature", f"缺少参数: {missing_params}")
+
+        # 8b. Review cache content validation
+        review_cache = Path("data/review_cache.json")
+        if not review_cache.exists():
             warn("Review cache", "无复盘缓存（收盘后自动生成）")
+            return
+
+        data   = json.loads(review_cache.read_text())
+        latest = data.get("latest", {})
+
+        if not latest:
+            warn("Review cache", "缓存存在但无 latest 字段")
+            return
+
+        # Required fields present and non-empty
+        missing_fields = REQUIRED_FIELDS - set(latest.keys())
+        if not missing_fields:
+            ok("Review fields", f"所有必需字段存在 ✓")
+        else:
+            fail("Review fields", f"缺少字段: {missing_fields}")
+
+        # one_line_summary is a non-empty string
+        summary = latest.get("one_line_summary", "")
+        if isinstance(summary, str) and len(summary) > 10:
+            ok("one_line_summary", f"{summary[:50]} ✓")
+        else:
+            fail("one_line_summary", f"内容为空或过短: {summary!r}")
+
+        # what_worked / what_didnt are non-empty lists
+        for field in ("what_worked", "what_didnt"):
+            val = latest.get(field, [])
+            if isinstance(val, list) and len(val) > 0:
+                ok(field, f"{len(val)} 条 ✓")
+            else:
+                fail(field, f"期望非空列表，实际: {val!r}")
+
+        # iteration_opportunities structure
+        opps = latest.get("iteration_opportunities", [])
+        if not opps:
+            warn("Opportunities", "无迭代建议")
+        else:
+            bad_opps = []
+            for opp in opps:
+                missing_opp = OPP_REQUIRED - set(opp.keys())
+                if missing_opp:
+                    bad_opps.append(f"{opp.get('title','?')} 缺 {missing_opp}")
+                if opp.get("verdict") not in VALID_VERDICTS:
+                    bad_opps.append(f"{opp.get('title','?')} verdict={opp.get('verdict')!r}")
+                if opp.get("priority") not in VALID_PRIORITIES:
+                    bad_opps.append(f"{opp.get('title','?')} priority={opp.get('priority')!r}")
+            if not bad_opps:
+                ok("Opportunities", f"{len(opps)} 条，字段+枚举值均合法 ✓")
+            else:
+                fail("Opportunities", f"问题: {bad_opps}")
+
+        ok("Review date", f"最新复盘: {latest.get('date')} ✓")
 
     except Exception as e:
         fail("Vera", str(e))
