@@ -212,7 +212,6 @@ def ai_score_candidates(
             msg = client.messages.create(
                 model="claude-opus-4-7",
                 max_tokens=4096,
-                temperature=0,
                 messages=[{"role": "user", "content": prompt}],
             )
             text = msg.content[0].text
