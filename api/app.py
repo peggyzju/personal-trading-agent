@@ -1233,6 +1233,52 @@ def trigger_backtest(
     return {"status": "started", "symbols": sym_list}
 
 
+_compare_cache: dict = {}
+_compare_running: bool = False
+
+@app.post("/api/backtest/compare")
+def trigger_compare(
+    background_tasks: BackgroundTasks,
+    symbols: str = "",
+    period: str = "1y",
+    hold_days: int = 10,
+    target_pct: float = 0.08,
+):
+    """Compare 3 strategy variants: current 3% stop, wider 5% stop, strict entry."""
+    global _compare_running
+    if _compare_running:
+        return {"status": "already_running"}
+
+    sym_list = [s.strip().upper() for s in symbols.split(",") if s.strip()] if symbols else []
+    if not sym_list:
+        scan_candidates = (_scan_cache.get("sp500") or {}).get("candidates", [])
+        sym_list = [c["symbol"] for c in scan_candidates if c.get("signal") in ("BUY", "STRONG_BUY")][:15]
+    if not sym_list:
+        sym_list = load_watchlist()
+
+    def _run():
+        global _compare_running
+        _compare_running = True
+        _compare_cache["result"] = {"status": "running", "symbols": sym_list}
+        try:
+            from src.analysis.backtester import compare_strategies
+            result = compare_strategies(sym_list, period=period,
+                                        hold_days=hold_days, target_pct=target_pct)
+            _compare_cache["result"] = result
+        except Exception as e:
+            _compare_cache["result"] = {"status": "error", "error": str(e)}
+        finally:
+            _compare_running = False
+
+    background_tasks.add_task(_run)
+    return {"status": "started", "symbols": sym_list}
+
+
+@app.get("/api/backtest/compare")
+def get_compare():
+    return _compare_cache.get("result", {"status": "not_run"})
+
+
 # ── Scheduler: auto-trigger after market close ────────────────────────────────
 
 def _start_scheduler():

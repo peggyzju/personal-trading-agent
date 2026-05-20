@@ -84,16 +84,42 @@ def _buy_signal(row) -> bool:
 
 # ── Trade simulation ──────────────────────────────────────────────────────────
 
+def _buy_signal_strict(row) -> bool:
+    """Stricter entry: same as _buy_signal but RSI < 60 and price within 5% above MA20."""
+    try:
+        def g(field):
+            try:
+                return row[field]
+            except (KeyError, TypeError):
+                return getattr(row, field)
+        return (
+            g("rsi") < 60                    # not extended (tighter than 75)
+            and g("macd_hist") > 0
+            and g("bb_pct_b") > 0.45         # slightly above midline
+            and g("bb_pct_b") < 0.85
+            and g("Close") > g("ma20")
+            and g("Close") < g("ma20") * 1.05  # within 5% of MA20 (near support)
+            and g("vol_ratio") > 1.10        # stronger volume confirmation
+            and g("mom5") > 0
+        )
+    except Exception:
+        return False
+
+
 def _simulate_symbol(
     symbol: str,
     df: pd.DataFrame,
     hold_days: int,
     target_pct: float,
-    slippage_pct: float = 0.003,   # 0.3% — realistic for liquid mid/large caps (was 0.1%)
+    slippage_pct: float = 0.003,
+    stop_type: str = "atr",      # "atr" | "fixed_3pct" | "fixed_5pct"
+    entry_mode: str = "normal",  # "normal" | "strict"
 ) -> list[dict]:
     """Walk-forward simulation for one symbol. Returns list of trade dicts."""
     df = _precompute_signals(df)
     df = df.dropna(subset=["rsi", "macd_hist", "ma50", "atr"])
+
+    signal_fn = _buy_signal_strict if entry_mode == "strict" else _buy_signal
 
     trades = []
     in_trade = False
@@ -105,14 +131,19 @@ def _simulate_symbol(
 
     for i, row in enumerate(rows):
         if not in_trade:
-            if _buy_signal(row):
+            if signal_fn(row):
                 # Enter next bar's open (simulate realistic execution)
                 if i + 1 >= len(rows):
                     continue
                 next_row = rows[i + 1]
                 entry_price = float(next_row.Open) * (1 + slippage_pct)
                 atr_at_entry = float(row.atr)
-                stop_loss = entry_price - 2 * atr_at_entry
+                if stop_type == "fixed_3pct":
+                    stop_loss = entry_price * 0.97
+                elif stop_type == "fixed_5pct":
+                    stop_loss = entry_price * 0.95
+                else:  # atr
+                    stop_loss = entry_price - 2 * atr_at_entry
                 target = entry_price * (1 + target_pct)
                 entry_date = next_row.Index
                 entry_idx = i + 1
@@ -252,31 +283,17 @@ def _compute_stats(trades: list[dict], spy_return: float) -> dict:
 
 # ── Public entry point ────────────────────────────────────────────────────────
 
-def run_backtest(
-    symbols: list[str],
-    period: str = "2y",
-    hold_days: int = 10,
-    target_pct: float = 0.08,
-) -> dict:
-    """
-    Run walk-forward backtest on given symbols.
-    Returns stats dict with equity_curve and trades list.
-    """
-    print(f"[backtest] Downloading {len(symbols)} symbols, period={period}…")
-
-    # Download all symbols + SPY in one batch
+def _download_data(symbols: list[str], period: str) -> tuple:
+    """Download price data for symbols + SPY. Returns (raw, get_df, spy_return)."""
     all_syms = list(set(symbols + ["SPY"]))
-    try:
-        raw = yf.download(
-            all_syms,
-            period=period,
-            group_by="ticker",
-            auto_adjust=True,
-            threads=True,
-            progress=False,
-        )
-    except Exception as e:
-        return {"error": str(e)}
+    raw = yf.download(
+        all_syms,
+        period=period,
+        group_by="ticker",
+        auto_adjust=True,
+        threads=True,
+        progress=False,
+    )
 
     def _get_df(sym: str) -> pd.DataFrame:
         if len(all_syms) == 1:
@@ -284,26 +301,105 @@ def run_backtest(
         lvl0 = raw.columns.get_level_values(0)
         return raw[sym] if sym in lvl0 else pd.DataFrame()
 
-    # SPY buy-and-hold return for the period
     spy_df = _get_df("SPY")
+    spy_return = 0.0
     if not spy_df.empty:
         spy_close = spy_df["Close"].dropna()
         spy_return = (float(spy_close.iloc[-1]) / float(spy_close.iloc[0]) - 1) * 100
-    else:
-        spy_return = 0.0
 
-    # Simulate each symbol
+    return _get_df, spy_return
+
+
+def run_backtest(
+    symbols: list[str],
+    period: str = "2y",
+    hold_days: int = 10,
+    target_pct: float = 0.08,
+    stop_type: str = "atr",
+    entry_mode: str = "normal",
+) -> dict:
+    """
+    Run walk-forward backtest on given symbols.
+    stop_type: "atr" | "fixed_3pct" | "fixed_5pct"
+    entry_mode: "normal" | "strict"
+    Returns stats dict with equity_curve and trades list.
+    """
+    print(f"[backtest] {len(symbols)} symbols, period={period}, stop={stop_type}, entry={entry_mode}…")
+    try:
+        _get_df, spy_return = _download_data(symbols, period)
+    except Exception as e:
+        return {"error": str(e)}
+
     all_trades: list[dict] = []
     for sym in symbols:
         try:
             df = _get_df(sym)
             if df.empty or len(df) < 60:
-                print(f"[backtest] {sym}: insufficient data, skipping")
                 continue
-            trades = _simulate_symbol(sym, df, hold_days, target_pct)
+            trades = _simulate_symbol(sym, df, hold_days, target_pct,
+                                      stop_type=stop_type, entry_mode=entry_mode)
             print(f"[backtest] {sym}: {len(trades)} trades")
             all_trades.extend(trades)
         except Exception as e:
             print(f"[backtest] {sym} error: {e}")
 
     return _compute_stats(all_trades, spy_return)
+
+
+def compare_strategies(
+    symbols: list[str],
+    period: str = "1y",
+    hold_days: int = 10,
+    target_pct: float = 0.08,
+) -> dict:
+    """
+    Run 3 scenarios and return side-by-side comparison:
+    A: current live (fixed 3% stop, normal entry)
+    B: wider stop  (fixed 5% stop, normal entry)
+    C: strict entry (fixed 3% stop, strict entry RSI<60 + near MA)
+    """
+    print(f"[backtest] Downloading data for comparison ({len(symbols)} symbols)…")
+    try:
+        _get_df, spy_return = _download_data(symbols, period)
+    except Exception as e:
+        return {"error": str(e)}
+
+    results = {}
+    configs = [
+        ("current_3pct",  "fixed_3pct", "normal"),
+        ("wider_5pct",    "fixed_5pct", "normal"),
+        ("strict_entry",  "fixed_3pct", "strict"),
+    ]
+    for label, stop, entry in configs:
+        trades = []
+        for sym in symbols:
+            try:
+                df = _get_df(sym)
+                if df.empty or len(df) < 60:
+                    continue
+                trades.extend(_simulate_symbol(sym, df, hold_days, target_pct,
+                                               stop_type=stop, entry_mode=entry))
+            except Exception:
+                pass
+        stats = _compute_stats(trades, spy_return)
+        results[label] = {
+            "total_trades":     stats.get("total_trades"),
+            "win_rate":         stats.get("win_rate"),
+            "avg_win_pct":      stats.get("avg_win_pct"),
+            "avg_loss_pct":     stats.get("avg_loss_pct"),
+            "profit_factor":    stats.get("profit_factor"),
+            "total_return_pct": stats.get("total_return_pct"),
+            "sharpe_ratio":     stats.get("sharpe_ratio"),
+            "max_drawdown_pct": stats.get("max_drawdown_pct"),
+            "exit_breakdown":   stats.get("exit_breakdown"),
+            "equity_curve":     stats.get("equity_curve"),
+        }
+        print(f"[backtest] {label}: {stats.get('total_trades')} trades, "
+              f"win={stats.get('win_rate')}%, pf={stats.get('profit_factor')}, "
+              f"ret={stats.get('total_return_pct')}%")
+
+    results["spy_return_pct"] = spy_return
+    results["period"] = period
+    results["symbols"] = symbols
+    results["status"] = "done"
+    return results
