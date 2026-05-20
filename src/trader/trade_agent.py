@@ -615,6 +615,24 @@ def run_agent(
                 print(f"[agent] Skip {symbol} — sector limit: {reason}")
             return allowed
 
+        def _strict_entry_ok(c: dict) -> bool:
+            """
+            Strict entry filter (A+B combined strategy):
+            - RSI < 60: not extended / chasing a run
+            - vs_ma20_pct < 5%: price within 5% above MA20 (near support, not extended)
+            STRONG_BUY signals bypass the MA20 check (strong enough to justify extension).
+            """
+            rsi = c.get("rsi")
+            vs_ma20 = c.get("vs_ma20_pct")
+            signal = c.get("signal", "")
+            if rsi is not None and rsi >= 60:
+                print(f"[agent] Skip {c['symbol']}: RSI={rsi:.0f} ≥ 60 (strict entry)")
+                return False
+            if signal != "STRONG_BUY" and vs_ma20 is not None and vs_ma20 > 5.0:
+                print(f"[agent] Skip {c['symbol']}: vs_MA20={vs_ma20:+.1f}% > 5% (chasing, strict entry)")
+                return False
+            return True
+
         # ── 1. S&P 500 Scanner: STRONG_BUY >= min_score OR BUY >= min_score+1 ──
         scan = scan_cache.get("sp500", {})
         if scan.get("status") == "done" and can_buy:
@@ -625,6 +643,10 @@ def run_agent(
                 if signal in ("STRONG_BUY", "BUY") and ai_score >= min_ai_score:
                     pass   # allowed
                 else:
+                    continue
+                # Strict entry: RSI < 60, not extended above MA20
+                if not _strict_entry_ok(c):
+                    summary["signals_found"] += 1
                     continue
                 # Problem 4: skip if earnings this week
                 if not _earnings_safe(c["symbol"]):
@@ -716,6 +738,10 @@ def run_agent(
                 # Adapt confidence threshold to market regime (mirrors scanner ai_score gate)
                 wl_min_conf = 0.75 if regime.get("regime") == "CAUTION" else 0.70
                 if sig == "BUY" and conf >= wl_min_conf:
+                    # Strict entry: RSI < 60, not extended above MA20
+                    if not _strict_entry_ok(cached):
+                        summary["signals_found"] += 1
+                        continue
                     # Problem 4: skip if earnings this week
                     if not _earnings_safe(wl_sym):
                         summary["signals_found"] += 1
