@@ -169,11 +169,13 @@ export function SignalsView({ backendOnline }: Props) {
 
   // Merge + dedupe by symbol (keep higher ai_score), sort by ai_score desc
   const allCandidates: TaggedCandidate[] = useMemo(() => {
-    const sp = (sp500Data?.candidates ?? []).filter(c => c.universe === "sp500" || !c.universe);
+    // Include all candidates from sp500 scan (sp500, layer2, etc.) — not just pure S&P
+    const sp = sp500Data?.candidates ?? [];
     const nq = nasdaqData?.candidates ?? [];
     const map = new Map<string, TaggedCandidate>();
     for (const c of sp) {
-      map.set(c.symbol, { ...c, sourceTags: ["S&P"] });
+      const tag = c.universe === "nasdaq100" ? "NQ" : c.universe === "layer2" ? "L2" : "S&P";
+      map.set(c.symbol, { ...c, sourceTags: [tag] });
     }
     for (const c of nq) {
       const ex = map.get(c.symbol);
