@@ -369,6 +369,7 @@ def compare_strategies(
         ("current_3pct",  "fixed_3pct", "normal"),
         ("wider_5pct",    "fixed_5pct", "normal"),
         ("strict_entry",  "fixed_3pct", "strict"),
+        ("combined_ab",   "fixed_5pct", "strict"),   # A+B combined
     ]
     for label, stop, entry in configs:
         trades = []
