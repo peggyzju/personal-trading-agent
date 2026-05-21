@@ -66,7 +66,7 @@ Generate a comprehensive daily market brief in JSON with these exact keys:
 Base your analysis on the news and price data provided. Be specific and actionable."""
 
     msg = client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-haiku-4-5-20251001",
         max_tokens=2048,
         messages=[{"role": "user", "content": prompt}],
     )

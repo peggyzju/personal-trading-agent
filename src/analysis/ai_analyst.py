@@ -23,7 +23,7 @@ def analyze(symbol: str, ohlcv: pd.DataFrame, quote: dict, news: list[dict] | No
     default_stop = round(price * 0.97, 2)
     suggested_stop = atr_stop if atr_stop and atr_stop > 0 else default_stop
 
-    recent = ohlcv.tail(30)[["Open", "High", "Low", "Close", "Volume"]].to_string()
+    recent = ohlcv.tail(10)[["Open", "High", "Low", "Close", "Volume"]].to_string()
 
     news_section = ""
     if news:
@@ -44,7 +44,7 @@ Change today: {quote['change_pct']:+.2f}%
 Technical indicators:
 {ind_text}
 {news_section}{notes_section}
-Recent 30-day OHLCV data:
+Recent 10-day OHLCV data:
 {recent}
 
 The ATR-based suggested stop loss is ${suggested_stop:.2f}. Use this as your stop_loss unless you have a strong reason to override it (e.g. a key support level is closer).

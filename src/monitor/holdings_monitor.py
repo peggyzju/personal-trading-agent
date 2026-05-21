@@ -268,7 +268,7 @@ Return ONLY a JSON array."""
     trailing_stops = _update_trailing_stops(enriched)
 
     msg = client.messages.create(
-        model="claude-haiku-4-5",
+        model="claude-haiku-4-5-20251001",
         max_tokens=1024,
         temperature=0,
         messages=[{"role": "user", "content": prompt}],
