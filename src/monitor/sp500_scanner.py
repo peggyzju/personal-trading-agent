@@ -412,8 +412,11 @@ def quick_screen(
             ma20_ok   = (tech.get("vs_ma20_pct") or 0) <= 8.0 # filter chasers
             trend_ok  = tech["momentum_5d"] > -3              # allow mild pullbacks
             bull_ok   = tech.get("today_bull", False)          # 右侧交易：今日必须收阳
-            # Watchlist stocks bypass ma20_ok — user explicitly tracks these
-            passes = rsi_ok and trend_ok and bull_ok and (ma20_ok or symbol in _force)
+            if symbol in _force:
+                # Watchlist stocks: only require today_bull + not in freefall (>-8%)
+                passes = bull_ok and tech["momentum_5d"] > -8
+            else:
+                passes = rsi_ok and ma20_ok and trend_ok and bull_ok
             if passes:
                 return {"symbol": symbol, **tech}
         except Exception:
