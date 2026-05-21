@@ -1635,6 +1635,135 @@ body {
   gap: 16px;
 }
 
+/* ── Sub-tab switcher ── */
+.sr-subtab-bar {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid #1e293b;
+  padding-bottom: 2px;
+  margin-bottom: 4px;
+}
+.sr-subtab-btn {
+  padding: 6px 16px;
+  border-radius: 6px 6px 0 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #64748b;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.sr-subtab-btn:hover { color: #94a3b8; }
+.sr-subtab-btn.active {
+  background: #1e293b;
+  border-color: #1e293b;
+  color: #f1f5f9;
+  font-weight: 600;
+}
+
+/* ── Post-Mortem controls ── */
+.pm-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.pm-period-group { display: flex; gap: 4px; }
+.pm-period-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid #1e293b;
+  background: #0f172a;
+  color: #64748b;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.pm-period-btn:hover  { border-color: #3b82f6; color: #3b82f6; }
+.pm-period-btn.active { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+.pm-gen-time { font-size: 11px; color: #475569; }
+.pm-error {
+  background: rgba(239,68,68,0.1); border: 1px solid #991b1b;
+  border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #f87171;
+}
+
+/* ── Stats row ── */
+.pm-stats-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+}
+.pm-stat-card {
+  background: #0f172a; border: 1px solid #1e293b; border-radius: 8px;
+  padding: 12px 14px;
+}
+.pm-stat-label { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 5px; }
+.pm-stat-value { font-size: 18px; font-weight: 600; color: #f1f5f9; }
+.pm-stat-value.pos { color: #22c55e; }
+.pm-stat-value.neg { color: #ef4444; }
+
+/* ── Trades grid ── */
+.pm-trades-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.pm-trade-group {
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.pm-trade-group-title {
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.pm-winners .pm-trade-group-title { background: rgba(34,197,94,0.08); color: #22c55e; border-bottom: 1px solid #166534; }
+.pm-losers  .pm-trade-group-title { background: rgba(239,68,68,0.08);  color: #ef4444; border-bottom: 1px solid #7f1d1d; }
+.pm-trade-empty { padding: 16px; font-size: 12px; color: #475569; text-align: center; }
+.pm-trade-row {
+  padding: 10px 14px;
+  border-bottom: 1px solid #0f172a;
+  font-size: 11px;
+}
+.pm-trade-row:last-child { border-bottom: none; }
+.pm-trade-top { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.pm-trade-sym { font-weight: 600; font-size: 13px; color: #f1f5f9; }
+.pm-live-tag {
+  font-size: 10px; padding: 1px 5px; border-radius: 8px;
+  background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid #1d4ed855;
+}
+.pm-trade-pnl { font-weight: 600; font-size: 13px; margin-left: auto; }
+.pm-trade-pnl.pos { color: #22c55e; }
+.pm-trade-pnl.neg { color: #ef4444; }
+.pm-trade-meta { color: #64748b; line-height: 1.6; margin-bottom: 2px; }
+.pm-reason-toggle {
+  margin-top: 5px; font-size: 11px; background: none; border: none;
+  color: #3b82f6; cursor: pointer; padding: 0;
+}
+.pm-reason-text {
+  margin-top: 5px; padding: 7px 10px;
+  background: #0a0f1a; border-left: 2px solid #1e293b;
+  border-radius: 0 4px 4px 0;
+  color: #64748b; font-size: 11px; line-height: 1.6;
+  max-height: 100px; overflow-y: auto;
+}
+
+/* ── Analysis card ── */
+.pm-analysis-card {
+  background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 20px;
+}
+.pm-analysis-title {
+  font-size: 13px; font-weight: 600; color: #f1f5f9;
+  margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #1e293b;
+}
+.pm-analysis-h  { font-size: 13px; font-weight: 700; color: #f1f5f9; margin: 14px 0 6px; }
+.pm-analysis-sh { font-size: 12px; font-weight: 600; color: #94a3b8; margin: 10px 0 4px; }
+.pm-analysis-p  { font-size: 12px; color: #94a3b8; line-height: 1.7; }
+.pm-analysis-bullet { font-size: 12px; color: #94a3b8; line-height: 1.7; padding-left: 6px; }
+.pm-analysis-spacer { height: 6px; }
+
 .sr-header {
   display: flex;
   align-items: flex-start;

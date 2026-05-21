@@ -486,7 +486,44 @@ export const api = {
     post<StrategyNote>("/strategy/notes", { text, source_review_date }),
   deleteNote: (id: string) => del<{ status: string }>(`/strategy/notes/${id}`),
   getOverridesHistory: () => get<OverrideHistoryEntry[]>("/strategy/overrides/history"),
+  getPostmortem: (days: number, topN: number) =>
+    get<PostmortemResult>(`/postmortem?days=${days}&top_n=${topN}`),
 };
+
+export interface PostmortemTrade {
+  symbol: string;
+  signal: string;
+  confidence: number | null;
+  rsi: number | null;
+  momentum_5d: number | null;
+  fill_price: number | null;
+  current_price: number | null;
+  stop_loss: number | null;
+  target_price: number | null;
+  pnl_pct: number;
+  pnl_source: "live" | "closed";
+  reason: string | null;
+  created_at: string;
+}
+
+export interface PostmortemResult {
+  days: number;
+  total: number;
+  enriched: number;
+  winners: PostmortemTrade[];
+  losers: PostmortemTrade[];
+  stats: {
+    total_enriched: number;
+    total_window: number;
+    win_rate: number;
+    avg_pnl: number;
+    best_pnl: number;
+    worst_pnl: number;
+  };
+  analysis: string;
+  error: string | null;
+  generated_at: string;
+}
 
 export interface StrategyNote {
   id: string;
