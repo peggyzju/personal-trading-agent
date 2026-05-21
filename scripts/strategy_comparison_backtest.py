@@ -472,5 +472,81 @@ def main():
             print(f"  UPTREND 子集:  {s['n']} 笔, WR={s['win_rate']:.1f}%, EV={s['exp_value']:+.2f}%")
 
 
+def run_backtest_for_api(months: int = 3) -> dict:
+    """
+    Run the strategy comparison backtest and return structured results for the API.
+    Called by the backend in a background thread; result saved to data/backtest_result.json.
+    """
+    from datetime import datetime as _dt
+    end        = _dt.today()
+    start      = end - timedelta(days=months * 31)
+    data_start = start - timedelta(days=90)
+    start_str  = start.strftime("%Y-%m-%d")
+    end_str    = end.strftime("%Y-%m-%d")
+
+    # Download data
+    dfs = {}
+    for sym in UNIVERSE:
+        df = _fetch(sym, data_start.strftime("%Y-%m-%d"), end_str)
+        if df is not None:
+            dfs[sym] = df
+
+    versions = [
+        ("V2  基准",     60.0, 1, True, 0, "none", 35.0, "any"),
+        ("V12 去陷阱",   60.0, 1, True, 0, "none", 35.0, "no_trap"),
+        ("V13 上升趋势", 60.0, 1, True, 0, "none", 35.0, "uptrend_only"),
+    ]
+
+    all_stats:  list[dict] = []
+    all_trades: dict[str, list[dict]] = {}
+
+    for label, rsi_max, min_candle, require_bull, min_tq, confirm, rsi_min, tier_filter in versions:
+        trades = _run_version(dfs, rsi_max, min_candle, require_bull, min_tq, confirm, rsi_min, tier_filter)
+        s = _stats(trades, label)
+        all_stats.append(s)
+        all_trades[label] = trades
+
+    # Tier breakdown from V2 baseline
+    v2_trades = all_trades[versions[0][0]]
+    tier_bd: dict[str, dict] = {}
+    for tier in ("uptrend", "neutral", "trap"):
+        sub = [t["pnl_pct"] for t in v2_trades if t["trend_tier"] == tier]
+        if sub:
+            tier_bd[tier] = {
+                "count":    len(sub),
+                "win_rate": round(sum(1 for p in sub if p > 0) / len(sub) * 100, 1),
+                "avg_pnl":  round(float(np.mean(sub)), 2),
+                "ev":       round(float(np.mean(sub)), 2),
+            }
+        else:
+            tier_bd[tier] = {"count": 0, "win_rate": None, "avg_pnl": None, "ev": None}
+
+    # Delta analysis V2 → V12, V2 → V13
+    deltas = []
+    if len(all_stats) >= 3 and all(s["n"] > 0 for s in all_stats[:3]):
+        vbase, v12, v13 = all_stats[:3]
+        for desc, a, b in [("去掉陷阱 V2→V12", vbase, v12), ("仅上升趋势 V2→V13", vbase, v13)]:
+            deltas.append({
+                "desc":       desc,
+                "n_before":   a["n"],
+                "n_after":    b["n"],
+                "wr_before":  a["win_rate"],
+                "wr_after":   b["win_rate"],
+                "ev_before":  a["exp_value"],
+                "ev_after":   b["exp_value"],
+                "ev_delta":   round(b["exp_value"] - a["exp_value"], 2),
+            })
+
+    return {
+        "months":         months,
+        "period":         f"{start_str} → {end_str}",
+        "universe_size":  len(dfs),
+        "versions":       all_stats,
+        "tier_breakdown": tier_bd,
+        "deltas":         deltas,
+        "generated_at":   _dt.now().isoformat(),
+    }
+
+
 if __name__ == "__main__":
     main()

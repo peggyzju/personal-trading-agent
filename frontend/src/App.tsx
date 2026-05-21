@@ -5,12 +5,11 @@ import { PortfolioCommandCenter } from "./components/PortfolioCommandCenter";
 import { SignalsView } from "./components/SignalsView";
 import { StrategyReviewPanel } from "./components/StrategyReview";
 import { ToolsView } from "./components/ToolsView";
-import StrategyValidation from "./components/StrategyValidation";
 import "./App.css";
 
 const REFRESH_INTERVAL = 30_000;
 
-type Tab = "portfolio" | "signals" | "review" | "validate" | "tools";
+type Tab = "portfolio" | "signals" | "review" | "tools";
 
 const REGIME_LABEL: Record<string, string> = {
   BULL: "牛市", NEUTRAL: "平稳", CAUTION: "谨慎", BEAR: "熊市",
@@ -92,7 +91,6 @@ export default function App() {
     { id: "portfolio", label: "📊 今日", badge: pendingCount || undefined },
     { id: "signals",   label: "📡 信号" },
     { id: "review",    label: "📈 复盘" },
-    { id: "validate",  label: "🧪 验证" },
     { id: "tools",     label: "🔧 工具" },
   ];
 
@@ -217,9 +215,6 @@ export default function App() {
         </div>
         <div style={{ display: tab === "review" ? "contents" : "none" }}>
           <StrategyReviewPanel backendOnline={backendOnline} />
-        </div>
-        <div style={{ display: tab === "validate" ? "block" : "none" }} className="max-w-4xl mx-auto w-full">
-          <StrategyValidation />
         </div>
         <div style={{ display: tab === "tools" ? "contents" : "none" }}>
           <ToolsView

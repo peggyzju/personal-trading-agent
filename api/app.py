@@ -17,8 +17,8 @@ load_dotenv()
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    _refresh_holdings()   # pre-warm holdings cache on startup
-    # Scheduling is managed exclusively by main.py APScheduler (single source of truth).
+    import threading
+    threading.Thread(target=_refresh_holdings, daemon=True).start()  # non-blocking pre-warm
     yield
 
 
@@ -2068,6 +2068,59 @@ async def get_postmortem(days: int = 7, top_n: int = 3):
     from src.analysis.postmortem import run_postmortem
     result = run_postmortem(days=days, top_n=top_n)
     return result
+
+
+# ── Strategy Backtest ─────────────────────────────────────────────────────────
+
+_strategy_backtest_running = False
+_BACKTEST_RESULT_FILE = Path(__file__).parent.parent / "data" / "strategy_backtest_result.json"
+
+
+def _run_strategy_backtest_job(months: int) -> None:
+    global _strategy_backtest_running
+    try:
+        import sys, os
+        scripts_dir = str(Path(__file__).parent.parent / "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        from strategy_comparison_backtest import run_backtest_for_api
+        result = run_backtest_for_api(months=months)
+        result["status"] = "done"
+        _BACKTEST_RESULT_FILE.parent.mkdir(exist_ok=True)
+        with open(_BACKTEST_RESULT_FILE, "w") as f:
+            import json as _json
+            _json.dump(result, f)
+    except Exception as e:
+        err = {"status": "error", "error": str(e), "generated_at": __import__("datetime").datetime.now().isoformat()}
+        with open(_BACKTEST_RESULT_FILE, "w") as f:
+            import json as _json
+            _json.dump(err, f)
+    finally:
+        _strategy_backtest_running = False
+
+
+@app.post("/api/strategy-backtest/run")
+async def run_strategy_backtest(months: int = 3, background_tasks: BackgroundTasks = None):
+    global _strategy_backtest_running
+    if _strategy_backtest_running:
+        return {"status": "already_running"}
+    _strategy_backtest_running = True
+    import threading
+    threading.Thread(target=_run_strategy_backtest_job, args=(months,), daemon=True).start()
+    return {"status": "started"}
+
+
+@app.get("/api/strategy-backtest/status")
+async def get_strategy_backtest_status():
+    last_result = None
+    if _BACKTEST_RESULT_FILE.exists():
+        try:
+            import json as _json
+            with open(_BACKTEST_RESULT_FILE) as f:
+                last_result = _json.load(f)
+        except Exception:
+            pass
+    return {"running": _strategy_backtest_running, "last_result": last_result}
 
 
 # ── Serve built React app ─────────────────────────────────────────────────────

@@ -488,6 +488,10 @@ export const api = {
   getOverridesHistory: () => get<OverrideHistoryEntry[]>("/strategy/overrides/history"),
   getPostmortem: (days: number, topN: number) =>
     get<PostmortemResult>(`/postmortem?days=${days}&top_n=${topN}`),
+  runStrategyBacktest: (months?: number) =>
+    post<{ status: string }>(`/strategy-backtest/run${months ? `?months=${months}` : ""}`),
+  getStrategyBacktestStatus: () =>
+    get<{ running: boolean; last_result: StrategyBacktestResult | null }>("/strategy-backtest/status"),
 };
 
 export interface PostmortemTrade {
@@ -504,6 +508,22 @@ export interface PostmortemTrade {
   pnl_source: "live" | "closed";
   reason: string | null;
   created_at: string;
+  trend_tier?: "uptrend" | "neutral" | "trap";
+}
+
+export interface TierStat {
+  count: number;
+  win_rate: number | null;
+  avg_pnl: number | null;
+}
+
+export interface TimelinePeriod {
+  label: string;
+  count: number;
+  win_rate: number | null;
+  avg_pnl: number | null;
+  ev: number | null;
+  trend: "up" | "down" | "flat" | "base";
 }
 
 export interface PostmortemResult {
@@ -520,9 +540,44 @@ export interface PostmortemResult {
     best_pnl: number;
     worst_pnl: number;
   };
+  tier_breakdown: { uptrend?: TierStat; neutral?: TierStat; trap?: TierStat };
+  timeline_breakdown: TimelinePeriod[];
   analysis: string;
   error: string | null;
   generated_at: string;
+}
+
+export interface StrategyBacktestVersionStat {
+  label: string;
+  n: number;
+  win_rate?: number;
+  avg_win?: number;
+  avg_loss?: number;
+  exp_value?: number;
+  profit_factor?: number;
+}
+
+export interface StrategyBacktestDelta {
+  desc: string;
+  n_before: number;
+  n_after: number;
+  wr_before: number;
+  wr_after: number;
+  ev_before: number;
+  ev_after: number;
+  ev_delta: number;
+}
+
+export interface StrategyBacktestResult {
+  status: "done" | "error" | "running";
+  months?: number;
+  period?: string;
+  universe_size?: number;
+  versions?: StrategyBacktestVersionStat[];
+  tier_breakdown?: { uptrend?: TierStat & { ev?: number }; neutral?: TierStat & { ev?: number }; trap?: TierStat & { ev?: number } };
+  deltas?: StrategyBacktestDelta[];
+  generated_at?: string;
+  error?: string;
 }
 
 export interface StrategyNote {

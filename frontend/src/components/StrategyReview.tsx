@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "../api/client";
-import type { StockDebateResult, PostmortemResult, PostmortemTrade } from "../api/client";
+import type { StockDebateResult, PostmortemResult, PostmortemTrade, StrategyBacktestResult, TimelinePeriod } from "../api/client";
 
 interface Props { backendOnline: boolean }
 
@@ -12,6 +12,7 @@ export function StrategyReviewPanel({ backendOnline }: Props) {
   return (
     <div className="sr-container">
       <PostMortemPanel backendOnline={backendOnline} />
+      <BacktestPanel />
     </div>
   );
 }
@@ -116,6 +117,16 @@ function PostMortemPanel({ backendOnline }: Props) {
             ))}
           </div>
 
+          {/* Tier breakdown */}
+          {result.tier_breakdown && Object.values(result.tier_breakdown).some(t => t && t.count > 0) && (
+            <TierBreakdown breakdown={result.tier_breakdown} />
+          )}
+
+          {/* Timeline trend */}
+          {result.timeline_breakdown && result.timeline_breakdown.length > 0 && (
+            <TimelineTrendPanel periods={result.timeline_breakdown} />
+          )}
+
           {/* Winner / Loser tables */}
           {(result.winners.length > 0 || result.losers.length > 0) && (
             <div className="pm-trades-grid">
@@ -130,11 +141,11 @@ function PostMortemPanel({ backendOnline }: Props) {
               <div className="pm-analysis-title">Claude 自我复盘报告</div>
               <div className="pm-analysis-body">
                 {result.analysis.split("\n").map((line, i) => {
-                  if (line.startsWith("## ")) return <h3 key={i} className="pm-analysis-h">{line.slice(3)}</h3>;
-                  if (line.startsWith("### ")) return <h4 key={i} className="pm-analysis-sh">{line.slice(4)}</h4>;
-                  if (line.startsWith("- ")) return <p key={i} className="pm-analysis-bullet">• {line.slice(2)}</p>;
-                  if (line.trim() === "") return <div key={i} className="pm-analysis-spacer" />;
-                  return <p key={i} className="pm-analysis-p">{line}</p>;
+                  if (line.startsWith("## "))  return <h3 key={i} className="pm-analysis-h">{renderInline(line.slice(3))}</h3>;
+                  if (line.startsWith("### ")) return <h4 key={i} className="pm-analysis-sh">{renderInline(line.slice(4))}</h4>;
+                  if (line.startsWith("- "))   return <p key={i} className="pm-analysis-bullet">• {renderInline(line.slice(2))}</p>;
+                  if (line.trim() === "")       return <div key={i} className="pm-analysis-spacer" />;
+                  return <p key={i} className="pm-analysis-p">{renderInline(line)}</p>;
                 })}
               </div>
             </div>
@@ -148,6 +159,282 @@ function PostMortemPanel({ backendOnline }: Props) {
 function fmtPct(v: number | null | undefined): string {
   if (v == null) return "—";
   return (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
+}
+
+function renderInline(text: string) {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    part.startsWith("**") && part.endsWith("**")
+      ? <strong key={i}>{part.slice(2, -2)}</strong>
+      : part
+  );
+}
+
+// ── Tier Breakdown ─────────────────────────────────────────────────────────────
+
+const TIER_META = {
+  uptrend: { label: "上升趋势", emoji: "📈", cls: "pos" },
+  neutral: { label: "中性",     emoji: "➡️",  cls: ""    },
+  trap:    { label: "下跌陷阱", emoji: "⚠️",  cls: "neg" },
+} as const;
+
+function TierBreakdown({ breakdown }: { breakdown: PostmortemResult["tier_breakdown"] }) {
+  return (
+    <div className="pm-tier-card">
+      <div className="pm-tier-title">策略归因 — 趋势层级分布</div>
+      <div className="pm-tier-row pm-tier-header">
+        <span>层级</span><span>笔数</span><span>胜率</span><span>均PnL</span>
+      </div>
+      {(["uptrend", "neutral", "trap"] as const).map(tier => {
+        const s = breakdown[tier];
+        const meta = TIER_META[tier];
+        if (!s || s.count === 0) return null;
+        return (
+          <div className={`pm-tier-row${tier === "trap" && (s.avg_pnl ?? 0) < -0.5 ? " pm-tier-trap-alert" : ""}`} key={tier}>
+            <span>{meta.emoji} {meta.label}</span>
+            <span>{s.count}</span>
+            <span className={s.win_rate != null && s.win_rate >= 50 ? "pos" : "neg"}>
+              {s.win_rate != null ? s.win_rate + "%" : "—"}
+            </span>
+            <span className={meta.cls || ((s.avg_pnl ?? 0) >= 0 ? "pos" : "neg")}>
+              {fmtPct(s.avg_pnl)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
+// ── Timeline Trend Panel ──────────────────────────────────────────────────────
+
+const TREND_META = {
+  up:   { label: "↑ 改善", cls: "badge-up"   },
+  down: { label: "↓ 下滑", cls: "badge-down" },
+  flat: { label: "— 持平", cls: "badge-flat" },
+  base: { label: "— 基准", cls: "badge-flat" },
+} as const;
+
+function TimelineTrendPanel({ periods }: { periods: TimelinePeriod[] }) {
+  return (
+    <div className="pm-timeline-card">
+      <div className="pm-tier-title">时间段趋势分析 — 实盘是否在进步</div>
+      <div className="pm-timeline-header">
+        <span>周期</span><span>笔数</span><span>胜率</span><span>均 PnL</span><span>期望值 EV</span><span>趋势</span>
+      </div>
+      {periods.map((p, i) => {
+        const tm = TREND_META[p.trend] ?? TREND_META.flat;
+        return (
+          <div className="pm-timeline-row" key={i}>
+            <span>{p.label}</span>
+            <span>{p.count > 0 ? p.count : "—"}</span>
+            <span className={p.win_rate != null ? (p.win_rate >= 50 ? "pos" : "neg") : ""}>
+              {p.win_rate != null ? p.win_rate + "%" : "—"}
+            </span>
+            <span className={p.avg_pnl != null ? (p.avg_pnl >= 0 ? "pos" : "neg") : ""}>
+              {fmtPct(p.avg_pnl)}
+            </span>
+            <span className={p.ev != null ? (p.ev >= 0 ? "pos" : "neg") : ""}>
+              {fmtPct(p.ev)}
+            </span>
+            <span><span className={`pm-badge ${tm.cls}`}>{tm.label}</span></span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
+// ── Backtest Panel ─────────────────────────────────────────────────────────────
+
+const BT_MONTHS = [
+  { label: "1 个月", months: 1 },
+  { label: "3 个月", months: 3 },
+  { label: "6 个月", months: 6 },
+];
+
+function BacktestPanel() {
+  const [months, setMonths]   = useState(3);
+  const [running, setRunning] = useState(false);
+  const [result, setResult]   = useState<StrategyBacktestResult | null>(null);
+  const [error, setError]     = useState<string | null>(null);
+
+  // Load last result on mount and poll while running
+  useEffect(() => {
+    api.getStrategyBacktestStatus().then(s => {
+      if (s.last_result) setResult(s.last_result);
+      if (s.running) setRunning(true);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!running) return;
+    const id = setInterval(async () => {
+      try {
+        const s = await api.getStrategyBacktestStatus();
+        if (!s.running) {
+          setRunning(false);
+          if (s.last_result) setResult(s.last_result);
+          clearInterval(id);
+        }
+      } catch { /* silent */ }
+    }, 5000);
+    return () => clearInterval(id);
+  }, [running]);
+
+  async function runBacktest() {
+    setError(null);
+    setRunning(true);
+    try {
+      await api.runStrategyBacktest(months);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "启动失败");
+      setRunning(false);
+    }
+  }
+
+  const versions = result?.versions ?? [];
+  const deltas   = result?.deltas   ?? [];
+  const tierBd   = result?.tier_breakdown;
+
+  return (
+    <div className="pm-backtest-section">
+      <div className="sr-header" style={{ marginTop: 32 }}>
+        <div>
+          <h2 className="sr-title">📊 策略版本回测</h2>
+          <p className="sr-subtitle">V2 基准 vs V12 去陷阱 vs V13 纯上升趋势 — 找出关键策略改进点</p>
+        </div>
+      </div>
+
+      <div className="pm-controls" style={{ marginTop: 16 }}>
+        <div className="pm-period-group">
+          {BT_MONTHS.map(m => (
+            <button
+              key={m.months}
+              className={`pm-period-btn${months === m.months ? " active" : ""}`}
+              onClick={() => setMonths(m.months)}
+              disabled={running}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <button className="brief-generate-btn" onClick={runBacktest} disabled={running}>
+          {running ? "⏳ 回测中…（约 2-3 分钟）" : "▶ 运行回测"}
+        </button>
+        {result?.generated_at && !running && (
+          <span className="pm-gen-time">
+            生成于 {new Date(result.generated_at).toLocaleTimeString("zh-CN")}
+          </span>
+        )}
+      </div>
+
+      {error && <div className="pm-error">⚠ {error}</div>}
+
+      {running && (
+        <div className="brief-empty" style={{ padding: "32px 0" }}>
+          <p className="brief-empty-text">⏳ 正在下载 {result?.universe_size ?? "~50"} 只股票数据并跑回测…（约 2-3 分钟）</p>
+        </div>
+      )}
+
+      {!running && result?.status === "error" && (
+        <div className="pm-error">回测失败：{result.error}</div>
+      )}
+
+      {!running && result?.status === "done" && (
+        <>
+          {/* Version comparison table — 6 cols, no profit_factor */}
+          <div className="pm-bt-table-wrap">
+            <div className="pm-bt-header-row">
+              <span>版本</span><span>笔数</span><span>胜率</span>
+              <span>均盈</span><span>均亏</span><span>期望值 EV</span>
+            </div>
+            {versions.map((v, i) => (
+              <div className={`pm-bt-data-row${i === 0 ? " pm-bt-baseline" : ""}`} key={v.label}>
+                <span className="pm-bt-version-label">{v.label}</span>
+                <span className="pm-bt-cell-muted">{v.n}</span>
+                <span>{v.win_rate != null ? v.win_rate + "%" : "—"}</span>
+                <span className="pos">{v.avg_win != null ? fmtPct(v.avg_win) : "—"}</span>
+                <span className="neg">{v.avg_loss != null ? fmtPct(v.avg_loss) : "—"}</span>
+                <span className={`pm-bt-ev${(v.exp_value ?? 0) >= 0 ? " pos" : " neg"}`}>
+                  {v.exp_value != null ? fmtPct(v.exp_value) : "—"}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Tier cards */}
+          {tierBd && (
+            <div className="pm-bt-tier-cards">
+              <div className="pm-bt-section-label">V2 基准 — 趋势层级分布</div>
+              <div className="pm-bt-tier-card-row">
+                {(["uptrend", "neutral", "trap"] as const).map(tier => {
+                  const s = tierBd[tier];
+                  const meta = TIER_META[tier];
+                  const ev = (s as { ev?: number })?.ev;
+                  if (!s || s.count === 0) return null;
+                  return (
+                    <div className={`pm-bt-tier-card${tier === "trap" ? " pm-bt-tier-card--trap" : tier === "uptrend" ? " pm-bt-tier-card--up" : ""}`} key={tier}>
+                      <div className="pm-bt-tier-card-name">{meta.emoji} {meta.label}</div>
+                      <div className="pm-bt-tier-card-count">{s.count} 笔</div>
+                      <div className="pm-bt-tier-card-row2">
+                        <span className="pm-bt-tier-card-label">胜率</span>
+                        <span className={s.win_rate != null && s.win_rate >= 50 ? "pos" : "neg"}>
+                          {s.win_rate != null ? s.win_rate + "%" : "—"}
+                        </span>
+                      </div>
+                      <div className="pm-bt-tier-card-row2">
+                        <span className="pm-bt-tier-card-label">EV</span>
+                        <span className={`pm-bt-ev${(ev ?? 0) >= 0 ? " pos" : " neg"}`}>{fmtPct(ev)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Delta callouts */}
+          {deltas.length > 0 && (
+            <div className="pm-bt-delta-callouts">
+              <div className="pm-bt-section-label">过滤器 Delta 分析</div>
+              {deltas.map(d => {
+                const isPos  = d.ev_delta > 0.05;
+                const isNeg  = d.ev_delta < -0.05;
+                const flag   = isPos ? "✓" : isNeg ? "✗" : "≈";
+                const cls    = isPos ? "pos" : isNeg ? "neg" : "pm-bt-cell-muted";
+                return (
+                  <div className={`pm-bt-callout${isPos ? " pm-bt-callout--pos" : isNeg ? " pm-bt-callout--neg" : ""}`} key={d.desc}>
+                    <span className={`pm-bt-callout-flag ${cls}`}>{flag}</span>
+                    <div className="pm-bt-callout-body">
+                      <div className="pm-bt-callout-desc">{d.desc}</div>
+                      <div className="pm-bt-callout-stats">
+                        <span>笔数 {d.n_before}→{d.n_after} ({d.n_after - d.n_before})</span>
+                        <span>胜率 {d.wr_before?.toFixed(1)}%→{d.wr_after?.toFixed(1)}%</span>
+                        <span>EV {fmtPct(d.ev_before)}→{fmtPct(d.ev_after)}</span>
+                      </div>
+                    </div>
+                    <div className={`pm-bt-callout-ev ${cls}`}>Δ {fmtPct(d.ev_delta)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="pm-gen-time" style={{ marginTop: 8 }}>
+            回测周期：{result.period} | 股票池：{result.universe_size} 只
+          </div>
+        </>
+      )}
+
+      {!running && !result && (
+        <p className="sr-subtitle" style={{ marginTop: 20, color: "var(--muted)" }}>
+          选择时间段，点击「运行回测」。对比 V2 基准 / V12 去陷阱 / V13 上升趋势三个版本的期望值，找出哪个过滤规则真正有效。
+        </p>
+      )}
+    </div>
+  );
 }
 
 function TradeGroup({ title, trades, isWinner }: { title: string; trades: PostmortemTrade[]; isWinner: boolean }) {
