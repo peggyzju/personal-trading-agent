@@ -51,7 +51,7 @@ def rules_signal(symbol: str) -> dict | None:
         ma20_ok   = -2.0 <= vs_ma20_pct <= 5.0
         vol_ok    = volume_ratio >= 1.0
         bull_ok   = today_bull
-        candle_ok = candle_quality >= 0
+        candle_ok = candle_quality > 0
 
         # ── Confidence score (0–100) ──────────────────────────────────────────
         score = 0

@@ -88,11 +88,12 @@ def _fetch(sym: str, start: str, end: str) -> pd.DataFrame | None:
         return None
 
 
-def _signals(df_up_to: pd.DataFrame, rsi_max: float, min_candle: int) -> dict | None:
+def _signals(df_up_to: pd.DataFrame, rsi_max: float, min_candle: int, require_bull: bool = True) -> dict | None:
     """
     Compute entry signals with configurable thresholds.
-    rsi_max    : RSI upper bound (65 for old, 60 for new)
-    min_candle : minimum candle_quality to allow entry (1 for old, 0 for new)
+    rsi_max      : RSI upper bound (75 for 5/19 baseline, 65 for V1, 60 for V2/V3)
+    min_candle   : minimum candle_quality (-2 = no filter, 0 = ≥0, 1 = >0)
+    require_bull : False for 5/19 baseline (no today_bull check in original scanner)
     """
     if len(df_up_to) < 25:
         return None
@@ -137,7 +138,7 @@ def _signals(df_up_to: pd.DataFrame, rsi_max: float, min_candle: int) -> dict | 
         return None
 
     kline = compute_kline_patterns(df_up_to)
-    if not kline.get("today_bull", False):
+    if require_bull and not kline.get("today_bull", False):
         return None
 
     cq = kline.get("candle_quality", 0)
@@ -202,14 +203,14 @@ def _simulate(df_full: pd.DataFrame, entry_idx: int) -> dict:
             "exit_reason": "time", "days_held": len(future)}
 
 
-def _run_version(dfs: dict[str, pd.DataFrame], rsi_max: float, min_candle: int) -> list[dict]:
+def _run_version(dfs: dict[str, pd.DataFrame], rsi_max: float, min_candle: int, require_bull: bool = True) -> list[dict]:
     trades = []
     for sym, df in dfs.items():
         last_entry = -999
         for i in range(30, len(df) - 1):
             if i - last_entry < 5:
                 continue
-            sig = _signals(df.iloc[:i + 1], rsi_max, min_candle)
+            sig = _signals(df.iloc[:i + 1], rsi_max, min_candle, require_bull)
             if sig is None:
                 continue
             sim = _simulate(df, i)
@@ -305,17 +306,19 @@ def main():
     print(f"  → {len(dfs)}/{len(UNIVERSE)} loaded\n")
 
     versions = [
-        ("V1 旧版  (RSI<65, candle>0)", 65.0, 1),
-        ("V2 中间版 (RSI<60, candle>0)", 60.0, 1),
-        ("V3 新版  (RSI<60, candle≥0)", 60.0, 0),
+        # label, rsi_max, min_candle, require_bull
+        ("V0 5/19基准 (RSI<75, 无K线过滤)", 75.0, -2, False),
+        ("V1 旧版    (RSI<65, candle>0)",   65.0,  1, True),
+        ("V2 中间版  (RSI<60, candle>0)",   60.0,  1, True),
+        ("V3 今日    (RSI<60, candle≥0)",   60.0,  0, True),
     ]
 
     all_stats = []
     all_trades = {}
 
-    for label, rsi_max, min_candle in versions:
+    for label, rsi_max, min_candle, require_bull in versions:
         print(f"Running {label}…")
-        trades = _run_version(dfs, rsi_max, min_candle)
+        trades = _run_version(dfs, rsi_max, min_candle, require_bull)
         s = _stats(trades, label)
         all_stats.append(s)
         all_trades[label] = trades
@@ -340,7 +343,7 @@ def main():
         print(f"  离场: stop={exits.get('stop',0)} target={exits.get('target',0)} time={exits.get('time',0)}")
 
     # ── Candle quality breakdown for each version ──────────────────────────────
-    for label, _, _ in versions:
+    for label, _, _, _ in versions:
         trades = all_trades[label]
         if not trades:
             continue
@@ -348,7 +351,7 @@ def main():
         _candle_breakdown(trades)
 
     # ── RSI bucket breakdown for each version ─────────────────────────────────
-    for label, _, _ in versions:
+    for label, _, _, _ in versions:
         trades = all_trades[label]
         if not trades:
             continue
@@ -356,17 +359,20 @@ def main():
         _rsi_breakdown(trades)
 
     # ── Delta analysis ─────────────────────────────────────────────────────────
-    if len(all_stats) == 3 and all(s["n"] > 0 for s in all_stats):
-        v1, v2, v3 = all_stats
+    if len(all_stats) == 4 and all(s["n"] > 0 for s in all_stats):
+        v0, v1, v2, v3 = all_stats
         print(f"\n{'='*60}")
-        print("Delta 分析")
+        print("Delta 分析（5/19基准 → 今日策略）")
         print(f"{'='*60}")
-        print(f"RSI 收紧 (V1→V2): 笔数 {v1['n']} → {v2['n']} ({v2['n']-v1['n']:+d}), "
-              f"期望值 {v1['exp_value']:+.2f}% → {v2['exp_value']:+.2f}% ({v2['exp_value']-v1['exp_value']:+.2f}%)")
-        print(f"信号门放开 (V2→V3): 笔数 {v2['n']} → {v3['n']} ({v3['n']-v2['n']:+d}), "
-              f"期望值 {v2['exp_value']:+.2f}% → {v3['exp_value']:+.2f}% ({v3['exp_value']-v2['exp_value']:+.2f}%)")
-        print(f"总变化 (V1→V3): 笔数 {v1['n']} → {v3['n']} ({v3['n']-v1['n']:+d}), "
-              f"期望值 {v1['exp_value']:+.2f}% → {v3['exp_value']:+.2f}% ({v3['exp_value']-v1['exp_value']:+.2f}%)")
+        def _delta_row(label, a, b):
+            dn = b['n'] - a['n']
+            de = b['exp_value'] - a['exp_value']
+            print(f"{label}: 笔数 {a['n']} → {b['n']} ({dn:+d}), "
+                  f"期望值 {a['exp_value']:+.2f}% → {b['exp_value']:+.2f}% ({de:+.2f}%)")
+        _delta_row("加 today_bull + MA20过滤 (V0→V1)", v0, v1)
+        _delta_row("RSI 收紧 65→60          (V1→V2)", v1, v2)
+        _delta_row("信号门 candle>0→≥0      (V2→V3)", v2, v3)
+        _delta_row("总变化 5/19→今日         (V0→V3)", v0, v3)
 
 
 if __name__ == "__main__":
