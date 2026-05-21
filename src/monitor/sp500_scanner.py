@@ -446,5 +446,12 @@ def quick_screen(
     else:
         print(f"[scanner] {passed}/{total} passed momentum filter")
 
-    all_results.sort(key=lambda x: x["tech_score"], reverse=True)
-    return all_results[:top_n]
+    # Always include force_symbols that passed — don't let tech_score ranking cut them
+    force_results   = [r for r in all_results if r["symbol"] in _force]
+    regular_results = [r for r in all_results if r["symbol"] not in _force]
+    regular_results.sort(key=lambda x: x["tech_score"], reverse=True)
+    regular_slots = max(0, top_n - len(force_results))
+    combined = force_results + regular_results[:regular_slots]
+    if _force:
+        print(f"[scanner] force_symbols included: {[r['symbol'] for r in force_results]}")
+    return combined
