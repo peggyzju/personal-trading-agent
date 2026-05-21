@@ -880,6 +880,8 @@ def get_orders():
                 "qty": float(o.qty) if o.qty else None,
                 "filled_qty": float(o.filled_qty) if o.filled_qty else 0,
                 "filled_avg_price": float(o.filled_avg_price) if o.filled_avg_price else None,
+                "limit_price": float(o.limit_price) if o.limit_price else None,
+                "stop_price": float(o.stop_price) if o.stop_price else None,
                 "status": o.status,
                 "created_at": str(o.created_at),
                 "type": o.type,

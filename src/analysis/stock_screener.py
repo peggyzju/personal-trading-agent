@@ -282,7 +282,7 @@ def ai_score_candidates(
             if system_part:
                 msg = client.messages.create(
                     model="claude-sonnet-4-6",
-                    max_tokens=2048,
+                    max_tokens=4096,
                     system=[{
                         "type": "text",
                         "text": system_part,
@@ -293,7 +293,7 @@ def ai_score_candidates(
             else:
                 msg = client.messages.create(
                     model="claude-sonnet-4-6",
-                    max_tokens=2048,
+                    max_tokens=4096,
                     messages=[{"role": "user", "content": full_prompt}],
                 )
             text = msg.content[0].text
