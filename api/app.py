@@ -370,7 +370,8 @@ def _run_sp500_scan(cascade_agent: bool = False):
         def _progress_cb(step: str, done: int, total: int):
             _set_progress(f"downloading ({done}/{total} chunks)")
 
-        top_tech = quick_screen(tickers, top_n=25, progress_cb=_progress_cb)
+        watchlist_set = set(load_watchlist())
+        top_tech = quick_screen(tickers, top_n=25, progress_cb=_progress_cb, force_symbols=watchlist_set)
 
         for c in top_tech:
             sym = c["symbol"]

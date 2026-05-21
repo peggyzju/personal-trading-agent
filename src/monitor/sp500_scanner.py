@@ -381,17 +381,22 @@ def quick_screen(
     tickers: list[str],
     top_n: int = 25,
     progress_cb=None,
+    force_symbols: set[str] | None = None,
 ) -> list[dict]:
     """
     Download 60d OHLCV per-ticker in parallel, compute technicals, return top_n.
     Uses individual Ticker.history() calls instead of batch download —
     single-ticker requests are fast and a failure only skips that one ticker.
+
+    force_symbols: watchlist tickers that bypass the ma20_ok chase-filter so
+    they always surface even during strong momentum days.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
     WORKERS = 20   # parallel downloads
     TIMEOUT  = 20  # seconds per individual ticker
     all_results: list[dict] = []
     total = len(tickers)
+    _force = force_symbols or set()
 
     print(f"[scanner] downloading {total} tickers individually ({WORKERS} parallel)…")
 
@@ -407,7 +412,9 @@ def quick_screen(
             ma20_ok   = (tech.get("vs_ma20_pct") or 0) <= 8.0 # filter chasers
             trend_ok  = tech["momentum_5d"] > -3              # allow mild pullbacks
             bull_ok   = tech.get("today_bull", False)          # 右侧交易：今日必须收阳
-            if rsi_ok and ma20_ok and trend_ok and bull_ok:
+            # Watchlist stocks bypass ma20_ok — user explicitly tracks these
+            passes = rsi_ok and trend_ok and bull_ok and (ma20_ok or symbol in _force)
+            if passes:
                 return {"symbol": symbol, **tech}
         except Exception:
             pass
