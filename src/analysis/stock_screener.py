@@ -49,14 +49,23 @@ def _build_prompt(
     rows_parts = []
     for i, c in enumerate(candidates):
         sym      = c["symbol"]
+        candle_desc = c.get("candle_desc") or "N/A"
+        candle_q    = c.get("candle_quality")
+        candle_tag  = (
+            "🕯️+2强" if candle_q == 2 else
+            "🕯️+1好" if candle_q == 1 else
+            "🕯️-1弱" if candle_q == -1 else
+            "🕯️-2差" if candle_q == -2 else
+            "🕯️中性"
+        )
         row_line = (
             f'{i+1}. {sym} ({c.get("company_name") or sym}) | '
             f'sector={_sector_tag(c.get("sector","") or "")} | '
             f'pe={c.get("pe_ratio","N/A")} | mkt_cap={_fmt_mktcap(c.get("market_cap"))} | '
             f'beta={c.get("beta","N/A")} | momentum={c["momentum_5d"]:+.1f}% | '
             f'vol_ratio={c["volume_ratio"]:.1f}x | rsi={c["rsi"]:.0f} | '
-            f'breakout={c["near_breakout"]} | 52w_pos={_52w_pos(c)} | '
-            f'tech_score={c["tech_score"]:.1f} | price=${c["price"]}'
+            f'52w_pos={_52w_pos(c)} | tech_score={c["tech_score"]:.1f} | price=${c["price"]} | '
+            f'candle={candle_tag} [{candle_desc}]'
         )
         extras = []
         info = (news_map or {}).get(sym, {})
@@ -93,7 +102,8 @@ def _build_prompt(
         notes_text = "\n".join(f"- {n}" for n in strategy_notes)
         notes_section = f"\nActive strategy guidelines:\n{notes_text}\n"
 
-    return f"""You are a professional equity analyst. Rate each stock that passed a technical momentum screen.
+    return f"""You are a professional swing trader analyzing stocks that passed a pullback/recovery screen.
+These candidates have RSI < 65 and price within 8% of MA20 — they are NOT momentum breakouts; they are stocks in controlled setups with room to run.
 {ctx_section}{bias_section}{notes_section}
 {rows}
 
@@ -101,19 +111,25 @@ Return a JSON array of {len(candidates)} objects. Each object must have exactly 
 - "symbol": string
 - "ai_score": integer 1-10
 - "signal": one of "STRONG_BUY", "BUY", "HOLD", "SELL"
-- "reason": one sentence on what the company does + one sentence on the key trading factor (incorporate news if relevant)
-- "entry_note": "at market" | "on pullback to $X" | "on breakout above $X" | "avoid for now"
-- "stop_loss_pct": number (e.g. 3.5 means 3.5% below current price)
+- "reason": one sentence on what the company does + one sentence on the specific setup quality (RSI level, MA distance, volume, catalyst)
+- "entry_note": "at market" | "on pullback to $X" | "wait for consolidation" | "avoid for now"
+- "stop_loss_pct": number (e.g. 5.0 means 5% below current price — use 4-6% range)
 - "target_pct": number (upside %, use 0 for SELL)
 - "timeframe": "intraday" | "swing_2_5d" | "positional_1_2w" | "n/a"
 
-Signal guidelines:
-- STRONG_BUY: strong momentum + volume + not overbought + clear catalyst
-- BUY: good setup but one concern (high RSI, thin volume, etc.)
-- HOLD: mixed signals, unclear risk/reward
-- SELL: overextended, RSI>75, weak volume
-- Downgrade by 1 level if earnings are within 5 days (gap risk)
-- Downgrade by 1 level if sector is underperforming and stock has no independent catalyst
+Signal guidelines (calibrated against 6-month backtest, 835 trades):
+- STRONG_BUY: candle🕯️+2 ONLY (bullish_engulf or strong_bull) + RSI 42-62 + price 0-5% above MA20. Backtest: this combination is near break-even; require one extra catalyst (MACD cross, sector tailwind, or news).
+- BUY: candle🕯️+2 with slightly weaker RSI/MA20, OR candle🕯️-2 showing strong_bear (NOT bearish_engulf) — oversold bounce setup where high-volume selloff near MA20 often recovers. RSI must be 35-60.
+- HOLD: candle🕯️+1 (hammer/pullback_bull — backtest shows these are NOT reliable alone; wait for next session confirmation) OR candle🕯️0 (neutral, no edge). Do NOT enter.
+- SELL: candle🕯️-1 (mild bearish — worst backtest performance: 24% WR) OR bearish_engulf specifically (Exp -1.4% per trade). Avoid entirely.
+- ALWAYS downgrade to HOLD if candle is doji🕯️(十字星) — backtest shows Exp -1.2% regardless of RSI/MA20
+- ALWAYS downgrade one level if earnings are within 5 days (gap risk)
+- ALWAYS downgrade one level if sector is underperforming and stock has no independent catalyst
+- KEY RULES (backtest-verified):
+  • bullish_engulf near MA20 = best pattern (58% WR in original run) → STRONG_BUY if RSI 42-62
+  • strong_bear + high volume + RSI<55 + near MA20 = contrarian bounce BUY (not SELL)
+  • pullback_bull and hammer alone = HOLD, not entry — wait for next bar to confirm
+  • doji = always HOLD regardless of other signals
 
 Output raw JSON array only. No markdown, no explanation."""
 
@@ -145,6 +161,8 @@ def _parse_response(text: str) -> list[dict] | None:
 
 def _validate_and_fill(item: dict, tech: dict) -> dict:
     """Ensure all required fields exist; fill defaults rather than leaving None."""
+    from src.analysis.position_sizer import compute_structured_stop
+
     price = tech.get("price", 0) or 0
 
     # Coerce signal
@@ -158,13 +176,33 @@ def _validate_and_fill(item: dict, tech: dict) -> dict:
     except (TypeError, ValueError):
         ai_score = 5
 
-    stop_pct   = item.get("stop_loss_pct") or 3.0
     target_pct = item.get("target_pct") or 0.0
     try:
-        stop_pct   = float(stop_pct)
         target_pct = float(target_pct)
     except (TypeError, ValueError):
-        stop_pct, target_pct = 3.0, 0.0
+        target_pct = 0.0
+
+    # ── Structured stop: MA20 × 0.99 or entry − 1.5×ATR (whichever is higher) ──
+    # Prefer market-structure stop over Claude's suggested fixed %; fall back if
+    # ATR/MA20 data is unavailable.
+    atr = tech.get("atr")
+    vs_ma20_pct = tech.get("vs_ma20_pct")
+    ma20 = price / (1 + vs_ma20_pct / 100) if (vs_ma20_pct is not None and price) else None
+
+    if price and (atr or ma20):
+        stop_price = compute_structured_stop(price, ma20, atr)
+    elif price:
+        # Fallback: use Claude's suggested pct, clamped 3–8%
+        claude_pct = item.get("stop_loss_pct") or 5.0
+        try:
+            claude_pct = max(3.0, min(8.0, float(claude_pct)))
+        except (TypeError, ValueError):
+            claude_pct = 5.0
+        stop_price = round(price * (1 - claude_pct / 100), 2)
+    else:
+        stop_price = None
+
+    stop_pct = round((price - stop_price) / price * 100, 2) if (price and stop_price) else 5.0
 
     return {
         **tech,
@@ -174,9 +212,8 @@ def _validate_and_fill(item: dict, tech: dict) -> dict:
         "reason":       item.get("reason") or "",
         "entry_note":   item.get("entry_note") or "at market",
         "timeframe":    item.get("timeframe") or "n/a",
-        "stop_loss":    round(price * (1 - stop_pct / 100), 2) if price else None,
+        "stop_loss":    stop_price,
         "target_price": round(price * (1 + target_pct / 100), 2) if price and target_pct else None,
-        # drop raw pct fields
         "stop_loss_pct":  stop_pct,
         "target_pct":     target_pct,
     }
@@ -206,15 +243,45 @@ def ai_score_candidates(
     client = anthropic.Anthropic(api_key=get_anthropic_key())
     tech_map = {c["symbol"]: c for c in candidates}
 
+    # Build prompt and split into cacheable system part + dynamic user part
+    full_prompt = _build_prompt(batch, strategy_notes, news_map, market_context, sector_bias)
+    # Split at the first candidate line (line starting with "1.")
+    split_idx = full_prompt.find("\n1. ")
+    if split_idx > 0:
+        system_part = full_prompt[:split_idx].strip()
+        user_part   = full_prompt[split_idx:].strip()
+    else:
+        system_part = None
+        user_part   = full_prompt
+
     for attempt in range(2):
-        prompt = _build_prompt(batch, strategy_notes, news_map, market_context, sector_bias)
         try:
-            msg = client.messages.create(
-                model="claude-opus-4-7",
-                max_tokens=4096,
-                messages=[{"role": "user", "content": prompt}],
-            )
+            # Use prompt caching on the system instructions (saves ~90% input token cost on retries/similar calls)
+            if system_part:
+                msg = client.messages.create(
+                    model="claude-sonnet-4-6",
+                    max_tokens=2048,
+                    system=[{
+                        "type": "text",
+                        "text": system_part,
+                        "cache_control": {"type": "ephemeral"},
+                    }],
+                    messages=[{"role": "user", "content": user_part}],
+                )
+            else:
+                msg = client.messages.create(
+                    model="claude-sonnet-4-6",
+                    max_tokens=2048,
+                    messages=[{"role": "user", "content": full_prompt}],
+                )
             text = msg.content[0].text
+            # Log cache usage if available
+            usage = getattr(msg, "usage", None)
+            if usage:
+                cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+                cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+                if cache_read or cache_write:
+                    print(f"[screener] prompt cache — read={cache_read} write={cache_write} tokens")
         except Exception as e:
             print(f"[screener] Claude API error (attempt {attempt+1}/2): {e}")
             if attempt == 0:

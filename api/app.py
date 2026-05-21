@@ -128,22 +128,39 @@ def get_quote_single(symbol: str):
 
 # ── Analysis ──────────────────────────────────────────────────────────────────
 
+_ANALYSIS_TTL_SECS = 2 * 3600   # 2 hours — don't re-call Claude if cache is fresh
+
 @app.post("/api/analyze/{symbol}")
-def run_analysis(symbol: str):
+def run_analysis(symbol: str, force: bool = False):
     from src.monitor.price_monitor import get_quote as _get_quote, get_ohlcv
     from src.monitor.news_monitor import get_news
     from src.analysis.ai_analyst import analyze
+    import time as _time
 
     s = symbol.upper()
     try:
         quote = _get_quote(s)
+
+        # ── Cache check: skip Claude if analysis is fresh and price hasn't moved >1.5% ──
+        if not force and s in _analysis_cache and s in _analysis_timestamps:
+            age  = _time.time() - _analysis_timestamps[s]
+            cached_price = _analysis_cache[s].get("price") or 0
+            live_price   = quote.get("price") or 0
+            price_moved  = abs(live_price - cached_price) / cached_price * 100 if cached_price else 100
+            if age < _ANALYSIS_TTL_SECS and price_moved < 1.5:
+                cached = dict(_analysis_cache[s])
+                cached["cached"] = True
+                cached["cache_age_min"] = round(age / 60, 0)
+                print(f"[analyze] {s} cache hit (age={age/60:.0f}min, Δprice={price_moved:.1f}%) — skipping Claude")
+                return cached
+
         ohlcv = get_ohlcv(s)
         news = get_news(s)
         result = analyze(s, ohlcv, quote, news=news)
         result["symbol"] = s
         result["price"] = quote["price"]
         result["change_pct"] = quote["change_pct"]
-        import time as _time
+        result["cached"] = False
         _analysis_cache[s] = result
         _analysis_timestamps[s] = _time.time()
         return result
@@ -423,6 +440,24 @@ def _run_sp500_scan(cascade_agent: bool = False):
             "tech_passed":   len(top_tech),
             "ai_scored":     ai_scored,
         }
+
+        # ── Auto-record daily strategy snapshot ───────────────────────────────
+        try:
+            from src.analysis.strategy_logger import record_daily_snapshot
+            from src.trader.alpaca_trader import get_client as _get_alpaca
+            record_daily_snapshot(
+                candidates=top_ai,
+                alpaca_api=_get_alpaca(),
+                extra={
+                    "total_screened":     len(tickers),
+                    "tech_passed":        len(top_tech),
+                    "quality_gate_removed": 0,
+                    "ai_scored":          ai_scored,
+                    "market_regime":      ctx.get("regime"),
+                },
+            )
+        except Exception as _log_err:
+            print(f"[scan] strategy_logger error (non-fatal): {_log_err}")
         _save_scan_cache(_scan_cache)
         top_sym = top_ai[0]["symbol"] if top_ai else "none"
         bias_ct = sum(1 for s in symbol_bias if any(c["symbol"] == s for c in top_ai))
@@ -1632,6 +1667,20 @@ def save_strategy_overrides(req: OverridesRequest):
         _append_overrides_history(existing, updated, req.reason or "", req.source_review_date)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not save overrides: {e}")
+
+    # Auto-create a new strategy version whenever overrides change
+    try:
+        from src.analysis.strategy_versions import create_version as _create_ver
+        _create_ver(
+            stop_loss_pct=updated.get("stop_loss_pct", 3.0),
+            max_position_pct=updated.get("max_position_pct", 0.10),
+            entry_rsi_max=updated.get("entry_rsi_max"),
+            entry_vma20_max=updated.get("entry_vma20_max"),
+            notes=req.reason or "",
+        )
+    except Exception as _ve:
+        print(f"[overrides] strategy version creation failed (non-fatal): {_ve}")
+
     return updated
 
 
@@ -1639,6 +1688,113 @@ def save_strategy_overrides(req: OverridesRequest):
 def get_overrides_history():
     """Return version history of all override changes."""
     return _load_overrides_history()
+
+
+# ── Strategy Log ──────────────────────────────────────────────────────────────
+
+@app.get("/api/strategy/log")
+def get_strategy_log(days: int = 30):
+    """Return daily strategy snapshots for the last N days."""
+    try:
+        from src.analysis.strategy_logger import get_log
+        return {"entries": get_log(days=days), "days": days}
+    except Exception as e:
+        return {"entries": [], "error": str(e)}
+
+
+@app.post("/api/strategy/log/record")
+def trigger_strategy_log_record():
+    """Manually trigger a strategy log snapshot (useful for testing)."""
+    try:
+        from src.analysis.strategy_logger import record_daily_snapshot
+        from src.trader.alpaca_trader import get_client as _get_alpaca
+        candidates = (_scan_cache.get("sp500") or {}).get("candidates", [])
+        entry = record_daily_snapshot(
+            candidates=candidates,
+            alpaca_api=_get_alpaca(),
+        )
+        return {"status": "recorded", "date": entry.get("date"),
+                "quality_score": entry.get("scan_quality", {}).get("quality_score")}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ── Strategy Validation (Version Control + Stats) ────────────────────────────
+
+@app.get("/api/strategy/versions")
+def get_strategy_versions():
+    from src.analysis.strategy_versions import get_all_versions, get_trade_history, compute_version_stats
+    versions = get_all_versions()
+    history  = get_trade_history()
+    result = []
+    for v in versions:
+        trades = [t for t in history if t.get("strategy_version") == v["version"]]
+        result.append({**v, "stats": compute_version_stats(trades)})
+    return {"versions": result, "total_versions": len(versions)}
+
+
+@app.get("/api/strategy/versions/compare")
+def compare_strategy_versions(v1: str = "v1.0", v2: str = "v2.0"):
+    from src.analysis.strategy_versions import compare_versions
+    return compare_versions(v1, v2)
+
+
+@app.get("/api/strategy/validation")
+def get_validation_report():
+    """Full validation report: current vs previous version + scan quality trend."""
+    from src.analysis.strategy_versions import (
+        get_all_versions, get_trade_history, compute_version_stats, compare_versions
+    )
+    from src.analysis.strategy_logger import get_log
+
+    versions = get_all_versions()
+    history  = get_trade_history()
+    log      = get_log(days=30)
+
+    current  = versions[-1] if versions else None
+    previous = versions[-2] if len(versions) >= 2 else None
+
+    comparison = None
+    if current and previous:
+        comparison = compare_versions(previous["version"], current["version"])
+
+    # Scan quality trend (last 14 days)
+    quality_trend = [
+        {
+            "date":          e["date"],
+            "quality_score": e.get("scan_quality", {}).get("quality_score"),
+            "rsi_mean":      e.get("scan_quality", {}).get("rsi_mean"),
+            "vma20_mean":    e.get("scan_quality", {}).get("vma20_mean"),
+            "signal_counts": e.get("scan_quality", {}).get("signal_counts"),
+        }
+        for e in log[-14:]
+    ]
+
+    all_stats = []
+    for v in versions:
+        trades = [t for t in history if t.get("strategy_version") == v["version"]]
+        all_stats.append({"version": v["version"], "notes": v["notes"],
+                          "created_at": v["created_at"], "stats": compute_version_stats(trades)})
+
+    return {
+        "current_version": current,
+        "comparison":      comparison,
+        "all_versions":    all_stats,
+        "quality_trend":   quality_trend,
+        "trade_history_count": len(history),
+    }
+
+
+@app.post("/api/strategy/versions/sync")
+def sync_trade_history():
+    """Pull closed trades from Alpaca and tag with strategy versions."""
+    try:
+        from src.analysis.strategy_versions import sync_closed_trades_from_alpaca
+        from src.trader.alpaca_trader import get_client as _get_alpaca
+        added = sync_closed_trades_from_alpaca(_get_alpaca(), days=30)
+        return {"status": "ok", "new_trades_added": added}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
 
 # ── Strategy Notes ─────────────────────────────────────────────────────────────

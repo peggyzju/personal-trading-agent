@@ -2,11 +2,17 @@ from __future__ import annotations
 import json
 import os
 import re
+import time as _time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import anthropic
 from src.config import get_anthropic_key
+
+# ── Per-position signal cache (avoids re-calling Claude when price barely moved) ─
+_signal_cache: dict[str, dict] = {}   # symbol → {signal, urgency, reason, price, ts}
+_SIGNAL_TTL   = 60 * 60               # 1 hour
+_PRICE_MOVE_THRESHOLD = 1.5           # re-analyse if price moved >1.5%
 
 # ── Trailing stop config ──────────────────────────────────────────────────────
 _TRAILING_FILE = Path(__file__).parent.parent.parent / "data" / "trailing_stops.json"
@@ -168,15 +174,45 @@ def analyze_sell_signals(positions: list[dict]) -> list[dict]:
     """
     For each position, produce a sell signal assessment using Claude.
     Enriches positions with live technical indicators before analysis.
+    Skips re-analysis if cached signal is fresh (<1h) and price hasn't moved >1.5%.
     Returns positions with sell_signal, urgency, reason, suggested_action added.
     """
     if not positions:
         return []
 
+    now = _time.time()
+
+    # ── Split positions: use cache vs. needs fresh analysis ───────────────────
+    to_analyze: list[dict] = []
+    cached_results: list[dict] = []
+
+    for p in positions:
+        sym   = p["symbol"]
+        price = float(p.get("current_price") or 0)
+        cache = _signal_cache.get(sym)
+
+        if cache:
+            age       = now - cache.get("ts", 0)
+            old_price = cache.get("price", 0)
+            price_chg = abs(price - old_price) / old_price * 100 if old_price else 999
+            if age < _SIGNAL_TTL and price_chg < _PRICE_MOVE_THRESHOLD:
+                # Return cached signal merged with fresh position data
+                cached_results.append({**p, **{k: v for k, v in cache.items()
+                                               if k not in ("ts", "price")}})
+                continue
+        to_analyze.append(p)
+
+    if cached_results:
+        hit = len(cached_results)
+        print(f"[holdings] Signal cache: {hit} hit / {len(to_analyze)} fresh needed")
+
+    if not to_analyze:
+        return cached_results  # All served from cache
+
     client = anthropic.Anthropic(api_key=get_anthropic_key())
 
     # Enrich with technicals first
-    enriched = _enrich_with_technicals(positions)
+    enriched = _enrich_with_technicals(to_analyze)
 
     def _tech_line(tech: dict) -> str:
         parts = []
@@ -238,7 +274,7 @@ Return ONLY a JSON array."""
         messages=[{"role": "user", "content": prompt}],
     )
 
-    HARD_STOP_PCT = -3.0   # hard stop regardless of Claude output
+    HARD_STOP_PCT = -8.0   # last-resort catch-all; per-position structured stops are 4-8%
 
     def _rule_based_override(p: dict) -> dict | None:
         """
@@ -285,5 +321,33 @@ Return ONLY a JSON array."""
             merged = {**ai_sig, **override}
         else:
             merged = ai_sig if ai_sig else {"sell_signal": "HOLD", "urgency": "LOW", "reason": ""}
-        result.append({k: v for k, v in {**p, **merged}.items() if k != "_tech"})
-    return result
+
+        final = {k: v for k, v in {**p, **merged}.items() if k != "_tech"}
+
+        # Populate cache (only for non-overridden / stable signals)
+        sym   = p["symbol"]
+        price = float(p.get("current_price") or 0)
+        _signal_cache[sym] = {
+            "sell_signal":      final.get("sell_signal", "HOLD"),
+            "urgency":          final.get("urgency", "LOW"),
+            "reason":           final.get("reason", ""),
+            "suggested_action": final.get("suggested_action", ""),
+            "price":            price,
+            "ts":               now,
+        }
+
+        result.append(final)
+
+    # Merge cached + freshly analysed, preserving original order
+    sym_to_fresh = {r["symbol"]: r for r in result}
+    ordered = []
+    for p in positions:
+        sym = p["symbol"]
+        if sym in sym_to_fresh:
+            ordered.append(sym_to_fresh[sym])
+        else:
+            # Already in cached_results
+            cached_hit = next((c for c in cached_results if c["symbol"] == sym), None)
+            if cached_hit:
+                ordered.append(cached_hit)
+    return ordered

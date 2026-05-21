@@ -6,6 +6,42 @@ DEFAULT_MAX_PCT  = 0.10    # max 10% of portfolio in one position
 MAX_POSITIONS    = 10      # max concurrent open positions
 
 
+def compute_structured_stop(
+    entry_price: float,
+    ma20: float | None,
+    atr: float | None,
+    min_stop_pct: float = 0.03,   # floor: never tighter than 3%
+    max_stop_pct: float = 0.08,   # ceiling: never wider than 8%
+) -> float:
+    """
+    Structural stop: max(MA20 × 0.99,  entry − 1.5×ATR)
+
+    Places the stop below the nearest structural support rather than using
+    a fixed percentage, so high-ATR stocks get wider stops (smaller position)
+    and low-ATR stocks get tighter stops (larger position) — all while
+    keeping per-trade risk locked at 2% of portfolio.
+
+    Always clamped:
+      floor   = entry × (1 − max_stop_pct)   → never wider than 8%
+      ceiling = entry × (1 − min_stop_pct)   → never tighter than 3%
+    """
+    if not entry_price or entry_price <= 0:
+        return 0.0
+
+    candidates: list[float] = []
+    if ma20 and ma20 > 0:
+        candidates.append(ma20 * 0.99)              # 1% below MA20 support
+    if atr and atr > 0:
+        candidates.append(entry_price - 1.5 * atr)  # 1.5×ATR cushion
+
+    raw_stop = max(candidates) if candidates else entry_price * (1 - min_stop_pct)
+
+    # Clamp between floor (widest allowed) and ceiling (tightest allowed)
+    floor   = entry_price * (1 - max_stop_pct)
+    ceiling = entry_price * (1 - min_stop_pct)
+    return round(max(floor, min(raw_stop, ceiling)), 2)
+
+
 def size_position(
     portfolio_value: float,
     price: float,

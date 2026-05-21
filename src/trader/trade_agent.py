@@ -478,7 +478,7 @@ def run_agent(
         cash = portfolio_value   # fallback
         equity = portfolio_value  # fallback (updated below with acct.equity)
         owned_symbols: set[str] = set()
-        slots_remaining = 10    # fallback
+        slots_remaining = regime.get("max_positions", 10)   # fallback respects macro filter
         alpaca_positions: list = []
         alpaca_open_sell_symbols: set[str] = set()
         _open_orders_fetched: bool = False   # track whether list_orders() succeeded
@@ -496,7 +496,11 @@ def run_agent(
                 print(f"[agent] ⚠️  Margin detected: acct.cash=${float(acct.cash):,.0f}, "
                       f"equity=${equity:,.0f}, positions=${positions_market_value:,.0f} "
                       f"→ true_cash=${cash:,.0f}")
-            slots_remaining = max(0, 10 - len(alpaca_positions))
+            regime_max_pos  = regime.get("max_positions", 10)
+            slots_remaining = max(0, regime_max_pos - len(alpaca_positions))
+            if regime_max_pos < 10:
+                print(f"[agent] Macro filter: max_positions={regime_max_pos} ({regime['regime']}) "
+                      f"— {len(alpaca_positions)} open, {slots_remaining} slots remaining")
             # Track symbols with open sell orders to avoid duplicate submissions
             open_orders = client.list_orders(status="open")
             alpaca_open_sell_symbols = {o.symbol for o in open_orders if o.side == "sell"}
@@ -633,17 +637,20 @@ def run_agent(
                 return False
             return True
 
-        # ── 1. S&P 500 Scanner: STRONG_BUY >= min_score OR BUY >= min_score+1 ──
+        # ── 1. S&P 500 Scanner: quality gate (ai_score) + Rex execution rules ──
+        # Scout (AI) owns quality scoring; Rex owns execution decision.
+        # Gate: ai_score >= min_ai_score (quality) AND signal != SELL (Scout flagged danger).
+        # signal type only controls MA20 exemption in _strict_entry_ok below.
         scan = scan_cache.get("sp500", {})
         if scan.get("status") == "done" and can_buy:
             scanner_added = 0
             for c in list(scan.get("candidates", [])):
-                signal   = c.get("signal", "")
+                signal   = c.get("signal", "HOLD")
                 ai_score = c.get("ai_score") or 0
-                if signal in ("STRONG_BUY", "BUY") and ai_score >= min_ai_score:
-                    pass   # allowed
-                else:
-                    continue
+                if signal == "SELL":
+                    continue   # Scout flagged deterioration — respect it
+                if ai_score < min_ai_score:
+                    continue   # quality gate
                 # Strict entry: RSI < 60, not extended above MA20
                 if not _strict_entry_ok(c):
                     summary["signals_found"] += 1
@@ -664,7 +671,7 @@ def run_agent(
                 trade = _make_trade(
                     symbol=c["symbol"], side="buy",
                     notional=notional, qty=None,
-                    signal="STRONG_BUY",
+                    signal=signal,
                     confidence=c.get("ai_score", 7) / 10,
                     reason=c.get("reason", "Top S&P 500 scanner pick"),
                     source="scanner",
@@ -692,50 +699,34 @@ def run_agent(
             if scanner_added:
                 summary["sources"].append("scanner")
 
-        # ── 2. Watchlist: use cached analysis (no extra Claude call) ──────────
-        CACHE_MAX_AGE_SECONDS = 4 * 3600   # Problem 8: 4-hour cache expiry
+        # ── 2. Watchlist: Scout score first, rules_engine fallback, no AI calls ──
+        # Stocks already in Scout's scan_cache are handled in section 1 above.
+        # This section covers watchlist symbols outside Scout's scan universe.
         if can_buy and watchlist:
-            cache      = analysis_cache or {}
-            ts_cache   = analysis_timestamps or {}
-            wl_added   = 0
-            in_market  = _is_market_hours()
-            import time as _time
+            scan_scored_syms = {
+                c["symbol"]
+                for c in (scan_cache.get("sp500") or {}).get("candidates", [])
+            }
+            wl_added = 0
 
             for wl_sym in watchlist:
-                cached = cache.get(wl_sym)
-
-                # Problem 8: discard stale cache (> 4 h old during market hours)
-                if cached and in_market:
-                    ts = ts_cache.get(wl_sym, 0)
-                    age = _time.time() - ts
-                    if age > CACHE_MAX_AGE_SECONDS:
-                        print(f"[agent] {wl_sym} cache stale ({age/3600:.1f}h) — refreshing")
-                        cached = None   # force re-fetch below
-
-                # If no (valid) cache and market is open, run fresh analysis
-                if not cached and in_market:
-                    try:
-                        from src.monitor.price_monitor import get_quote, get_ohlcv
-                        from src.monitor.news_monitor import get_news
-                        from src.analysis.ai_analyst import analyze
-                        quote = get_quote(wl_sym)
-                        ohlcv = get_ohlcv(wl_sym)
-                        news  = get_news(wl_sym, limit=5)
-                        cached = analyze(wl_sym, ohlcv, quote, news=news, strategy_notes=_strategy_notes or None)
-                        if analysis_cache is not None:
-                            analysis_cache[wl_sym] = cached
-                        if analysis_timestamps is not None:
-                            analysis_timestamps[wl_sym] = _time.time()
-                    except Exception as e:
-                        print(f"[agent] watchlist {wl_sym} analysis error: {e}")
-                        continue
-                elif not cached:
-                    # Off-hours and no cache — skip
+                # Already evaluated by Scout — section 1 handled it (or correctly filtered it)
+                if wl_sym in scan_scored_syms:
                     continue
 
-                sig  = cached.get("signal")
+                # Not in scan universe → pure Python rules, zero API cost
+                try:
+                    from src.analysis.rules_engine import rules_signal
+                    cached = rules_signal(wl_sym)
+                except Exception as e:
+                    print(f"[agent] watchlist {wl_sym} rules error: {e}")
+                    continue
+
+                if cached is None:
+                    continue
+
+                sig  = cached.get("signal", "HOLD")
                 conf = cached.get("confidence", 0)
-                # Adapt confidence threshold to market regime (mirrors scanner ai_score gate)
                 wl_min_conf = 0.75 if regime.get("regime") == "CAUTION" else 0.70
                 if sig == "BUY" and conf >= wl_min_conf:
                     # Strict entry: RSI < 60, not extended above MA20
@@ -820,7 +811,19 @@ def run_agent(
 
         # ── 3. Holdings: SELL / REDUCE ────────────────────────────────────────
         # First pass: hard stop-loss from live Alpaca positions (no cache dependency)
-        HARD_STOP_PCT = -stop_loss_pct * 100   # e.g. -3.0%
+        # Use per-position structured stop price (absolute $) when available;
+        # fall back to portfolio-level HARD_STOP_PCT for positions with no recorded stop.
+        HARD_STOP_PCT = -stop_loss_pct * 100   # fallback for untracked positions (e.g. -3.0%)
+        # Build symbol → stop price from most-recent buy trade in trades.json
+        all_trades = _load_from_disk()
+        _sym_stop_price: dict[str, float] = {}
+        for _t in all_trades.values():
+            if _t.get("side") == "buy" and _t.get("stop_loss") and _t.get("symbol"):
+                sym_ = _t["symbol"]
+                # Keep the most-recent stop per symbol (latest created_at wins)
+                if sym_ not in _sym_stop_price or _t.get("created_at", "") > _sym_stop_price.get(f"_ts_{sym_}", ""):
+                    _sym_stop_price[sym_] = float(_t["stop_loss"])
+                    _sym_stop_price[f"_ts_{sym_}"] = _t.get("created_at", "")
         holdings_added = 0
         hard_stop_symbols: set[str] = set()
         for ap in alpaca_positions:
@@ -830,14 +833,21 @@ def run_agent(
             if ap.symbol in _overalloc_symbols:
                 continue   # already queued by over-allocation rebalance
             plpc = float(ap.unrealized_plpc) * 100   # Alpaca returns as decimal
-            if plpc <= HARD_STOP_PCT:
-                print(f"[agent] Hard stop: {ap.symbol} down {plpc:.1f}% (threshold {HARD_STOP_PCT:.1f}%)")
+            current_px = float(ap.current_price)
+            per_pos_stop = _sym_stop_price.get(ap.symbol)
+            stop_hit = (current_px <= per_pos_stop) if per_pos_stop else (plpc <= HARD_STOP_PCT)
+            stop_desc = (
+                f"stop price ${per_pos_stop:.2f} (structured)" if per_pos_stop
+                else f"threshold {HARD_STOP_PCT:.1f}%"
+            )
+            if stop_hit:
+                print(f"[agent] Hard stop: {ap.symbol} @ ${current_px:.2f} hit {stop_desc} (P&L {plpc:.1f}%)")
                 trade = _make_trade(
                     symbol=ap.symbol, side="sell",
                     notional=None, qty=None,
                     signal="SELL",
                     confidence=0.9,
-                    reason=f"Hard stop: position down {plpc:.1f}% (threshold {HARD_STOP_PCT:.1f}%)",
+                    reason=f"Hard stop: {ap.symbol} @ ${current_px:.2f} hit {stop_desc} (P&L {plpc:.1f}%)",
                     source="hard_stop",
                     price=float(ap.current_price),
                 )
