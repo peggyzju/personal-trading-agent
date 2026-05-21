@@ -60,7 +60,10 @@ def size_position(
 
     shares_by_risk = int((portfolio_value * risk_pct) / price_risk)
     shares_by_cap  = int((portfolio_value * max_pct) / price)
-    shares = max(1, min(shares_by_risk, shares_by_cap))
+    shares = min(shares_by_risk, shares_by_cap)   # 0 is valid — skip if stock is too expensive
+
+    if shares <= 0:
+        return {"shares": 0, "cost": 0, "max_loss": 0, "portfolio_pct": 0, "risk_pct_actual": 0}
 
     cost = round(shares * price, 2)
     max_loss = round(shares * price_risk, 2)

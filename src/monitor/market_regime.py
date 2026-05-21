@@ -21,7 +21,11 @@ import pandas as pd
 import yfinance as yf
 
 _CACHE_FILE = Path(__file__).parent.parent.parent / "data" / "regime_cache.json"
-_CACHE_TTL_SECONDS = 900   # re-check every 15 minutes
+_CACHE_TTL_SECONDS  = 900  # re-check every 15 minutes
+_UPGRADE_MIN_COUNT  = 2    # regime improvement needs N consecutive confirmations (~30 min)
+
+# Severity order: higher = worse market conditions
+_REGIME_SEVERITY = {"BULL": 0, "NEUTRAL": 1, "CAUTION": 2, "BEAR": 3, "CRASH": 4}
 
 
 def _load_cache() -> dict | None:
@@ -31,6 +35,16 @@ def _load_cache() -> dict | None:
             age = (datetime.now(timezone.utc).timestamp() - data.get("fetched_at", 0))
             if age < _CACHE_TTL_SECONDS:
                 return data
+    except Exception:
+        pass
+    return None
+
+
+def _load_cache_raw() -> dict | None:
+    """Read cache regardless of age — used to retrieve pending upgrade state."""
+    try:
+        if _CACHE_FILE.exists():
+            return json.loads(_CACHE_FILE.read_text())
     except Exception:
         pass
     return None
@@ -148,8 +162,41 @@ def get_market_regime(force_refresh: bool = False) -> dict:
             "reason":         reason,
             "fetched_at":     datetime.now(timezone.utc).timestamp(),
         }
-        _save_cache(result)
-        return result
+
+        # ── Asymmetric smoothing: deterioration is immediate, recovery needs confirmation ──
+        prev = _load_cache_raw()
+        prev_regime   = (prev or {}).get("regime", regime)
+        cur_severity  = _REGIME_SEVERITY.get(regime, 1)
+        prev_severity = _REGIME_SEVERITY.get(prev_regime, 1)
+
+        if cur_severity >= prev_severity:
+            # Deterioration or same level → apply immediately, clear pending
+            result["pending_regime"] = None
+            result["pending_count"]  = 0
+            _save_cache(result)
+            return result
+        else:
+            # Recovery → require N consecutive confirmations before upgrading
+            pending_regime = (prev or {}).get("pending_regime")
+            pending_count  = (prev or {}).get("pending_count", 0)
+            pending_count  = pending_count + 1 if pending_regime == regime else 1
+
+            if pending_count >= _UPGRADE_MIN_COUNT:
+                # Confirmed recovery — apply upgrade
+                result["pending_regime"] = None
+                result["pending_count"]  = 0
+                _save_cache(result)
+                return result
+            else:
+                # Not confirmed yet — hold previous regime, store pending state
+                held = {**(prev or result)}
+                held["pending_regime"] = regime
+                held["pending_count"]  = pending_count
+                held["fetched_at"]     = result["fetched_at"]
+                _save_cache(held)
+                print(f"[regime] recovery pending: {prev_regime}→{regime} ({pending_count}/{_UPGRADE_MIN_COUNT} confirmed)")
+                return {**held, "reason": held["reason"] + f" | upgrade pending: {regime} ({pending_count}/{_UPGRADE_MIN_COUNT})"}
+
 
     except Exception as e:
         return _fallback(f"Error fetching SPY: {e}")

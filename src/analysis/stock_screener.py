@@ -103,33 +103,35 @@ def _build_prompt(
         notes_section = f"\nActive strategy guidelines:\n{notes_text}\n"
 
     return f"""You are a professional swing trader analyzing stocks that passed a pullback/recovery screen.
-These candidates have RSI < 65 and price within 8% of MA20 — they are NOT momentum breakouts; they are stocks in controlled setups with room to run.
+These candidates have RSI < 60 and price within 8% of MA20 — they are NOT momentum breakouts; they are stocks in controlled setups with room to run.
+
+YOUR ROLE: Technical filters (RSI, MA20, candle pattern, volume) have already been applied by the screening system. Do NOT re-evaluate or re-score those signals. Your value-add is assessing what the technical screen cannot see:
+  1. News catalysts — is there a fresh fundamental driver supporting the setup?
+  2. Earnings risk — are earnings within 5 days? (gap risk overrides technicals)
+  3. Sector rotation — is this sector seeing inflows or outflows today?
+  4. Fundamental quality — does PE/beta/market-cap profile fit a swing hold of 2-10 days?
+Candle patterns and RSI levels below are provided as context only — use them to understand the setup, not to re-score momentum.
 {ctx_section}{bias_section}{notes_section}
 {rows}
 
 Return a JSON array of {len(candidates)} objects. Each object must have exactly these fields:
 - "symbol": string
-- "ai_score": integer 1-10
+- "ai_score": integer 1-10 (score based on catalyst quality + fundamental fit + sector tailwind — NOT a re-score of RSI/candle)
 - "signal": one of "STRONG_BUY", "BUY", "HOLD", "SELL"
-- "reason": one sentence on what the company does + one sentence on the specific setup quality (RSI level, MA distance, volume, catalyst)
+- "reason": one sentence on what the company does + one sentence on the NEWS or FUNDAMENTAL driver (not the candle pattern)
 - "entry_note": "at market" | "on pullback to $X" | "wait for consolidation" | "avoid for now"
 - "stop_loss_pct": number (e.g. 5.0 means 5% below current price — use 4-6% range)
 - "target_pct": number (upside %, use 0 for SELL)
 - "timeframe": "intraday" | "swing_2_5d" | "positional_1_2w" | "n/a"
 
 Signal guidelines (calibrated against 6-month backtest, 835 trades):
-- STRONG_BUY: candle🕯️+2 ONLY (bullish_engulf or strong_bull) + RSI 42-62 + price 0-5% above MA20. Backtest: this combination is near break-even; require one extra catalyst (MACD cross, sector tailwind, or news).
-- BUY: candle🕯️+2 with slightly weaker RSI/MA20, OR candle🕯️-2 showing strong_bear (NOT bearish_engulf) — oversold bounce setup where high-volume selloff near MA20 often recovers. RSI must be 35-60.
-- HOLD: candle🕯️+1 (hammer/pullback_bull — backtest shows these are NOT reliable alone; wait for next session confirmation) OR candle🕯️0 (neutral, no edge). Do NOT enter.
-- SELL: candle🕯️-1 (mild bearish — worst backtest performance: 24% WR) OR bearish_engulf specifically (Exp -1.4% per trade). Avoid entirely.
-- ALWAYS downgrade to HOLD if candle is doji🕯️(十字星) — backtest shows Exp -1.2% regardless of RSI/MA20
-- ALWAYS downgrade one level if earnings are within 5 days (gap risk)
-- ALWAYS downgrade one level if sector is underperforming and stock has no independent catalyst
-- KEY RULES (backtest-verified):
-  • bullish_engulf near MA20 = best pattern (58% WR in original run) → STRONG_BUY if RSI 42-62
-  • strong_bear + high volume + RSI<55 + near MA20 = contrarian bounce BUY (not SELL)
-  • pullback_bull and hammer alone = HOLD, not entry — wait for next bar to confirm
-  • doji = always HOLD regardless of other signals
+- STRONG_BUY: candle🕯️+2 (bullish_engulf or strong_bull) + confirmed external catalyst (news, sector tailwind, MACD cross). Without a catalyst, max BUY.
+- BUY: candle🕯️+2 with neutral catalyst, OR candle🕯️-2 showing strong_bear (NOT bearish_engulf) — oversold bounce where high-volume selloff near MA20 often recovers. RSI must be 35-60.
+- HOLD: candle🕯️+1 (hammer/pullback_bull — backtest shows NOT reliable alone) OR candle🕯️0 (neutral). Do NOT enter without a catalyst.
+- SELL: candle🕯️-1 (mild bearish — 24% WR in backtest) OR bearish_engulf (Exp -1.4%). Avoid.
+- ALWAYS downgrade to HOLD if candle is doji🕯️— backtest Exp -1.2% regardless of other signals
+- ALWAYS downgrade one level if earnings within 5 days (gap risk)
+- ALWAYS downgrade one level if sector is underperforming and no independent catalyst
 
 Output raw JSON array only. No markdown, no explanation."""
 
