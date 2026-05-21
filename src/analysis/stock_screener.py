@@ -58,11 +58,15 @@ def _build_prompt(
             "🕯️-2差" if candle_q == -2 else
             "🕯️中性"
         )
+        vs_ma50 = c.get("vs_ma50_pct") or 0.0
+        mom_1m  = c.get("momentum_1m") or 0.0
+        mom_3m  = c.get("momentum_3m") or 0.0
         row_line = (
             f'{i+1}. {sym} ({c.get("company_name") or sym}) | '
             f'sector={_sector_tag(c.get("sector","") or "")} | '
             f'pe={c.get("pe_ratio","N/A")} | mkt_cap={_fmt_mktcap(c.get("market_cap"))} | '
-            f'beta={c.get("beta","N/A")} | momentum={c["momentum_5d"]:+.1f}% | '
+            f'beta={c.get("beta","N/A")} | mom_5d={c["momentum_5d"]:+.1f}% | '
+            f'mom_1m={mom_1m:+.1f}% | mom_3m={mom_3m:+.1f}% | vs_ma50={vs_ma50:+.1f}% | '
             f'vol_ratio={c["volume_ratio"]:.1f}x | rsi={c["rsi"]:.0f} | '
             f'52w_pos={_52w_pos(c)} | tech_score={c["tech_score"]:.1f} | price=${c["price"]} | '
             f'candle={candle_tag} [{candle_desc}]'
@@ -130,11 +134,18 @@ Return a JSON array of {len(candidates)} objects. Each object must have exactly 
 - "target_pct": number (upside %, use 0 for SELL)
 - "timeframe": "intraday" | "swing_2_5d" | "positional_1_2w" | "n/a"
 
-Signal guidelines (calibrated against 6-month backtest, 835 trades):
-- STRONG_BUY: candle🕯️+2 (bullish_engulf or strong_bull) + confirmed external catalyst (news, sector tailwind, MACD cross). Without a catalyst, max BUY.
-- BUY: candle🕯️+2 with neutral catalyst, OR candle🕯️-2 showing strong_bear (NOT bearish_engulf) — oversold bounce where high-volume selloff near MA20 often recovers. RSI must be 35-60.
-- HOLD: candle🕯️+1 (hammer/pullback_bull — backtest shows NOT reliable alone) OR candle🕯️0 (neutral). Do NOT enter without a catalyst.
-- SELL: candle🕯️-1 (mild bearish — 24% WR in backtest) OR bearish_engulf (Exp -1.4%). Avoid.
+ai_score rubric — PRIMARY TASK: distinguish "healthy pullback within uptrend" from "downtrend trap":
+
+STEP 1 — Trend context (mom_3m + vs_ma50):
+- UPTREND setup (ai_score 7-10 range): vs_ma50 > 0% AND mom_3m > -10%. Stock is above its 50d MA and only modestly off 3-month highs — short-term pullback within intact trend. Catalyst adds 1-2 pts.
+- NEUTRAL zone (ai_score 4-7 range): vs_ma50 between -8% and 0% OR mom_3m between -25% and -10%. Recovering but structure uncertain. Requires a clear catalyst to score above 6.
+- DOWNTREND TRAP (ai_score 1-4 hard cap): vs_ma50 < -8% AND mom_3m < -20%. Stock in structural decline; short-term bounces typically fail. Even with good candle/RSI, cap at 4 — this is dead-cat-bounce risk.
+
+STEP 2 — Signal guidelines (calibrated against 6-month backtest, 835 trades):
+- STRONG_BUY: UPTREND setup + candle🕯️+2 (bullish_engulf or strong_bull) + confirmed external catalyst (news, sector tailwind, MACD cross). Without a catalyst, max BUY.
+- BUY: UPTREND setup + candle🕯️+2 with neutral catalyst, OR UPTREND setup + candle🕯️-2 showing strong_bear (NOT bearish_engulf) — high-volume selloff near MA20 in uptrend often recovers. RSI must be 35-60.
+- HOLD: NEUTRAL zone stocks (structure not confirmed), OR candle🕯️+1 (hammer/pullback_bull — backtest shows NOT reliable alone). Do NOT enter without a catalyst.
+- SELL: DOWNTREND TRAP stocks (vs_ma50 < -8% AND mom_3m < -20%), OR candle🕯️-1 (mild bearish — 24% WR in backtest), OR bearish_engulf (Exp -1.4%). Avoid.
 - ALWAYS downgrade to HOLD if candle is doji🕯️— backtest Exp -1.2% regardless of other signals
 - ALWAYS downgrade one level if earnings within 5 days (gap risk)
 - ALWAYS downgrade one level if sector is underperforming and no independent catalyst

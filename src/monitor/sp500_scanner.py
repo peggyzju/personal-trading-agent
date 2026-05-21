@@ -259,8 +259,12 @@ def compute_technicals(df: pd.DataFrame) -> dict:
         return {}
 
     price_now = float(closes.iloc[-1])
-    price_5d  = float(closes.iloc[-6]) if len(closes) >= 6 else float(closes.iloc[0])
-    momentum_5d = (price_now - price_5d) / price_5d * 100
+    price_5d  = float(closes.iloc[-6])  if len(closes) >= 6  else float(closes.iloc[0])
+    price_1m  = float(closes.iloc[-22]) if len(closes) >= 22 else float(closes.iloc[0])
+    price_3m  = float(closes.iloc[-63]) if len(closes) >= 63 else float(closes.iloc[0])
+    momentum_5d  = (price_now - price_5d)  / price_5d  * 100
+    momentum_1m  = (price_now - price_1m)  / price_1m  * 100
+    momentum_3m  = (price_now - price_3m)  / price_3m  * 100
 
     vol_prev = float(volumes.iloc[-2]) if len(volumes) >= 2 else float(volumes.iloc[-1])
     vol_avg  = float(volumes.iloc[-22:-2].mean()) if len(volumes) >= 22 else float(volumes.iloc[:-1].mean())
@@ -325,6 +329,8 @@ def compute_technicals(df: pd.DataFrame) -> dict:
     result = {
         "price":        round(price_now, 2),
         "momentum_5d":  round(momentum_5d, 2),
+        "momentum_1m":  round(momentum_1m, 2),
+        "momentum_3m":  round(momentum_3m, 2),
         "volume_ratio": round(volume_ratio, 2),
         "near_breakout": near_breakout,
         "rsi":          rsi,
@@ -391,7 +397,7 @@ def quick_screen(
 
     def _fetch(symbol: str) -> dict | None:
         try:
-            df = yf.Ticker(symbol).history(period="60d", auto_adjust=True)
+            df = yf.Ticker(symbol).history(period="90d", auto_adjust=True)
             if df.empty or len(df) < 5:
                 return None
             tech = compute_technicals(df)
