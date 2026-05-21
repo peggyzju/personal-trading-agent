@@ -668,6 +668,12 @@ def run_agent(
                 notional = _size(price, stop) if (price and stop and stop < price) else \
                            min(portfolio_value * risk_pct * 3 * size_factor, max_notional)
 
+                # WSB extreme hype → halve position (retail frenzy = late-entry risk)
+                wsb_label = (c.get("wsb_hype") or {}).get("hype_label", "none")
+                if wsb_label == "extreme":
+                    notional = round(notional * 0.5, 2)
+                    print(f"[agent] {c['symbol']} WSB extreme hype — position halved to ${notional:.0f}")
+
                 trade = _make_trade(
                     symbol=c["symbol"], side="buy",
                     notional=notional, qty=None,

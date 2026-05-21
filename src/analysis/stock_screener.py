@@ -75,6 +75,12 @@ def _build_prompt(
         earnings_warning = info.get("earnings_warning")
         if earnings_warning:
             extras.append(f"   ⚠️  Earnings: {earnings_warning}")
+        wsb = info.get("wsb_hype")
+        if wsb and wsb.get("hype_label", "none") != "none":
+            label   = wsb["hype_label"]
+            mention = wsb["mentions"]
+            delta   = wsb["hype_delta"]
+            extras.append(f"   WSB: {label} ({mention} mentions, {delta:+.0f}% vs yesterday)")
         rows_parts.append(row_line + ("\n" + "\n".join(extras) if extras else ""))
 
     rows = "\n".join(rows_parts)
@@ -132,6 +138,9 @@ Signal guidelines (calibrated against 6-month backtest, 835 trades):
 - ALWAYS downgrade to HOLD if candle is doji🕯️— backtest Exp -1.2% regardless of other signals
 - ALWAYS downgrade one level if earnings within 5 days (gap risk)
 - ALWAYS downgrade one level if sector is underperforming and no independent catalyst
+- WSB hype=extreme → ALWAYS downgrade one level (retail frenzy = likely near top; late-entry risk)
+- WSB hype=moderate → ai_score may be +1 if technical setup is already strong (retail tailwind, not yet peaked)
+- WSB hype=high → neutral (monitor; neither boost nor downgrade)
 
 Output raw JSON array only. No markdown, no explanation."""
 

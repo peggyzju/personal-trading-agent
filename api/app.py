@@ -412,7 +412,29 @@ def _run_sp500_scan(cascade_agent: bool = False):
         earn_ct  = sum(1 for v in news_map.values() if v.get("earnings_warning"))
         print(f"[scan] News fetched: {news_ct} stocks with headlines, {earn_ct} with earnings warning")
 
-        print(f"[scan] Running AI scoring (with news + regime + sector context)…")
+        # Fetch WSB sentiment for Layer 2 symbols in scan results
+        _set_progress("fetching_wsb")
+        try:
+            from src.monitor.reddit_monitor import fetch_wsb_mentions
+            _wsb_syms = [c["symbol"] for c in top_tech if c.get("universe") == "layer2"]
+            if _wsb_syms:
+                _wsb_map = fetch_wsb_mentions(_wsb_syms)
+                for sym, wsb in _wsb_map.items():
+                    if sym in news_map:
+                        news_map[sym]["wsb_hype"] = wsb
+                    else:
+                        news_map[sym] = {"headlines": [], "earnings_warning": None, "wsb_hype": wsb}
+                # Embed wsb_hype into candidate dict so Rex can read it without re-fetching
+                for c in top_tech:
+                    if c["symbol"] in _wsb_map:
+                        c["wsb_hype"] = _wsb_map[c["symbol"]]
+                _wsb_extreme = [s for s, v in _wsb_map.items() if v["hype_label"] == "extreme"]
+                if _wsb_extreme:
+                    print(f"[scan] WSB extreme hype: {_wsb_extreme}")
+        except Exception as _wsb_err:
+            print(f"[scan] WSB fetch error (non-fatal): {_wsb_err}")
+
+        print(f"[scan] Running AI scoring (with news + WSB + regime + sector context)…")
         _set_progress("ai_scoring")
         _scan_notes = [n["text"] for n in _load_notes() if n.get("active", True)]
         top_ai = _sanitize_floats(ai_score_candidates(
