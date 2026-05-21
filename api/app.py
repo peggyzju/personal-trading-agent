@@ -2060,6 +2060,16 @@ Return ONLY valid JSON:
     return _json.loads(match.group())
 
 
+# ── Post-Mortem ───────────────────────────────────────────────────────────────
+
+@app.get("/api/postmortem")
+async def get_postmortem(days: int = 7, top_n: int = 3):
+    """Generate AI post-mortem for the past N days of trades."""
+    from src.analysis.postmortem import run_postmortem
+    result = run_postmortem(days=days, top_n=top_n)
+    return result
+
+
 # ── Serve built React app ─────────────────────────────────────────────────────
 
 frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
