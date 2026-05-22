@@ -149,15 +149,15 @@ function SPYBenchmark({ spy }: { spy: number }) {
 
 // ── Side-by-side comparison table ────────────────────────────────────────────
 
-const METRICS: { key: keyof BacktestResult; label: string; fmt: (v: number) => string; better: "higher" | "lower" }[] = [
+const METRICS: { key: keyof BacktestResult; label: string; fmt: (v: number) => string; better: "higher" | "lower"; primary?: boolean }[] = [
   { key: "total_trades",     label: "总交易次数",  fmt: v => String(v),          better: "higher" },
   { key: "win_rate",         label: "胜率",        fmt: v => `${v}%`,            better: "higher" },
   { key: "avg_win_pct",      label: "平均盈利",    fmt: v => `+${v}%`,           better: "higher" },
   { key: "avg_loss_pct",     label: "平均亏损",    fmt: v => `${v}%`,            better: "higher" },
-  { key: "profit_factor",    label: "盈亏比",      fmt: v => `${v}x`,            better: "higher" },
+  { key: "profit_factor",    label: "盈亏比",      fmt: v => `${v}x`,            better: "higher", primary: true },
   { key: "total_return_pct", label: "策略总收益",  fmt: v => `${v >= 0 ? "+" : ""}${v}%`, better: "higher" },
-  { key: "alpha_pct",        label: "超额收益",    fmt: v => `${v >= 0 ? "+" : ""}${v}%`, better: "higher" },
-  { key: "max_drawdown_pct", label: "最大回撤",    fmt: v => `-${v}%`,           better: "lower"  },
+  { key: "alpha_pct",        label: "超额收益",    fmt: v => `${v >= 0 ? "+" : ""}${v}%`, better: "higher", primary: true },
+  { key: "max_drawdown_pct", label: "最大回撤",    fmt: v => `-${v}%`,           better: "lower",  primary: true },
   { key: "sharpe_ratio",     label: "夏普比率",    fmt: v => String(v),          better: "higher" },
 ];
 
@@ -174,7 +174,7 @@ function CompareTable({ prev, curr }: { prev: VersionStats; curr: VersionStats }
         <div className="vcol-curr">{curr.label}</div>
       </div>
 
-      {METRICS.map(({ key, label, fmt, better }) => {
+      {METRICS.map(({ key, label, fmt, better, primary }) => {
         const pv = ps[key] as number | undefined;
         const cv = cs[key] as number | undefined;
         const pWins = pv !== undefined && cv !== undefined
@@ -183,8 +183,11 @@ function CompareTable({ prev, curr }: { prev: VersionStats; curr: VersionStats }
           ? (better === "higher" ? cv > pv : cv < pv) : false;
 
         return (
-          <div key={key} className="version-compare-row">
-            <div className="vcol-label">{label}</div>
+          <div key={key} className={`version-compare-row ${primary ? "vcol-primary-row" : ""}`}>
+            <div className="vcol-label">
+              {primary && <span className="vcol-primary-dot" />}
+              {label}
+            </div>
             <div className={`vcol-prev ${pWins ? "vcol-win" : ""}`}>
               {pv !== undefined ? fmt(pv) : "—"}
             </div>

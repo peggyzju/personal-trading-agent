@@ -1077,6 +1077,17 @@ body {
   padding: 8px 16px;
 }
 .version-compare-exits .vcol-label { align-self: flex-start; padding-top: 12px; }
+.vcol-primary-row { background: #6366f108; }
+.vcol-primary-row .vcol-label { color: var(--text); font-weight: 500; }
+.vcol-primary-dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #6366f1;
+  margin-right: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
 
 .version-curves-row {
   display: grid;
