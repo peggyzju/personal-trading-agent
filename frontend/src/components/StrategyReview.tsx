@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { api } from "../api/client";
 import type { StockDebateResult, PostmortemResult, PostmortemTrade, StrategyBacktestResult, TimelinePeriod } from "../api/client";
+import { BacktestView } from "./BacktestView";
 
 interface Props { backendOnline: boolean }
 
@@ -12,7 +13,7 @@ export function StrategyReviewPanel({ backendOnline }: Props) {
   return (
     <div className="sr-container">
       <PostMortemPanel backendOnline={backendOnline} />
-      <BacktestPanel />
+      <BacktestView backendOnline={backendOnline} />
     </div>
   );
 }
