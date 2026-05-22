@@ -356,16 +356,32 @@ def _compute_stats(trades: list[dict], spy_return: float) -> dict:
 # ── Public entry point ────────────────────────────────────────────────────────
 
 def _download_data(symbols: list[str], period: str) -> tuple:
-    """Download price data for symbols + SPY. Returns (raw, get_df, spy_return)."""
+    """Download price data for symbols + SPY. Returns (raw, get_df, spy_return).
+    period can be yfinance periods ("6mo","1y","2y") or a calendar year ("2024","2023").
+    """
     all_syms = list(set(symbols + ["SPY"]))
-    raw = yf.download(
-        all_syms,
-        period=period,
-        group_by="ticker",
-        auto_adjust=True,
-        threads=True,
-        progress=False,
-    )
+    # Support calendar year periods
+    year_map = {str(y): (f"{y}-01-01", f"{y}-12-31") for y in range(2020, 2030)}
+    if period in year_map:
+        start, end = year_map[period]
+        raw = yf.download(
+            all_syms,
+            start=start,
+            end=end,
+            group_by="ticker",
+            auto_adjust=True,
+            threads=True,
+            progress=False,
+        )
+    else:
+        raw = yf.download(
+            all_syms,
+            period=period,
+            group_by="ticker",
+            auto_adjust=True,
+            threads=True,
+            progress=False,
+        )
 
     def _get_df(sym: str) -> pd.DataFrame:
         if len(all_syms) == 1:
