@@ -47,7 +47,7 @@
 | 层级 | 机制 |
 |------|------|
 | 1 | Alpaca Bracket GTC：入场时挂止损，服务器端自动执行，无需轮询 |
-| 2 | 追踪止盈：Track1 +10% 激活 / Track2 +6% 激活，高水位回落 5% 触发（`TRAIL_PCT=0.05`）|
+| 2 | 追踪止盈：+10% 激活，高水位回落 5% 触发（`TRAIL_TRIGGER=0.10, TRAIL_PCT=0.05`）|
 | 3 | AI 软清仓：Claude 每 30 分钟评估持仓，SELL / REDUCE / HOLD 信号 |
 
 Holdings Monitor `HARD_STOP_PCT = −8.0` 是最后兜底，不是主止损。
@@ -66,8 +66,7 @@ Holdings Monitor `HARD_STOP_PCT = −8.0` 是最后兜底，不是主止损。
 | `MIN_CASH_PCT` | 0.05 | trade_agent.py |
 | `risk_pct` | 0.02 | trade_agent.py |
 | `max_pos_pct` | 0.08 | trade_agent.py |
-| `TRAIL_TRIGGER_T1` | 0.10 | trade_agent.py（动能突破）|
-| `TRAIL_TRIGGER_T2` | 0.06 | trade_agent.py（盘整蓄力）|
+| `TRAIL_TRIGGER` | 0.10 | trade_agent.py |
 | `TRAIL_PCT` | 0.05 | trade_agent.py |
 | `PRICE_DRIFT_THRESHOLD` | 0.015 | trade_agent.py |
 | `SECTOR_RESONANCE_THRESHOLD` | 3 | sp500_scanner.py |

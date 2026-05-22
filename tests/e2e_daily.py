@@ -814,14 +814,12 @@ def test_v3_strategy():
         import src.trader.trade_agent as ta
         import inspect
         src_code = inspect.getsource(ta.run_agent)
-        if "TRAIL_TRIGGER_T1 = 0.10" in src_code:
-            ok("Trail trigger T1", "TRAIL_TRIGGER_T1 = 10% (动能突破) ✓")
+        import src.trader.trade_agent as _ta_mod
+        ta_src = inspect.getsource(_ta_mod)
+        if "TRAIL_TRIGGER = 0.10" in ta_src:
+            ok("Trail trigger", "TRAIL_TRIGGER = 10% ✓")
         else:
-            fail("Trail trigger T1", "TRAIL_TRIGGER_T1 不是 0.10")
-        if "TRAIL_TRIGGER_T2 = 0.06" in src_code:
-            ok("Trail trigger T2", "TRAIL_TRIGGER_T2 = 6% (盘整蓄力) ✓")
-        else:
-            fail("Trail trigger T2", "TRAIL_TRIGGER_T2 不是 0.06")
+            fail("Trail trigger", "TRAIL_TRIGGER 不是 0.10")
         if "TRAIL_PCT        = 0.05" in src_code or "TRAIL_PCT = 0.05" in src_code:
             ok("Trail pct", "TRAIL_PCT = 5% ✓")
         else:
