@@ -838,7 +838,7 @@ def run_agent(
         # ── 3. Holdings: SELL / REDUCE ────────────────────────────────────────
         # First pass: hard stop-loss + trailing stop from live Alpaca positions
         HARD_STOP_PCT  = -stop_loss_pct * 100   # fallback for untracked positions
-        TRAIL_TRIGGER  = 0.06   # activate trailing after +6% gain
+        TRAIL_TRIGGER  = 0.10   # activate trailing after +10% gain
         TRAIL_PCT      = 0.05   # sell if drops 5% from high water
 
         # Build symbol → trade entry from most-recent buy in trades.json

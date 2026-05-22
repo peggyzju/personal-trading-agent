@@ -814,10 +814,10 @@ def test_v3_strategy():
         import src.trader.trade_agent as ta
         import inspect
         src_code = inspect.getsource(ta.run_agent)
-        if "TRAIL_TRIGGER  = 0.06" in src_code or "TRAIL_TRIGGER = 0.06" in src_code:
-            ok("Trail trigger", "TRAIL_TRIGGER = 6% ✓")
+        if "TRAIL_TRIGGER  = 0.10" in src_code or "TRAIL_TRIGGER = 0.10" in src_code:
+            ok("Trail trigger", "TRAIL_TRIGGER = 10% ✓")
         else:
-            fail("Trail trigger", "TRAIL_TRIGGER 不是 0.06")
+            fail("Trail trigger", "TRAIL_TRIGGER 不是 0.10")
         if "TRAIL_PCT      = 0.05" in src_code or "TRAIL_PCT = 0.05" in src_code:
             ok("Trail pct", "TRAIL_PCT = 5% ✓")
         else:

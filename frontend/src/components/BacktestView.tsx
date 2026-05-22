@@ -8,7 +8,7 @@ export function BacktestView({ backendOnline }: Props) {
   const [data, setData] = useState<VersionCompareResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [period, setPeriod] = useState<"6mo" | "1y" | "2025" | "2024" | "2023">("6mo");
-  const [holdDays, setHoldDays] = useState(7);
+  const [holdDays, setHoldDays] = useState(14);
 
   useEffect(() => {
     if (backendOnline) {
