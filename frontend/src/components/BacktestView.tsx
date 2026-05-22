@@ -11,9 +11,26 @@ export function BacktestView({ backendOnline }: Props) {
   const [holdDays, setHoldDays] = useState(14);
 
   useEffect(() => {
-    if (backendOnline) {
-      api.getVersionCompare().then(r => { if (r.status !== "not_run") setData(r); }).catch(() => {});
-    }
+    if (!backendOnline) return;
+    api.getVersionCompare().then(r => {
+      const hasValidData = r.status === "done" &&
+        r.v_prev?.stats && !("error" in r.v_prev.stats) &&
+        r.v_current?.stats && !("error" in r.v_current.stats);
+      if (r.status === "not_run" || (r.status === "done" && !hasValidData)) {
+        // cache empty or stale bad result — auto-trigger with defaults
+        setLoading(true);
+        api.triggerVersionCompare({ period: "6mo", hold_days: 14 }).then(() => {
+          const poll = setInterval(async () => {
+            const res = await api.getVersionCompare();
+            setData(res);
+            if (res.status !== "running") { clearInterval(poll); setLoading(false); }
+          }, 3000);
+          setTimeout(() => { clearInterval(poll); setLoading(false); }, 180_000);
+        }).catch(() => setLoading(false));
+      } else {
+        setData(r);
+      }
+    }).catch(() => {});
   }, [backendOnline]);
 
   async function run() {
