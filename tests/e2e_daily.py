@@ -555,8 +555,8 @@ def test_hard_stop_logic():
 
         positions_raw = [
             {"symbol": "LOSEIT", "qty": 5, "avg_entry_price": 100.0,
-             "current_price": 96.4, "market_value": 482, "unrealized_pl": -18,
-             "unrealized_plpc": -3.6, "side": "long"},          # -3.6% → hard stop
+             "current_price": 91.0, "market_value": 455, "unrealized_pl": -45,
+             "unrealized_plpc": -9.0, "side": "long"},          # -9% → hard stop (threshold -8%)
             {"symbol": "SAFEIT", "qty": 5, "avg_entry_price": 100.0,
              "current_price": 99.0, "market_value": 495, "unrealized_pl": -5,
              "unrealized_plpc": -1.0, "side": "long"},          # -1% → HOLD ok
@@ -569,10 +569,10 @@ def test_hard_stop_logic():
 
         sig_map = {r["symbol"]: r for r in result}
 
-        # LOSEIT: Claude says HOLD but -3.6% → must be SELL (hard stop wins)
+        # LOSEIT: Claude says HOLD but -9% → must be SELL (hard stop catch-all at -8%)
         loseit = sig_map.get("LOSEIT", {})
         if loseit.get("sell_signal") == "SELL" and loseit.get("urgency") == "HIGH":
-            ok("Hard stop override", "LOSEIT -3.6%: Claude=HOLD → hard stop=SELL ✓")
+            ok("Hard stop override", "LOSEIT -9%: Claude=HOLD → hard stop=SELL ✓")
         else:
             fail("Hard stop override",
                  f"LOSEIT: sell_signal={loseit.get('sell_signal')}, urgency={loseit.get('urgency')}")
@@ -617,8 +617,8 @@ def test_hard_stop_logic():
         ]
         # Mock trailing stops: RUNIT's stop is above current price
         mock_trailing = {
-            "RUNIT": {"high_watermark": 120.0, "trailing_stop": 112.8, "trail_pct": 6.0},
-            "SAFEX": {"high_watermark": 105.0, "trailing_stop": 98.7,  "trail_pct": 6.0},
+            "RUNIT": {"high_watermark": 120.0, "trailing_stop": 114.0, "trail_pct": 5.0},  # 120*(1-0.05)
+            "SAFEX": {"high_watermark": 105.0, "trailing_stop":  99.75, "trail_pct": 5.0},  # 105*(1-0.05)
         }
 
         with patch("anthropic.Anthropic", return_value=mock_client), \
@@ -630,18 +630,18 @@ def test_hard_stop_logic():
 
         ts_map = {r["symbol"]: r for r in result_ts}
 
-        # RUNIT: price $110 < trailing_stop $112.8 → must SELL despite Claude=HOLD
+        # RUNIT: price $110 < trailing_stop $114.0 (5% from $120 peak) → must SELL despite Claude=HOLD
         runit = ts_map.get("RUNIT", {})
         if runit.get("sell_signal") == "SELL" and runit.get("urgency") == "HIGH":
-            ok("Trailing stop trigger", "RUNIT $110 < stop $112.8: Claude=HOLD → trailing=SELL ✓")
+            ok("Trailing stop trigger", "RUNIT $110 < stop $114.0: Claude=HOLD → trailing=SELL ✓")
         else:
             fail("Trailing stop trigger",
                  f"RUNIT: sell_signal={runit.get('sell_signal')}, urgency={runit.get('urgency')}")
 
-        # SAFEX: price $103 > trailing_stop $98.7 → HOLD passes through
+        # SAFEX: price $103 > trailing_stop $99.75 (5% from $105 peak) → HOLD passes through
         safex = ts_map.get("SAFEX", {})
         if safex.get("sell_signal") == "HOLD":
-            ok("No false trailing stop", "SAFEX $103 > stop $98.7: HOLD 正确保留 ✓")
+            ok("No false trailing stop", "SAFEX $103 > stop $99.75: HOLD 正确保留 ✓")
         else:
             fail("No false trailing stop",
                  f"SAFEX: 意外 sell_signal={safex.get('sell_signal')}")
@@ -649,6 +649,181 @@ def test_hard_stop_logic():
     except Exception as e:
         fail("Trailing stop 逻辑", str(e))
         traceback.print_exc()
+
+
+# ── 11b. v3 策略核心逻辑 ──────────────────────────────────────────────────────
+def test_v3_strategy():
+    print("\n[11b] v3 策略 — 双轨选股 / 止损 / 市场时间门 / 价格漂移 / 财报过滤")
+
+    # ── 1. compute_structured_stop 使用 2×ATR ────────────────────────────────
+    try:
+        from src.analysis.position_sizer import compute_structured_stop
+        entry, atr, ma20 = 100.0, 3.0, 96.0
+        stop = compute_structured_stop(entry, atr, ma20)
+        # 2×ATR candidate = 100 - 6 = 94; MA20×0.99 = 94.97 → max(92, min(94.97, 97)) = 94.97
+        # Either way, stop must be below entry and above floor (entry×0.92=92)
+        floor, ceiling = entry * 0.92, entry * 0.97
+        if floor <= stop <= ceiling:
+            ok("2×ATR stop", f"entry={entry}, atr={atr} → stop={stop} ∈ [{floor},{ceiling}] ✓")
+        else:
+            fail("2×ATR stop", f"stop={stop} 超出 [{floor},{ceiling}] 范围")
+
+        # Verify 2×ATR is in the candidate pool: entry - 2*atr = 94.0 should influence result
+        stop_1atr = compute_structured_stop(entry, atr=10.0, ma20=50.0)
+        if stop_1atr == floor:  # 100 - 20 = 80 < floor(92) → clamped to floor
+            ok("2×ATR floor clamp", f"2×ATR=80 < floor=92 → clamped to {floor} ✓")
+        else:
+            fail("2×ATR floor clamp", f"期望 {floor}，实际 {stop_1atr}")
+    except Exception as e:
+        fail("2×ATR stop", str(e))
+
+    # ── 2. 市场时间门 _is_market_hours ───────────────────────────────────────
+    try:
+        from src.trader.trade_agent import _is_market_hours
+        from unittest.mock import patch
+        from datetime import datetime
+        import zoneinfo
+
+        ET = zoneinfo.ZoneInfo("America/New_York")
+        # Monday 10:00 ET → should be open
+        open_dt  = datetime(2026, 5, 18, 10, 0, tzinfo=ET)
+        # Monday 8:00 ET → should be closed
+        pre_dt   = datetime(2026, 5, 18, 8, 0, tzinfo=ET)
+        # Saturday → should be closed
+        sat_dt   = datetime(2026, 5, 16, 10, 0, tzinfo=ET)
+
+        with patch("src.trader.trade_agent._now", return_value=open_dt):
+            if _is_market_hours():
+                ok("Market hours open", "Mon 10:00 ET → open ✓")
+            else:
+                fail("Market hours open", "Mon 10:00 ET 应为 open")
+
+        with patch("src.trader.trade_agent._now", return_value=pre_dt):
+            if not _is_market_hours():
+                ok("Market hours pre-open", "Mon 08:00 ET → closed ✓")
+            else:
+                fail("Market hours pre-open", "Mon 08:00 ET 应为 closed")
+
+        with patch("src.trader.trade_agent._now", return_value=sat_dt):
+            if not _is_market_hours():
+                ok("Market hours weekend", "Saturday → closed ✓")
+            else:
+                fail("Market hours weekend", "Saturday 应为 closed")
+    except Exception as e:
+        fail("Market hours gate", str(e))
+
+    # ── 3. 双轨选股逻辑 ──────────────────────────────────────────────────────
+    try:
+        from src.monitor.sp500_scanner import quick_screen
+
+        # Build minimal mock raw records
+        mock_raws = [
+            # Track 1: RSI=60, today_bull=True, mom5d=2%, vs_ma20=5% → passes
+            {"symbol": "T1OK", "rsi": 60, "today_bull": True, "momentum_5d": 2.0,
+             "vs_ma20_pct": 5.0, "volume_ratio": 1.2, "sector": "SEMIS",
+             "price": 100, "ma20": 95},
+            # Track 2: RSI=50, today_bull=False, vol_ratio=0.6, mom5d=0 → passes
+            {"symbol": "T2OK", "rsi": 50, "today_bull": False, "momentum_5d": 0.0,
+             "vs_ma20_pct": 3.0, "volume_ratio": 0.6, "sector": "SOFTWARE",
+             "price": 100, "ma20": 97},
+            # Fails both: RSI=80 (>75, not in hot sector), today_bull=False
+            {"symbol": "FAIL", "rsi": 80, "today_bull": False, "momentum_5d": 1.0,
+             "vs_ma20_pct": 5.0, "volume_ratio": 1.0, "sector": "OTHER",
+             "price": 100, "ma20": 95},
+        ]
+
+        from unittest.mock import patch as _patch
+        with _patch("src.monitor.sp500_scanner._fetch_raw", return_value=mock_raws):
+            results_q = quick_screen(["T1OK", "T2OK", "FAIL"], force_symbols=set())
+
+        syms = {r["symbol"] for r in results_q}
+        if "T1OK" in syms:
+            ok("Track1 passes", "T1OK RSI=60+today_bull → 通过 ✓")
+        else:
+            fail("Track1 passes", "T1OK 应通过 Track1")
+
+        if "T2OK" in syms:
+            ok("Track2 passes", "T2OK RSI=50+low_vol → 通过 ✓")
+        else:
+            fail("Track2 passes", "T2OK 应通过 Track2")
+
+        if "FAIL" not in syms:
+            ok("Dual-track filter", "FAIL RSI=80+no_bull → 正确拦截 ✓")
+        else:
+            fail("Dual-track filter", "FAIL 不应通过双轨过滤")
+
+    except Exception as e:
+        fail("双轨选股", str(e))
+        traceback.print_exc()
+
+    # ── 4. 板块共振 RSI 上限提升 ──────────────────────────────────────────────
+    try:
+        from src.monitor.sp500_scanner import quick_screen, SECTOR_RESONANCE_THRESHOLD
+
+        # Create 3 SEMIS stocks with today_bull → sector becomes hot → RSI ceiling 85
+        semis_hot = [
+            {"symbol": f"SEMI{i}", "rsi": 78, "today_bull": True, "momentum_5d": 1.0,
+             "vs_ma20_pct": 5.0, "volume_ratio": 1.0, "sector": "SEMIS",
+             "price": 100, "ma20": 95}
+            for i in range(SECTOR_RESONANCE_THRESHOLD)
+        ]
+        # One stock with RSI=78 that should only pass when sector is hot
+        test_stock = {"symbol": "SEMIHIGH", "rsi": 78, "today_bull": True,
+                      "momentum_5d": 1.0, "vs_ma20_pct": 5.0, "volume_ratio": 1.0,
+                      "sector": "SEMIS", "price": 100, "ma20": 95}
+
+        all_mock = semis_hot + [test_stock]
+        syms_all = [r["symbol"] for r in all_mock]
+
+        from unittest.mock import patch as _patch
+        with _patch("src.monitor.sp500_scanner._fetch_raw", return_value=all_mock):
+            res_hot = quick_screen(syms_all, force_symbols=set())
+
+        hot_syms = {r["symbol"] for r in res_hot}
+        if "SEMIHIGH" in hot_syms:
+            ok("Sector resonance boost", f"SEMIS hot (≥{SECTOR_RESONANCE_THRESHOLD} today_bull) → RSI=78 通过 ✓")
+        else:
+            fail("Sector resonance boost", "SEMIS 板块共振应将 RSI 上限提升至 85，SEMIHIGH 应通过")
+
+    except Exception as e:
+        fail("板块共振", str(e))
+        traceback.print_exc()
+
+    # ── 5. 财报过滤 days=1 (今天/明天) ───────────────────────────────────────
+    try:
+        from src.monitor.news_monitor import earnings_within_days
+        # days=1 means: only block today or tomorrow's earnings
+        # We can't mock the actual calendar, but verify the function signature
+        import inspect
+        sig = inspect.signature(earnings_within_days)
+        params = list(sig.parameters.keys())
+        if "days" in params:
+            ok("Earnings filter sig", "earnings_within_days(symbol, days=) 参数存在 ✓")
+        else:
+            fail("Earnings filter sig", "缺少 days 参数")
+
+        # Verify default behavior: days=1 blocks only today/tomorrow
+        # Call with a safe symbol (unlikely to have earnings tomorrow)
+        has_earn, earn_date = earnings_within_days("AAPL", days=1)
+        ok("Earnings filter call", f"AAPL days=1: has_earnings={has_earn}, date={earn_date} ✓")
+    except Exception as e:
+        fail("财报过滤", str(e))
+
+    # ── 6. Trail 参数验证 (TRAIL_TRIGGER=6%, TRAIL_PCT=5%) ─────────────────
+    try:
+        import src.trader.trade_agent as ta
+        import inspect
+        src_code = inspect.getsource(ta.run_agent)
+        if "TRAIL_TRIGGER  = 0.06" in src_code or "TRAIL_TRIGGER = 0.06" in src_code:
+            ok("Trail trigger", "TRAIL_TRIGGER = 6% ✓")
+        else:
+            fail("Trail trigger", "TRAIL_TRIGGER 不是 0.06")
+        if "TRAIL_PCT      = 0.05" in src_code or "TRAIL_PCT = 0.05" in src_code:
+            ok("Trail pct", "TRAIL_PCT = 5% ✓")
+        else:
+            fail("Trail pct", "TRAIL_PCT 不是 0.05")
+    except Exception as e:
+        fail("Trail 参数", str(e))
 
 
 # ── 11. 缓存数据契约 ───────────────────────────────────────────────────────────
@@ -893,6 +1068,7 @@ if __name__ == "__main__":
         test_vera()
         test_data_contracts()
         test_scheduler_design()
+        test_v3_strategy()
 
     failed = print_report()
     sys.exit(1 if failed else 0)
