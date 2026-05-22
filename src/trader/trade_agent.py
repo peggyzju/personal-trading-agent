@@ -144,22 +144,17 @@ def _next_session_close() -> datetime:
 
 def _is_market_hours() -> bool:
     """True between 9:25 AM and 4:05 PM US/Eastern Mon-Fri (approximate)."""
-    from datetime import timezone as tz
+    from datetime import time as dtime
     try:
         import zoneinfo
         et = zoneinfo.ZoneInfo("America/New_York")
     except ImportError:
-        # Python < 3.9 fallback: UTC-4 (EDT) or UTC-5 (EST)
-        import time
-        et_offset = timedelta(hours=-4)   # EDT approximation
-        et = timezone(et_offset)
+        et = timezone(timedelta(hours=-4))   # EDT approximation
 
     now_et = _now().astimezone(et)
     if now_et.weekday() >= 5:   # Saturday / Sunday
         return False
-    t = now_et.time()
-    from datetime import time as dtime
-    return dtime(9, 25) <= t <= dtime(16, 5)
+    return dtime(9, 25) <= now_et.time() <= dtime(16, 5)
 
 
 # ── Trade construction ────────────────────────────────────────────────────────
@@ -219,8 +214,7 @@ def get_pending_trades() -> list[dict]:
             changed = True
         # Auto-clear errors older than 24 h
         if t["status"] == "error":
-            age = (now - datetime.fromisoformat(t["created_at"].replace("Z", "+00:00")
-                   if "+" not in t["created_at"] else t["created_at"])).total_seconds()
+            age = (now - datetime.fromisoformat(t["created_at"])).total_seconds()
             if age > ERROR_TTL_HOURS * 3600:
                 del _pending[t["id"]]
                 changed = True
@@ -474,8 +468,8 @@ def run_agent(
             summary["status"] = "buys_blocked"
 
         # ── Guard: check cash and open slots ─────────────────────────────────
-        cash = portfolio_value   # fallback
-        equity = portfolio_value  # fallback (updated below with acct.equity)
+        cash: float = 0.0
+        equity: float = portfolio_value
         owned_symbols: set[str] = set()
         slots_remaining = regime.get("max_positions", 10)   # fallback respects macro filter
         alpaca_positions: list = []
@@ -579,15 +573,17 @@ def run_agent(
         )
 
         # ── Cash pressure: lower threshold when cash is piling up ────────────
+        # Trigger 1: >30% cash AND 2+ consecutive dry runs → relax by 1 point
+        # Trigger 2: >50% cash regardless of dry runs → relax by 1 point
         cash_pct = cash / portfolio_value if portfolio_value > 0 else 0
-        if can_buy and cash_pct > 0.30 and dry_runs >= 2 and regime["regime"] != "BEAR":
+        if can_buy and regime["regime"] != "BEAR":
             relaxed = max(5, min_ai_score - 1)
-            print(f"[agent] Cash pressure: {cash_pct:.0%} cash, {dry_runs} dry runs → relaxing min_ai_score {min_ai_score}→{relaxed}")
-            min_ai_score = relaxed
-        elif can_buy and cash_pct > 0.50 and regime["regime"] != "BEAR":
-            relaxed = max(5, min_ai_score - 1)
-            print(f"[agent] High cash ({cash_pct:.0%}) → relaxing min_ai_score {min_ai_score}→{relaxed}")
-            min_ai_score = relaxed
+            if cash_pct > 0.50:
+                print(f"[agent] High cash ({cash_pct:.0%}) → relaxing min_ai_score {min_ai_score}→{relaxed}")
+                min_ai_score = relaxed
+            elif cash_pct > 0.30 and dry_runs >= 2:
+                print(f"[agent] Cash pressure: {cash_pct:.0%} cash, {dry_runs} dry runs → relaxing min_ai_score {min_ai_score}→{relaxed}")
+                min_ai_score = relaxed
         summary["cash_pct"] = round(cash_pct * 100, 1)
         summary["min_ai_score_used"] = min_ai_score
 
@@ -1015,8 +1011,8 @@ def run_agent(
                     _reduce_today[pos["symbol"]] = today_str
                     _streak[pos["symbol"]] = streak + 1
                     _save_reduce_streak(_streak)
-                elif sell_signal == "SELL":
-                    # Full SELL (not escalated) — reset streak
+                else:
+                    # Full SELL — reset streak
                     _streak.pop(pos["symbol"], None)
                     _save_reduce_streak(_streak)
 

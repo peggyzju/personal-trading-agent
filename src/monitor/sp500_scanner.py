@@ -142,10 +142,14 @@ def get_scan_universe(include_dynamic: bool = True) -> list[str]:
             seen.add(sym)
             combined.append(sym)
 
-    l2_unique  = len([s for s in layer2   if s not in set(sp500 + ndq100)])
-    dyn_unique = len([s for s in dynamic  if s not in set(sp500 + ndq100 + layer2)])
+    sp500_set       = set(sp500)
+    sp500_ndq_set   = set(sp500 + ndq100)
+    sp500_ndq_l2_set = set(sp500 + ndq100 + layer2)
+    ndq_unique  = len([s for s in ndq100  if s not in sp500_set])
+    l2_unique   = len([s for s in layer2  if s not in sp500_ndq_set])
+    dyn_unique  = len([s for s in dynamic if s not in sp500_ndq_l2_set])
     print(f"[scanner] Universe: {len(sp500)} S&P500 + "
-          f"{len([s for s in ndq100 if s not in set(sp500)])} NDQ100-unique "
+          f"{ndq_unique} NDQ100-unique "
           f"+ {l2_unique} Layer2-unique "
           f"+ {dyn_unique} dynamic "
           f"= {len(combined)} total")
@@ -302,7 +306,7 @@ def compute_technicals(df: pd.DataFrame) -> dict:
         return {}
 
     price_now = float(closes.iloc[-1])
-    price_5d  = float(closes.iloc[-6])  if len(closes) >= 6  else float(closes.iloc[0])
+    price_5d  = float(closes.iloc[-6])
     price_1m  = float(closes.iloc[-22]) if len(closes) >= 22 else float(closes.iloc[0])
     price_3m  = float(closes.iloc[-63]) if len(closes) >= 63 else float(closes.iloc[0])
     momentum_5d  = (price_now - price_5d)  / price_5d  * 100

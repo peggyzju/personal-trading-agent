@@ -17,7 +17,6 @@ load_dotenv()
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    import threading
     threading.Thread(target=_refresh_holdings, daemon=True).start()  # non-blocking pre-warm
     yield
 
@@ -320,7 +319,8 @@ def _run_sp500_scan(cascade_agent: bool = False):
     from src.analysis.stock_screener import ai_score_candidates
     from src.analysis.market_context import load_market_context
 
-    SECTOR_MAP = {
+    from src.monitor.sp500_scanner import SECTOR_MAP as _SCANNER_SECTOR_MAP
+    BROAD_SECTOR_MAP = {
         "tech":          ["AAPL","MSFT","GOOGL","META","NVDA","AMD","AVGO","ORCL"],
         "semiconductors":["NVDA","AMD","AVGO","QCOM","INTC","MU","AMAT","KLAC","LRCX","MRVL","SOXX"],
         "healthcare":    ["UNH","JNJ","LLY","ABBV","MRK","TMO","ABT","DHR","ISRG","VRTX"],
@@ -353,7 +353,7 @@ def _run_sp500_scan(cascade_agent: bool = False):
         symbol_bias: dict[str, str] = {}
         for sector, bias in sector_bias.items():
             if bias != "neutral":
-                for sym in SECTOR_MAP.get(sector, []):
+                for sym in BROAD_SECTOR_MAP.get(sector, []):
                     if sym not in symbol_bias or bias == "negative":
                         symbol_bias[sym] = bias
 
@@ -700,7 +700,7 @@ def get_pipeline_status():
             "age": _age_str(scan.get("scanned_at")),
         },
         "agent": {
-            "status": "running" if False else ("done" if last_run else "not_run"),
+            "status": "done" if last_run else "not_run",
             "last_run_at": last_run.get("run_at") if last_run else None,
             "age": _age_str(last_run.get("run_at")) if last_run else None,
             "signals_found": last_run.get("signals_found", 0) if last_run else 0,
@@ -1883,7 +1883,6 @@ async def extract_strategy_params(body: dict):
     cur_min_ai   = ov.get("min_ai_score",      None)   # None = regime-determined
     cur_sl_pct   = ov.get("stop_loss_pct",     0.03)
 
-    client = anthropic.Anthropic(api_key=get_anthropic_key())
     prompt = f"""You are a quant trading system that maps natural-language strategy suggestions to concrete parameter changes.
 
 Current agent parameters:
