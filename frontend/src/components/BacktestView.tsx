@@ -7,7 +7,7 @@ interface Props { backendOnline: boolean }
 export function BacktestView({ backendOnline }: Props) {
   const [data, setData] = useState<VersionCompareResult | null>(null);
   const [loading, setLoading] = useState(false);
-  const [period, setPeriod] = useState<"6mo" | "1y" | "2024" | "2023">("6mo");
+  const [period, setPeriod] = useState<"6mo" | "1y" | "2025" | "2024" | "2023">("6mo");
   const [holdDays, setHoldDays] = useState(7);
 
   useEffect(() => {
@@ -52,9 +52,10 @@ export function BacktestView({ backendOnline }: Props) {
       <div className="backtest-config">
         <label className="config-label">
           回测周期
-          <select value={period} onChange={e => setPeriod(e.target.value as "6mo" | "1y" | "2024" | "2023")} className="config-input">
+          <select value={period} onChange={e => setPeriod(e.target.value as "6mo" | "1y" | "2025" | "2024" | "2023")} className="config-input">
             <option value="6mo">6 个月</option>
             <option value="1y">1 年</option>
+            <option value="2025">2025 全年</option>
             <option value="2024">2024 全年</option>
             <option value="2023">2023 全年</option>
           </select>
