@@ -314,7 +314,7 @@ def ai_score_candidates(
         ai_results = _parse_response(text)
 
         if ai_results is None:
-            print(f"[screener] JSON parse failed (attempt {attempt+1}/2). Response[:300]: {text[:300]}")
+            print(f"[screener] JSON parse failed (attempt {attempt+1}/2). len={len(text)} tail[-100]: {text[-100:]}")
             if attempt == 0:
                 continue
             break

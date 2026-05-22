@@ -565,8 +565,14 @@ def run_agent(
         if cash < min_cash_reserve:
             print(f"[agent] Cash ${cash:.0f} below {MIN_CASH_PCT*100:.0f}% reserve (${min_cash_reserve:.0f}) — skipping buy signals")
 
+        # Hard gate: no buys outside 9:30 AM – 4:00 PM ET
+        _mkt_open = _is_market_hours()
+        if not _mkt_open:
+            print("[agent] Outside market hours — buy logic disabled, sell/stop monitoring only")
+
         can_buy = (
-            slots_remaining > 0
+            _mkt_open
+            and slots_remaining > 0
             and cash >= min_cash_reserve
             and not regime["block_buys"]
             and not breaker.get("triggered", False)
@@ -641,7 +647,23 @@ def run_agent(
         # Gate: ai_score >= min_ai_score (quality) AND signal != SELL (Scout flagged danger).
         # signal type only controls MA20 exemption in _strict_entry_ok below.
         scan = scan_cache.get("sp500", {})
-        if scan.get("status") == "done" and can_buy:
+
+        # Stale-signal guard: reject scan from a previous trading day
+        _scan_fresh_today = False
+        _scanned_at = scan.get("scanned_at")
+        if _scanned_at:
+            try:
+                import zoneinfo as _zi
+                _et = _zi.ZoneInfo("America/New_York")
+                _scan_date = datetime.fromisoformat(_scanned_at).astimezone(_et).date()
+                _today_et  = _now().astimezone(_et).date()
+                _scan_fresh_today = (_scan_date == _today_et)
+                if not _scan_fresh_today:
+                    print(f"[agent] Scan is from {_scan_date} (today={_today_et}) — skipping buys until fresh scan")
+            except Exception:
+                _scan_fresh_today = False   # conservative: treat unknown as stale
+
+        if scan.get("status") == "done" and can_buy and _scan_fresh_today:
             scanner_added = 0
             for c in list(scan.get("candidates", [])):
                 signal   = c.get("signal", "HOLD")
@@ -707,7 +729,7 @@ def run_agent(
         # ── 2. Watchlist: Scout score first, rules_engine fallback, no AI calls ──
         # Stocks already in Scout's scan_cache are handled in section 1 above.
         # This section covers watchlist symbols outside Scout's scan universe.
-        if can_buy and watchlist:
+        if can_buy and _scan_fresh_today and watchlist:
             scan_scored_syms = {
                 c["symbol"]
                 for c in (scan_cache.get("sp500") or {}).get("candidates", [])

@@ -2,7 +2,50 @@ from __future__ import annotations
 import pandas as pd
 import yfinance as yf
 import numpy as np
+from collections import Counter
 from src.analysis.technical_indicators import compute_all
+
+
+# ── Sector Map (for sector-resonance boost) ───────────────────────────────────
+SECTOR_MAP: dict[str, str] = {
+    # Semiconductors
+    "NVDA":"SEMIS","AMD":"SEMIS","AVGO":"SEMIS","MRVL":"SEMIS","MU":"SEMIS",
+    "QCOM":"SEMIS","AMAT":"SEMIS","KLAC":"SEMIS","LRCX":"SEMIS","INTC":"SEMIS",
+    "TXN":"SEMIS","ON":"SEMIS","WOLF":"SEMIS","ACLS":"SEMIS","ONTO":"SEMIS",
+    "AEHR":"SEMIS","FORM":"SEMIS","SMCI":"SEMIS","ARM":"SEMIS","MCHP":"SEMIS",
+    # Software / SaaS
+    "MSFT":"SOFTWARE","ADBE":"SOFTWARE","CRM":"SOFTWARE","ORCL":"SOFTWARE",
+    "NOW":"SOFTWARE","SNOW":"SOFTWARE","DDOG":"SOFTWARE","CRWD":"SOFTWARE",
+    "PANW":"SOFTWARE","ZS":"SOFTWARE","GTLB":"SOFTWARE","MNDY":"SOFTWARE",
+    "BILL":"SOFTWARE","WDAY":"SOFTWARE","VEEV":"SOFTWARE","TEAM":"SOFTWARE",
+    "OKTA":"SOFTWARE","DOCU":"SOFTWARE","CDNS":"SOFTWARE","SNPS":"SOFTWARE",
+    "ANSS":"SOFTWARE","SPLK":"SOFTWARE",
+    # Consumer Tech / Big Tech
+    "AAPL":"CONSUMER_TECH","AMZN":"CONSUMER_TECH","GOOGL":"CONSUMER_TECH",
+    "GOOG":"CONSUMER_TECH","META":"CONSUMER_TECH","NFLX":"CONSUMER_TECH",
+    "TSLA":"CONSUMER_TECH","SPOT":"CONSUMER_TECH","ABNB":"CONSUMER_TECH",
+    "EXPE":"CONSUMER_TECH","MELI":"CONSUMER_TECH","SHOP":"CONSUMER_TECH",
+    # Clean Energy
+    "ENPH":"CLEAN_ENERGY","FSLR":"CLEAN_ENERGY","QS":"CLEAN_ENERGY",
+    "PLUG":"CLEAN_ENERGY","BE":"CLEAN_ENERGY","STEM":"CLEAN_ENERGY",
+    "ARRY":"CLEAN_ENERGY","BLNK":"CLEAN_ENERGY","CHPT":"CLEAN_ENERGY",
+    # Fintech
+    "HOOD":"FINTECH","AFRM":"FINTECH","UPST":"FINTECH","SOFI":"FINTECH",
+    "MSTR":"FINTECH","COIN":"FINTECH","SQ":"FINTECH","PYPL":"FINTECH",
+    "V":"FINTECH","MA":"FINTECH","DAVE":"FINTECH","MQ":"FINTECH",
+    # Defense / Aerospace
+    "KTOS":"DEFENSE","CACI":"DEFENSE","RTX":"DEFENSE","LMT":"DEFENSE",
+    "NOC":"DEFENSE","GD":"DEFENSE","BA":"DEFENSE","RKLB":"DEFENSE",
+    # AI / Quantum
+    "IONQ":"AI_INFRA","SOUN":"AI_INFRA","BBAI":"AI_INFRA",
+    "QUBT":"AI_INFRA","RGTI":"AI_INFRA","LUNR":"AI_INFRA","ASTS":"AI_INFRA",
+    # Biotech
+    "RXRX":"BIOTECH","CRSP":"BIOTECH","BEAM":"BIOTECH","NTLA":"BIOTECH",
+    "VERV":"BIOTECH","EDIT":"BIOTECH","FATE":"BIOTECH","NVCR":"BIOTECH",
+}
+
+SECTOR_RESONANCE_THRESHOLD = 3   # ≥N today_bull in sector → hot
+SECTOR_RSI_BOOST           = 10  # Track1 RSI ceiling: 75 → 85 for hot sectors
 
 
 # ── Stock Universe ────────────────────────────────────────────────────────────
@@ -385,22 +428,28 @@ def quick_screen(
 ) -> list[dict]:
     """
     Download 60d OHLCV per-ticker in parallel, compute technicals, return top_n.
-    Uses individual Ticker.history() calls instead of batch download —
-    single-ticker requests are fast and a failure only skips that one ticker.
 
-    force_symbols: watchlist tickers that bypass the ma20_ok chase-filter so
-    they always surface even during strong momentum days.
+    Dual-track filter with sector resonance:
+      Track 1 (Momentum Breakout): RSI 50-75 (85 if sector is hot), today_bull, mom5d>0%, vs_ma20<=15%
+      Track 2 (Compression Coil):  RSI<55, vol<0.8x, mom5d>-3%  — bypass today_bull
+
+    Sector resonance: if ≥3 stocks in a sector have today_bull=True, that sector's
+    Track 1 RSI ceiling is raised by SECTOR_RSI_BOOST (75→85), catching late-stage
+    institutional momentum in chip/software rallies.
+
+    force_symbols (watchlist): today_bull=True → bypass everything; else → Track 2 only.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
     WORKERS = 20   # parallel downloads
     TIMEOUT  = 20  # seconds per individual ticker
-    all_results: list[dict] = []
+    raw_results: list[dict] = []   # all tickers with valid technicals (pre-filter)
     total = len(tickers)
     _force = force_symbols or set()
 
     print(f"[scanner] downloading {total} tickers individually ({WORKERS} parallel)…")
 
-    def _fetch(symbol: str) -> dict | None:
+    # Phase 1: download all — return raw technicals regardless of filter
+    def _fetch_raw(symbol: str) -> dict | None:
         try:
             df = yf.Ticker(symbol).history(period="90d", auto_adjust=True)
             if df.empty or len(df) < 5:
@@ -408,32 +457,21 @@ def quick_screen(
             tech = compute_technicals(df)
             if not tech:
                 return None
-            rsi_ok    = tech["rsi"] < 60                      # aligned with Rex _strict_entry_ok
-            ma20_ok   = (tech.get("vs_ma20_pct") or 0) <= 8.0 # filter chasers
-            trend_ok  = tech["momentum_5d"] > -3              # allow mild pullbacks
-            bull_ok   = tech.get("today_bull", False)          # 右侧交易：今日必须收阳
-            # 缩量整理形态：低 RSI + 缩量 = 催化剂前蓄力，放开 today_bull 要求
-            compression = tech["rsi"] < 55 and (tech.get("volume_ratio") or 1.0) < 0.8
-            if symbol in _force:
-                # Watchlist stocks: only require today_bull + not in freefall (>-8%)
-                passes = (bull_ok or compression) and tech["momentum_5d"] > -8
-            else:
-                passes = rsi_ok and ma20_ok and trend_ok and (bull_ok or compression)
-            if passes:
-                return {"symbol": symbol, **tech}
+            sector = SECTOR_MAP.get(symbol, "OTHER")
+            return {"symbol": symbol, "sector": sector, **tech}
         except Exception:
             pass
         return None
 
     done = 0
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        futures = {pool.submit(_fetch, sym): sym for sym in tickers}
+        futures = {pool.submit(_fetch_raw, sym): sym for sym in tickers}
         for fut in as_completed(futures, timeout=TIMEOUT * total / WORKERS + 60):
             done += 1
             try:
                 result = fut.result(timeout=TIMEOUT)
                 if result:
-                    all_results.append(result)
+                    raw_results.append(result)
             except Exception:
                 pass
             if progress_cb and done % 20 == 0:
@@ -442,11 +480,47 @@ def quick_screen(
     if progress_cb:
         progress_cb("screening_done", total, total)
 
+    # Phase 2: detect hot sectors (≥SECTOR_RESONANCE_THRESHOLD today_bull in same sector)
+    sector_bull_counts = Counter(
+        r["sector"] for r in raw_results
+        if r.get("today_bull") and r["sector"] != "OTHER"
+    )
+    hot_sectors = {s for s, cnt in sector_bull_counts.items() if cnt >= SECTOR_RESONANCE_THRESHOLD}
+    if hot_sectors:
+        detail = {s: sector_bull_counts[s] for s in hot_sectors}
+        print(f"[scanner] sector resonance detected: {detail} → RSI ceiling boosted to {75 + SECTOR_RSI_BOOST}")
+
+    # Phase 3: apply dual-track filter with sector-adjusted RSI ceiling
+    all_results: list[dict] = []
+    for r in raw_results:
+        symbol    = r["symbol"]
+        rsi       = r["rsi"]
+        mom5d     = r["momentum_5d"]
+        vs_ma20   = r.get("vs_ma20_pct") or 0
+        vol_ratio = r.get("volume_ratio") or 1.0
+        bull_ok   = r.get("today_bull", False)
+        sector    = r["sector"]
+
+        rsi_ceiling = 75 + (SECTOR_RSI_BOOST if sector in hot_sectors else 0)
+
+        track1 = (50 <= rsi <= rsi_ceiling and bull_ok and mom5d > 0 and vs_ma20 <= 15.0)
+        track2 = (rsi < 55 and vol_ratio < 0.8 and mom5d > -3)
+
+        if symbol in _force:
+            passes = bull_ok or track2
+        else:
+            passes = track1 or track2
+
+        if passes:
+            all_results.append({**r, "screen_track": "momentum" if track1 else "compression"})
+
     passed = len(all_results)
     if passed == 0:
         print("[scanner] WARNING: 0 candidates passed technical filter")
     else:
-        print(f"[scanner] {passed}/{total} passed momentum filter")
+        t1 = sum(1 for r in all_results if r.get("screen_track") == "momentum")
+        t2 = sum(1 for r in all_results if r.get("screen_track") == "compression")
+        print(f"[scanner] {passed}/{total} passed — track1(momentum):{t1}  track2(compression):{t2}")
 
     # Always include force_symbols that passed — don't let tech_score ranking cut them
     force_results   = [r for r in all_results if r["symbol"] in _force]
@@ -455,5 +529,6 @@ def quick_screen(
     regular_slots = max(0, top_n - len(force_results))
     combined = force_results + regular_results[:regular_slots]
     if _force:
-        print(f"[scanner] force_symbols included: {[r['symbol'] for r in force_results]}")
+        force_tracks = {r["symbol"]: r.get("screen_track", "?") for r in force_results}
+        print(f"[scanner] force_symbols: {force_tracks}")
     return combined
