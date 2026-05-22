@@ -75,26 +75,38 @@ Holdings Monitor `HARD_STOP_PCT = −8.0` 是最后兜底，不是主止损。
 
 ## 4. 注意事项
 
-**后端重启**
+### 后端重启
 ```bash
 kill -9 $(lsof -ti:8000 -sTCP:LISTEN)
 # 等 35 秒让 LaunchAgent 自动重启
 ```
-不能用 `pkill -f "python main.py"`（LaunchAgent 使用大写 P Python，无法匹配）
+- ❌ 不能用 `pkill -f "python main.py"`（LaunchAgent 用大写 P Python，匹配不到）
+- ❌ 不能用 `--no-verify` 跳过 hook
 
-**Race condition 守卫**
-`api/app.py` 的 `_run_sp500_scan()` 中，`_scan_running` 守卫必须在函数**最顶部**（任何 import 之前），不能后移。
+### 代码改动生效
+- 改完 `.py` 文件必须重启后端，Python 模块缓存不会自动热更新
+- 改完前端 `.tsx` / `.css` Vite HMR 会自动更新，但大改动建议手动刷新浏览器
 
-**硬止损架构（两层，勿混淆）**
-- Alpaca Bracket GTC：入场时挂单，−3% 至 −8%（ATR 决定），服务器端自动触发
-- `HARD_STOP_PCT = −8.0`：holdings monitor 兜底，仅在 bracket 未触发时生效
-- e2e 测试 holdings monitor hard stop 必须用 ≤ −8% 的场景（如 −9%）
+### Race Condition
+- `api/app.py` → `_run_sp500_scan()`：`_scan_running = True` 守卫必须在函数**最顶部**，任何 slow import 之前。移到后面会留下 ~5 秒窗口导致重复触发。
 
-**版本定义**
-只有选股 / 买入 / 卖出逻辑变化才在 `data/versions.json` 新增版本；前端只对比最近两个版本（v_prev vs v_current）。
+### 止损两层架构（勿混淆）
 
-**`BacktestView` 挂载**
-`BacktestView.tsx` 必须在 `StrategyReview.tsx` 里 import + 挂载，放在 `components/` 目录不会自动生效。
+| 层级 | 机制 | 触发阈值 | 执行方 |
+|------|------|---------|--------|
+| 主止损 | Alpaca Bracket GTC | 入场时计算，−3% 至 −8% | Alpaca 服务器，毫秒级，无需轮询 |
+| 兜底止损 | Holdings Monitor `HARD_STOP_PCT` | −8.0% | holdings refresh，每 30 分钟 |
+
+> e2e 测试 holdings monitor hard stop 必须用 ≤ −8% 场景（如 −9%），用 −3% 测不会触发。
+
+### 版本管理
+- 只有**选股 / 买入 / 卖出逻辑**变化才在 `data/versions.json` 新增版本
+- 纯 UI、参数微调、bug fix 不算新版本
+- 前端「复盘」Tab 永远只对比最近两个版本（v_prev vs v_current）
+
+### 前端组件挂载
+- 新建 `components/Xxx.tsx` 不会自动出现在页面，必须在对应父组件里 import + 渲染
+- 例：`BacktestView.tsx` 需在 `StrategyReview.tsx` 里挂载
 
 ---
 
