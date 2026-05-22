@@ -136,7 +136,8 @@ def _buy_signal_dual_track(row) -> bool:
             rsi < 55
             and vol < 0.8
             and mom5 > -3
-            and macd > -0.1           # not strongly bearish
+            and macd > 0              # must still have bullish MACD (not in downtrend)
+            and vs_ma20 > -8.0        # price not more than 8% below MA20
         )
         return track1 or track2
     except Exception:
@@ -173,11 +174,14 @@ def _simulate_symbol(
     atr_at_entry = 0.0
     high_water = 0.0      # for trailing stop
     trailing_active = False
+    cooldown_until = -1   # index: no re-entry before this bar
 
     rows = list(df.itertuples())
 
     for i, row in enumerate(rows):
         if not in_trade:
+            if i <= cooldown_until:
+                continue
             if signal_fn(row):
                 # Enter next bar's open (simulate realistic execution)
                 if i + 1 >= len(rows):
@@ -248,6 +252,7 @@ def _simulate_symbol(
                     "atr_at_entry": round(atr_at_entry, 2),
                 })
                 in_trade = False
+                cooldown_until = i + 10  # 10-day cooldown before re-entry
 
     return trades
 
