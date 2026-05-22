@@ -71,6 +71,8 @@
       "exit_mode": "trailing",
       "target_pct": 0.10,
       "trail_trigger": 0.10,
+      "trail_trigger_t1": 0.10,
+      "trail_trigger_t2": 0.06,
       "trail_pct": 0.05
     }
   }

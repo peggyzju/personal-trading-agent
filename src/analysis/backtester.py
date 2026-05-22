@@ -141,11 +141,13 @@ def _simulate_symbol(
     hold_days: int,
     target_pct: float,
     slippage_pct: float = 0.003,
-    stop_type: str = "atr",        # "atr" | "fixed_3pct" | "fixed_5pct"
-    entry_mode: str = "normal",    # "normal" | "strict" | "dual_track"
-    exit_mode: str = "fixed",      # "fixed" | "trailing"
-    trail_pct: float = 0.08,       # trailing: sell if drops X% from high water
-    trail_trigger: float = 0.08,   # trailing: activate when gain >= this %
+    stop_type: str = "atr",
+    entry_mode: str = "normal",
+    exit_mode: str = "fixed",
+    trail_pct: float = 0.08,
+    trail_trigger: float = 0.08,
+    trail_trigger_t1: float | None = None,  # if set, dual_track uses per-track triggers
+    trail_trigger_t2: float | None = None,
 ) -> list[dict]:
     """Walk-forward simulation for one symbol. Returns list of trade dicts."""
     df = _precompute_signals(df)
@@ -158,8 +160,10 @@ def _simulate_symbol(
     else:
         signal_fn = _buy_signal
 
-    TRAIL_TRIGGER_T1 = 0.10   # momentum breakout: let it run to +10%
-    TRAIL_TRIGGER_T2 = 0.06   # compression coil: protect smaller gains at +6%
+    # T1/T2 split only when explicitly specified in params
+    _use_split = (trail_trigger_t1 is not None and trail_trigger_t2 is not None)
+    TRAIL_TRIGGER_T1 = trail_trigger_t1 if _use_split else trail_trigger
+    TRAIL_TRIGGER_T2 = trail_trigger_t2 if _use_split else trail_trigger
 
     trades = []
     in_trade = False
@@ -412,6 +416,8 @@ def run_backtest(
     exit_mode: str = "fixed",
     trail_pct: float = 0.08,
     trail_trigger: float = 0.08,
+    trail_trigger_t1: float | None = None,
+    trail_trigger_t2: float | None = None,
 ) -> dict:
     """
     Run walk-forward backtest on given symbols.
@@ -435,7 +441,9 @@ def run_backtest(
             trades = _simulate_symbol(sym, df, hold_days, target_pct,
                                       stop_type=stop_type, entry_mode=entry_mode,
                                       exit_mode=exit_mode, trail_pct=trail_pct,
-                                      trail_trigger=trail_trigger)
+                                      trail_trigger=trail_trigger,
+                                      trail_trigger_t1=trail_trigger_t1,
+                                      trail_trigger_t2=trail_trigger_t2)
             all_trades.extend(trades)
         except Exception as e:
             print(f"[backtest] {sym} error: {e}")
@@ -491,6 +499,8 @@ def backtest_compare_versions(
                     exit_mode=p.get("exit_mode", "trailing"),
                     trail_pct=p.get("trail_pct", 0.08),
                     trail_trigger=p.get("trail_trigger", 0.12),
+                    trail_trigger_t1=p.get("trail_trigger_t1"),
+                    trail_trigger_t2=p.get("trail_trigger_t2"),
                 )
                 all_trades.extend(trades)
             except Exception as e:
