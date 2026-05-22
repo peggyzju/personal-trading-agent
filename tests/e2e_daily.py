@@ -653,7 +653,7 @@ def test_hard_stop_logic():
 
 # ── 11b. v3 策略核心逻辑 ──────────────────────────────────────────────────────
 def test_v3_strategy():
-    print("\n[11b] v5 策略 — 双轨选股 / 止损 / 市场时间门 / 价格漂移 / 财报过滤 / 信号质量门控")
+    print("\n[11b] v4 策略 — 双轨选股 / 止损 / 市场时间门 / 价格漂移 / 财报过滤")
 
     # ── 1. compute_structured_stop 使用 2×ATR ────────────────────────────────
     try:
@@ -831,17 +831,6 @@ def test_v3_strategy():
     except Exception as e:
         fail("Trail 参数", str(e))
 
-    # ── 7. 信号质量门控 (v5: BUY/STRONG_BUY only) ────────────────────────────
-    try:
-        import src.trader.trade_agent as _ta_mod2
-        import inspect
-        ta_src2 = inspect.getsource(_ta_mod2)
-        if 'signal not in ("BUY", "STRONG_BUY")' in ta_src2:
-            ok("Signal gate", "v5 信号门控：只接受 BUY/STRONG_BUY ✓")
-        else:
-            fail("Signal gate", "未找到 BUY/STRONG_BUY 门控，HOLD 信号可能被误入场")
-    except Exception as e:
-        fail("Signal gate", str(e))
 
 
 # ── 11. 缓存数据契约 ───────────────────────────────────────────────────────────
