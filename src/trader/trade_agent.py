@@ -838,8 +838,9 @@ def run_agent(
         # ── 3. Holdings: SELL / REDUCE ────────────────────────────────────────
         # First pass: hard stop-loss + trailing stop from live Alpaca positions
         HARD_STOP_PCT  = -stop_loss_pct * 100   # fallback for untracked positions
-        TRAIL_TRIGGER  = 0.10   # activate trailing after +10% gain
-        TRAIL_PCT      = 0.05   # sell if drops 5% from high water
+        TRAIL_TRIGGER_T1 = 0.10   # momentum breakout: activate at +10%
+        TRAIL_TRIGGER_T2 = 0.06   # compression coil: activate at +6%
+        TRAIL_PCT        = 0.05   # sell if drops 5% from high water
 
         # Build symbol → trade entry from most-recent buy in trades.json
         all_trades = _load_from_disk()
@@ -876,8 +877,11 @@ def run_agent(
                     _trades_dirty = True
 
             # ── Activate trailing stop once target is reached ─────────────────
+            # Track 2 (compression coil) uses lower trigger to protect smaller gains
+            _screen_track = entry_trade.get("screen_track", "momentum")
+            _trail_trigger = TRAIL_TRIGGER_T2 if _screen_track == "compression" else TRAIL_TRIGGER_T1
             trail_active = bool(entry_trade.get("trail_active", False))
-            if not trail_active and entry_px and current_px >= entry_px * (1 + TRAIL_TRIGGER):
+            if not trail_active and entry_px and current_px >= entry_px * (1 + _trail_trigger):
                 trail_active = True
                 if ap.symbol in _sym_trade_id:
                     all_trades[_sym_trade_id[ap.symbol]]["trail_active"] = True

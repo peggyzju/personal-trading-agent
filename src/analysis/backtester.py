@@ -106,10 +106,11 @@ def _buy_signal_strict(row) -> bool:
         return False
 
 
-def _buy_signal_dual_track(row) -> bool:
-    """Dual-track entry (v3):
-    Track 1 — Momentum Breakout: RSI 50-75, above MA20, positive momentum, moderate extension
-    Track 2 — Compression Coil: RSI<55, low volume (<0.8x), mild momentum
+def _buy_signal_dual_track(row) -> str | None:
+    """Dual-track entry (v5):
+    Returns 'track1', 'track2', or None.
+    Track 1 — Momentum Breakout: RSI 50-75, above MA20, positive momentum
+    Track 2 — Compression Coil: RSI<55, low volume, mild momentum
     """
     try:
         def g(field):
@@ -117,31 +118,21 @@ def _buy_signal_dual_track(row) -> bool:
                 return row[field]
             except (KeyError, TypeError):
                 return getattr(row, field)
-        rsi      = g("rsi")
-        macd     = g("macd_hist")
-        close    = g("Close")
-        ma20     = g("ma20")
-        vol      = g("vol_ratio")
-        mom5     = g("mom5")
-        vs_ma20  = (close - ma20) / ma20 * 100 if ma20 > 0 else 0
+        rsi     = g("rsi")
+        macd    = g("macd_hist")
+        close   = g("Close")
+        ma20    = g("ma20")
+        vol     = g("vol_ratio")
+        mom5    = g("mom5")
+        vs_ma20 = (close - ma20) / ma20 * 100 if ma20 > 0 else 0
 
-        track1 = (
-            50 <= rsi <= 75
-            and close > ma20          # today_bull proxy
-            and mom5 > 0
-            and vs_ma20 <= 15.0
-            and macd > 0
-        )
-        track2 = (
-            rsi < 55
-            and vol < 0.8
-            and mom5 > -3
-            and macd > 0              # must still have bullish MACD (not in downtrend)
-            and vs_ma20 > -8.0        # price not more than 8% below MA20
-        )
-        return track1 or track2
+        if (50 <= rsi <= 75 and close > ma20 and mom5 > 0 and vs_ma20 <= 15.0 and macd > 0):
+            return "track1"
+        if (rsi < 55 and vol < 0.8 and mom5 > -3 and macd > 0 and vs_ma20 > -8.0):
+            return "track2"
+        return None
     except Exception:
-        return False
+        return None
 
 
 def _simulate_symbol(
@@ -167,14 +158,18 @@ def _simulate_symbol(
     else:
         signal_fn = _buy_signal
 
+    TRAIL_TRIGGER_T1 = 0.10   # momentum breakout: let it run to +10%
+    TRAIL_TRIGGER_T2 = 0.06   # compression coil: protect smaller gains at +6%
+
     trades = []
     in_trade = False
     entry_price = stop_loss = target = 0.0
     entry_date = entry_idx = None
     atr_at_entry = 0.0
-    high_water = 0.0      # for trailing stop
+    high_water = 0.0
     trailing_active = False
-    cooldown_until = -1   # index: no re-entry before this bar
+    active_trail_trigger = trail_trigger  # per-trade, overridden for dual_track
+    cooldown_until = -1
 
     rows = list(df.itertuples())
 
@@ -182,7 +177,11 @@ def _simulate_symbol(
         if not in_trade:
             if i <= cooldown_until:
                 continue
-            if signal_fn(row):
+            signal = signal_fn(row)
+            # dual_track returns "track1"/"track2"/None; others return bool
+            if signal is None or signal is False:
+                signal = False
+            if signal:
                 # Enter next bar's open (simulate realistic execution)
                 if i + 1 >= len(rows):
                     continue
@@ -200,6 +199,11 @@ def _simulate_symbol(
                 entry_idx = i + 1
                 high_water = entry_price
                 trailing_active = False
+                # Per-trade trail trigger for dual_track mode
+                if entry_mode == "dual_track":
+                    active_trail_trigger = TRAIL_TRIGGER_T2 if signal == "track2" else TRAIL_TRIGGER_T1
+                else:
+                    active_trail_trigger = trail_trigger
                 in_trade = True
         else:
             days_held = i - entry_idx
@@ -215,7 +219,7 @@ def _simulate_symbol(
                 if high > high_water:
                     high_water = high
                 # Activate trailing once trail_trigger gain is reached
-                if not trailing_active and high >= entry_price * (1 + trail_trigger):
+                if not trailing_active and high >= entry_price * (1 + active_trail_trigger):
                     trailing_active = True
                 # Exit conditions
                 if low <= stop_loss:
