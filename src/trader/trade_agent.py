@@ -2,7 +2,7 @@
 Trade Agent — autonomous signal detection + persistent pending trade queue.
 
 Signal sources:
-  1. S&P 500 scan  →  STRONG_BUY + ai_score >= 7
+  1. S&P 500 scan  →  BUY/STRONG_BUY + ai_score >= 7
   2. Watchlist AI analysis  →  BUY + confidence >= 0.7  (uses cache, no extra API call)
   3. Holdings monitor  →  SELL / REDUCE signal
 
@@ -667,10 +667,10 @@ def run_agent(
             for c in list(scan.get("candidates", [])):
                 signal   = c.get("signal", "HOLD")
                 ai_score = c.get("ai_score") or 0
-                if signal == "SELL":
-                    continue   # Scout flagged deterioration — respect it
+                if signal not in ("BUY", "STRONG_BUY"):
+                    continue   # v5: only BUY/STRONG_BUY — HOLD signals skipped
                 if ai_score < min_ai_score:
-                    continue   # quality gate
+                    continue   # quality gate (≥7 in bull, ≥8 in neutral)
                 # Strict entry: RSI < 60, not extended above MA20
                 if not _strict_entry_ok(c):
                     summary["signals_found"] += 1

@@ -424,6 +424,22 @@ def enrich_with_fundamentals(candidates: list[dict]) -> list[dict]:
         return list(pool.map(fetch_one, candidates))
 
 
+def _fetch_raw(symbol: str) -> dict | None:
+    """Download technicals for a single symbol. Module-level for testability."""
+    try:
+        df = yf.Ticker(symbol).history(period="90d", auto_adjust=True)
+        if df.empty or len(df) < 5:
+            return None
+        tech = compute_technicals(df)
+        if not tech:
+            return None
+        sector = SECTOR_MAP.get(symbol, "OTHER")
+        return {"symbol": symbol, "sector": sector, **tech}
+    except Exception:
+        pass
+    return None
+
+
 def quick_screen(
     tickers: list[str],
     top_n: int = 25,
@@ -451,21 +467,6 @@ def quick_screen(
     _force = force_symbols or set()
 
     print(f"[scanner] downloading {total} tickers individually ({WORKERS} parallel)…")
-
-    # Phase 1: download all — return raw technicals regardless of filter
-    def _fetch_raw(symbol: str) -> dict | None:
-        try:
-            df = yf.Ticker(symbol).history(period="90d", auto_adjust=True)
-            if df.empty or len(df) < 5:
-                return None
-            tech = compute_technicals(df)
-            if not tech:
-                return None
-            sector = SECTOR_MAP.get(symbol, "OTHER")
-            return {"symbol": symbol, "sector": sector, **tech}
-        except Exception:
-            pass
-        return None
 
     done = 0
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:

@@ -653,7 +653,7 @@ def test_hard_stop_logic():
 
 # ── 11b. v3 策略核心逻辑 ──────────────────────────────────────────────────────
 def test_v3_strategy():
-    print("\n[11b] v3 策略 — 双轨选股 / 止损 / 市场时间门 / 价格漂移 / 财报过滤")
+    print("\n[11b] v5 策略 — 双轨选股 / 止损 / 市场时间门 / 价格漂移 / 财报过滤 / 信号质量门控")
 
     # ── 1. compute_structured_stop 使用 2×ATR ────────────────────────────────
     try:
@@ -721,19 +721,20 @@ def test_v3_strategy():
             # Track 1: RSI=60, today_bull=True, mom5d=2%, vs_ma20=5% → passes
             {"symbol": "T1OK", "rsi": 60, "today_bull": True, "momentum_5d": 2.0,
              "vs_ma20_pct": 5.0, "volume_ratio": 1.2, "sector": "SEMIS",
-             "price": 100, "ma20": 95},
+             "price": 100, "ma20": 95, "tech_score": 50.0, "macd_hist": 0.5},
             # Track 2: RSI=50, today_bull=False, vol_ratio=0.6, mom5d=0 → passes
             {"symbol": "T2OK", "rsi": 50, "today_bull": False, "momentum_5d": 0.0,
              "vs_ma20_pct": 3.0, "volume_ratio": 0.6, "sector": "SOFTWARE",
-             "price": 100, "ma20": 97},
+             "price": 100, "ma20": 97, "tech_score": 40.0, "macd_hist": 0.2},
             # Fails both: RSI=80 (>75, not in hot sector), today_bull=False
             {"symbol": "FAIL", "rsi": 80, "today_bull": False, "momentum_5d": 1.0,
              "vs_ma20_pct": 5.0, "volume_ratio": 1.0, "sector": "OTHER",
-             "price": 100, "ma20": 95},
+             "price": 100, "ma20": 95, "tech_score": 30.0, "macd_hist": -0.1},
         ]
 
         from unittest.mock import patch as _patch
-        with _patch("src.monitor.sp500_scanner._fetch_raw", return_value=mock_raws):
+        _mock_map = {r["symbol"]: r for r in mock_raws}
+        with _patch("src.monitor.sp500_scanner._fetch_raw", side_effect=lambda sym: _mock_map.get(sym)):
             results_q = quick_screen(["T1OK", "T2OK", "FAIL"], force_symbols=set())
 
         syms = {r["symbol"] for r in results_q}
@@ -764,19 +765,21 @@ def test_v3_strategy():
         semis_hot = [
             {"symbol": f"SEMI{i}", "rsi": 78, "today_bull": True, "momentum_5d": 1.0,
              "vs_ma20_pct": 5.0, "volume_ratio": 1.0, "sector": "SEMIS",
-             "price": 100, "ma20": 95}
+             "price": 100, "ma20": 95, "tech_score": 50.0, "macd_hist": 0.5}
             for i in range(SECTOR_RESONANCE_THRESHOLD)
         ]
         # One stock with RSI=78 that should only pass when sector is hot
         test_stock = {"symbol": "SEMIHIGH", "rsi": 78, "today_bull": True,
                       "momentum_5d": 1.0, "vs_ma20_pct": 5.0, "volume_ratio": 1.0,
-                      "sector": "SEMIS", "price": 100, "ma20": 95}
+                      "sector": "SEMIS", "price": 100, "ma20": 95,
+                      "tech_score": 48.0, "macd_hist": 0.3}
 
         all_mock = semis_hot + [test_stock]
         syms_all = [r["symbol"] for r in all_mock]
 
         from unittest.mock import patch as _patch
-        with _patch("src.monitor.sp500_scanner._fetch_raw", return_value=all_mock):
+        _mock_map2 = {r["symbol"]: r for r in all_mock}
+        with _patch("src.monitor.sp500_scanner._fetch_raw", side_effect=lambda sym: _mock_map2.get(sym)):
             res_hot = quick_screen(syms_all, force_symbols=set())
 
         hot_syms = {r["symbol"] for r in res_hot}
@@ -820,12 +823,25 @@ def test_v3_strategy():
             ok("Trail trigger", "TRAIL_TRIGGER = 10% ✓")
         else:
             fail("Trail trigger", "TRAIL_TRIGGER 不是 0.10")
-        if "TRAIL_PCT        = 0.05" in src_code or "TRAIL_PCT = 0.05" in src_code:
+        import re
+        if re.search(r"TRAIL_PCT\s+=\s+0\.05", ta_src):
             ok("Trail pct", "TRAIL_PCT = 5% ✓")
         else:
             fail("Trail pct", "TRAIL_PCT 不是 0.05")
     except Exception as e:
         fail("Trail 参数", str(e))
+
+    # ── 7. 信号质量门控 (v5: BUY/STRONG_BUY only) ────────────────────────────
+    try:
+        import src.trader.trade_agent as _ta_mod2
+        import inspect
+        ta_src2 = inspect.getsource(_ta_mod2)
+        if 'signal not in ("BUY", "STRONG_BUY")' in ta_src2:
+            ok("Signal gate", "v5 信号门控：只接受 BUY/STRONG_BUY ✓")
+        else:
+            fail("Signal gate", "未找到 BUY/STRONG_BUY 门控，HOLD 信号可能被误入场")
+    except Exception as e:
+        fail("Signal gate", str(e))
 
 
 # ── 11. 缓存数据契约 ───────────────────────────────────────────────────────────
