@@ -32,7 +32,7 @@ def compute_structured_stop(
     if ma20 and ma20 > 0:
         candidates.append(ma20 * 0.99)              # 1% below MA20 support
     if atr and atr > 0:
-        candidates.append(entry_price - 1.5 * atr)  # 1.5×ATR cushion
+        candidates.append(entry_price - 2.0 * atr)  # 2×ATR cushion (aligned with risk sizing)
 
     raw_stop = max(candidates) if candidates else entry_price * (1 - min_stop_pct)
 

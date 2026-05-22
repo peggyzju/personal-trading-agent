@@ -266,7 +266,7 @@ def _add_trade(trade: dict, existing_symbols: set[str], allow_add_to_position: b
 
 # ── Approve / Reject ──────────────────────────────────────────────────────────
 
-PRICE_DRIFT_THRESHOLD = 0.03   # 3% — if price moved >3% from scan, warn/block
+PRICE_DRIFT_THRESHOLD = 0.015  # 1.5% — if price moved >1.5% from scan, signal is stale
 
 def approve_trade(trade_id: str) -> dict:
     """Approve and execute. Places bracket order when stop/target available.
@@ -611,10 +611,13 @@ def run_agent(
         ] if can_buy else []
 
         def _earnings_safe(symbol: str) -> bool:
-            """Return True if it's safe to buy (no earnings within 3 days)."""
-            has_earnings, earn_date = earnings_within_days(symbol, days=3)
+            """Return True if it's safe to buy.
+            Block only if earnings are TODAY or TOMORROW (未公布).
+            Post-earnings momentum (昨天及之前已公布) is allowed — often the best entry.
+            """
+            has_earnings, earn_date = earnings_within_days(symbol, days=1)
             if has_earnings:
-                print(f"[agent] Skip {symbol} — earnings on {earn_date}")
+                print(f"[agent] Skip {symbol} — earnings on {earn_date} (too close)")
             return not has_earnings
 
         def _sector_safe(symbol: str) -> bool:
@@ -839,8 +842,8 @@ def run_agent(
         # ── 3. Holdings: SELL / REDUCE ────────────────────────────────────────
         # First pass: hard stop-loss + trailing stop from live Alpaca positions
         HARD_STOP_PCT  = -stop_loss_pct * 100   # fallback for untracked positions
-        TRAIL_TRIGGER  = 0.12   # activate trailing after +12% gain
-        TRAIL_PCT      = 0.08   # sell if drops 8% from high water
+        TRAIL_TRIGGER  = 0.06   # activate trailing after +6% gain
+        TRAIL_PCT      = 0.05   # sell if drops 5% from high water
 
         # Build symbol → trade entry from most-recent buy in trades.json
         all_trades = _load_from_disk()
