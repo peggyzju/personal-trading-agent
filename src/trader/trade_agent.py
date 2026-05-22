@@ -316,10 +316,9 @@ def approve_trade(trade_id: str) -> dict:
         elif (
             trade["side"] == "buy"
             and trade.get("stop_loss")
-            and trade.get("target_price")
             and trade.get("price")
         ):
-            # Bracket order: market entry + stop-loss + take-profit
+            # Bracket order: market entry + stop-loss only (trailing stop handles upside exit)
             order = place_order(
                 symbol=trade["symbol"],
                 side="buy",
@@ -327,7 +326,7 @@ def approve_trade(trade_id: str) -> dict:
                 qty=trade["qty"],
                 order_type="market",
                 stop_loss=trade["stop_loss"],
-                take_profit=trade["target_price"],
+                take_profit=None,
             )
         else:
             order = place_order(
@@ -816,20 +815,23 @@ def run_agent(
                     summary.setdefault("sources", []).append("overalloc")
 
         # ── 3. Holdings: SELL / REDUCE ────────────────────────────────────────
-        # First pass: hard stop-loss from live Alpaca positions (no cache dependency)
-        # Use per-position structured stop price (absolute $) when available;
-        # fall back to portfolio-level HARD_STOP_PCT for positions with no recorded stop.
-        HARD_STOP_PCT = -stop_loss_pct * 100   # fallback for untracked positions (e.g. -3.0%)
-        # Build symbol → stop price from most-recent buy trade in trades.json
+        # First pass: hard stop-loss + trailing stop from live Alpaca positions
+        HARD_STOP_PCT  = -stop_loss_pct * 100   # fallback for untracked positions
+        TRAIL_TRIGGER  = 0.12   # activate trailing after +12% gain
+        TRAIL_PCT      = 0.08   # sell if drops 8% from high water
+
+        # Build symbol → trade entry from most-recent buy in trades.json
         all_trades = _load_from_disk()
-        _sym_stop_price: dict[str, float] = {}
-        for _t in all_trades.values():
-            if _t.get("side") == "buy" and _t.get("stop_loss") and _t.get("symbol"):
+        _sym_trade: dict[str, dict] = {}
+        _sym_trade_id: dict[str, str] = {}
+        for tid, _t in all_trades.items():
+            if _t.get("side") == "buy" and _t.get("symbol"):
                 sym_ = _t["symbol"]
-                # Keep the most-recent stop per symbol (latest created_at wins)
-                if sym_ not in _sym_stop_price or _t.get("created_at", "") > _sym_stop_price.get(f"_ts_{sym_}", ""):
-                    _sym_stop_price[sym_] = float(_t["stop_loss"])
-                    _sym_stop_price[f"_ts_{sym_}"] = _t.get("created_at", "")
+                if sym_ not in _sym_trade or _t.get("created_at", "") > _sym_trade[sym_].get("created_at", ""):
+                    _sym_trade[sym_] = _t
+                    _sym_trade_id[sym_] = tid
+        _trades_dirty = False   # track if we need to save
+
         holdings_added = 0
         hard_stop_symbols: set[str] = set()
         for ap in alpaca_positions:
@@ -837,25 +839,44 @@ def run_agent(
                 print(f"[agent] skip {ap.symbol} hard stop — open sell order already in Alpaca")
                 continue
             if ap.symbol in _overalloc_symbols:
-                continue   # already queued by over-allocation rebalance
-            plpc = float(ap.unrealized_plpc) * 100   # Alpaca returns as decimal
+                continue
+            plpc = float(ap.unrealized_plpc) * 100
             current_px = float(ap.current_price)
-            per_pos_stop = _sym_stop_price.get(ap.symbol)
-            stop_hit = (current_px <= per_pos_stop) if per_pos_stop else (plpc <= HARD_STOP_PCT)
-            stop_desc = (
-                f"stop price ${per_pos_stop:.2f} (structured)" if per_pos_stop
-                else f"threshold {HARD_STOP_PCT:.1f}%"
-            )
-            if stop_hit:
-                print(f"[agent] Hard stop: {ap.symbol} @ ${current_px:.2f} hit {stop_desc} (P&L {plpc:.1f}%)")
+            entry_trade = _sym_trade.get(ap.symbol, {})
+            per_pos_stop = entry_trade.get("stop_loss")
+            entry_px = entry_trade.get("price") or (current_px / (1 + plpc / 100) if plpc != -100 else current_px)
+
+            # ── Update high water mark ────────────────────────────────────────
+            high_water = float(entry_trade.get("high_water_price") or entry_px)
+            if current_px > high_water:
+                high_water = current_px
+                if ap.symbol in _sym_trade_id:
+                    all_trades[_sym_trade_id[ap.symbol]]["high_water_price"] = round(high_water, 4)
+                    _trades_dirty = True
+
+            # ── Activate trailing stop once target is reached ─────────────────
+            trail_active = bool(entry_trade.get("trail_active", False))
+            if not trail_active and entry_px and current_px >= entry_px * (1 + TRAIL_TRIGGER):
+                trail_active = True
+                if ap.symbol in _sym_trade_id:
+                    all_trades[_sym_trade_id[ap.symbol]]["trail_active"] = True
+                    _trades_dirty = True
+                print(f"[agent] Trailing stop ACTIVATED: {ap.symbol} @ ${current_px:.2f} (+{plpc:.1f}%) high=${high_water:.2f}")
+
+            # ── Check exit conditions ─────────────────────────────────────────
+            trail_stop_px = high_water * (1 - TRAIL_PCT) if trail_active else None
+            hard_stop_hit  = (current_px <= float(per_pos_stop)) if per_pos_stop else (plpc <= HARD_STOP_PCT)
+            trail_stop_hit = trail_active and trail_stop_px and current_px <= trail_stop_px
+
+            if trail_stop_hit:
+                reason_txt = f"Trailing stop: {ap.symbol} dropped ${current_px:.2f} from high ${high_water:.2f} ({((current_px/high_water)-1)*100:.1f}%)"
+                print(f"[agent] {reason_txt}")
                 trade = _make_trade(
                     symbol=ap.symbol, side="sell",
                     notional=None, qty=None,
-                    signal="SELL",
-                    confidence=0.9,
-                    reason=f"Hard stop: {ap.symbol} @ ${current_px:.2f} hit {stop_desc} (P&L {plpc:.1f}%)",
-                    source="hard_stop",
-                    price=float(ap.current_price),
+                    signal="SELL", confidence=0.85,
+                    reason=reason_txt, source="trail_stop",
+                    price=current_px,
                 )
                 if _add_trade(trade, owned_symbols):
                     summary["signals_found"] += 1
@@ -863,6 +884,26 @@ def run_agent(
                     holdings_added += 1
                     hard_stop_symbols.add(ap.symbol)
                     _new_trade_ids.add(trade["id"])
+            elif hard_stop_hit:
+                stop_desc = f"stop price ${per_pos_stop:.2f} (structured)" if per_pos_stop else f"threshold {HARD_STOP_PCT:.1f}%"
+                print(f"[agent] Hard stop: {ap.symbol} @ ${current_px:.2f} hit {stop_desc} (P&L {plpc:.1f}%)")
+                trade = _make_trade(
+                    symbol=ap.symbol, side="sell",
+                    notional=None, qty=None,
+                    signal="SELL", confidence=0.9,
+                    reason=f"Hard stop: {ap.symbol} @ ${current_px:.2f} hit {stop_desc} (P&L {plpc:.1f}%)",
+                    source="hard_stop",
+                    price=current_px,
+                )
+                if _add_trade(trade, owned_symbols):
+                    summary["signals_found"] += 1
+                    summary["trades_queued"] += 1
+                    holdings_added += 1
+                    hard_stop_symbols.add(ap.symbol)
+                    _new_trade_ids.add(trade["id"])
+
+        if _trades_dirty:
+            _save_to_disk(all_trades)
 
         # Second pass: AI sell signals from holdings cache (skip already handled)
         today_str = _now().strftime("%Y-%m-%d")

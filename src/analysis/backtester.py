@@ -114,6 +114,8 @@ def _simulate_symbol(
     slippage_pct: float = 0.003,
     stop_type: str = "atr",      # "atr" | "fixed_3pct" | "fixed_5pct"
     entry_mode: str = "normal",  # "normal" | "strict"
+    exit_mode: str = "fixed",    # "fixed" | "trailing"
+    trail_pct: float = 0.08,     # trailing stop: sell if drops X% from high after target
 ) -> list[dict]:
     """Walk-forward simulation for one symbol. Returns list of trade dicts."""
     df = _precompute_signals(df)
@@ -126,6 +128,8 @@ def _simulate_symbol(
     entry_price = stop_loss = target = 0.0
     entry_date = entry_idx = None
     atr_at_entry = 0.0
+    high_water = 0.0      # for trailing stop
+    trailing_active = False
 
     rows = list(df.itertuples())
 
@@ -147,6 +151,8 @@ def _simulate_symbol(
                 target = entry_price * (1 + target_pct)
                 entry_date = next_row.Index
                 entry_idx = i + 1
+                high_water = entry_price
+                trailing_active = False
                 in_trade = True
         else:
             days_held = i - entry_idx
@@ -157,15 +163,33 @@ def _simulate_symbol(
             exit_price = None
             exit_reason = None
 
-            if low <= stop_loss:
-                exit_price = stop_loss * (1 - slippage_pct)
-                exit_reason = "stop_loss"
-            elif high >= target:
-                exit_price = target * (1 - slippage_pct)
-                exit_reason = "target_hit"
-            elif days_held >= hold_days:
-                exit_price = close * (1 - slippage_pct)
-                exit_reason = "time_exit"
+            if exit_mode == "trailing":
+                # Update high water mark
+                if high > high_water:
+                    high_water = high
+                # Activate trailing once target is reached
+                if not trailing_active and high >= target:
+                    trailing_active = True
+                # Exit conditions
+                if low <= stop_loss:
+                    exit_price = stop_loss * (1 - slippage_pct)
+                    exit_reason = "stop_loss"
+                elif trailing_active and low <= high_water * (1 - trail_pct):
+                    exit_price = high_water * (1 - trail_pct) * (1 - slippage_pct)
+                    exit_reason = "trail_stop"
+                elif days_held >= hold_days * 2:  # double time limit for trailing
+                    exit_price = close * (1 - slippage_pct)
+                    exit_reason = "time_exit"
+            else:
+                if low <= stop_loss:
+                    exit_price = stop_loss * (1 - slippage_pct)
+                    exit_reason = "stop_loss"
+                elif high >= target:
+                    exit_price = target * (1 - slippage_pct)
+                    exit_reason = "target_hit"
+                elif days_held >= hold_days:
+                    exit_price = close * (1 - slippage_pct)
+                    exit_reason = "time_exit"
 
             if exit_price is not None:
                 pnl_pct = (exit_price - entry_price) / entry_price * 100
@@ -317,14 +341,17 @@ def run_backtest(
     target_pct: float = 0.08,
     stop_type: str = "atr",
     entry_mode: str = "normal",
+    exit_mode: str = "fixed",
+    trail_pct: float = 0.08,
 ) -> dict:
     """
     Run walk-forward backtest on given symbols.
     stop_type: "atr" | "fixed_3pct" | "fixed_5pct"
     entry_mode: "normal" | "strict"
+    exit_mode: "fixed" | "trailing"
     Returns stats dict with equity_curve and trades list.
     """
-    print(f"[backtest] {len(symbols)} symbols, period={period}, stop={stop_type}, entry={entry_mode}…")
+    print(f"[backtest] {len(symbols)} symbols, period={period}, stop={stop_type}, exit={exit_mode}…")
     try:
         _get_df, spy_return = _download_data(symbols, period)
     except Exception as e:
@@ -337,13 +364,53 @@ def run_backtest(
             if df.empty or len(df) < 60:
                 continue
             trades = _simulate_symbol(sym, df, hold_days, target_pct,
-                                      stop_type=stop_type, entry_mode=entry_mode)
-            print(f"[backtest] {sym}: {len(trades)} trades")
+                                      stop_type=stop_type, entry_mode=entry_mode,
+                                      exit_mode=exit_mode, trail_pct=trail_pct)
             all_trades.extend(trades)
         except Exception as e:
             print(f"[backtest] {sym} error: {e}")
 
     return _compute_stats(all_trades, spy_return)
+
+
+def compare_exit_strategies(
+    symbols: list[str],
+    period: str = "1y",
+    hold_days: int = 10,
+    target_pct: float = 0.12,
+    trail_pct: float = 0.08,
+    stop_type: str = "atr",
+) -> dict:
+    """
+    A vs B exit strategy comparison:
+    A: fixed target (sell immediately when target_pct hit)
+    B: trailing stop (let winner run, sell on trail_pct pullback from high)
+    Same entry signals, same stop-loss, only exit differs.
+    """
+    print(f"[backtest] A/B exit comparison — {len(symbols)} symbols, period={period}…")
+    try:
+        _get_df, spy_return = _download_data(symbols, period)
+    except Exception as e:
+        return {"error": str(e)}
+
+    trades_a, trades_b = [], []
+    for sym in symbols:
+        try:
+            df = _get_df(sym)
+            if df.empty or len(df) < 60:
+                continue
+            trades_a.extend(_simulate_symbol(sym, df, hold_days, target_pct,
+                                             stop_type=stop_type, exit_mode="fixed"))
+            trades_b.extend(_simulate_symbol(sym, df, hold_days, target_pct,
+                                             stop_type=stop_type, exit_mode="trailing",
+                                             trail_pct=trail_pct))
+        except Exception as e:
+            print(f"[backtest] {sym} error: {e}")
+
+    stats_a = _compute_stats(trades_a, spy_return)
+    stats_b = _compute_stats(trades_b, spy_return)
+    print(f"[backtest] A: {len(trades_a)} trades | B: {len(trades_b)} trades")
+    return {"A_fixed": stats_a, "B_trailing": stats_b, "spy_return_pct": spy_return}
 
 
 def compare_strategies(
