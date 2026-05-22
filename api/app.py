@@ -1339,6 +1339,65 @@ def get_compare():
     return _compare_cache.get("result", {"status": "not_run"})
 
 
+# ── Version backtest: v_prev vs v_current ─────────────────────────────────────
+
+_version_compare_cache: dict = {}
+_version_compare_running: bool = False
+
+
+@app.get("/api/backtest/versions")
+def get_version_compare():
+    import json
+    from pathlib import Path
+    result = _version_compare_cache.get("result", {"status": "not_run"})
+    try:
+        versions = json.loads((Path(__file__).parent.parent / "data" / "versions.json").read_text())
+        result["versions_meta"] = [
+            {"version": v["version"], "label": v["label"],
+             "description": v["description"], "created_at": v["created_at"],
+             "changes": v.get("changes", [])}
+            for v in versions[-2:]
+        ]
+    except Exception:
+        pass
+    return result
+
+
+@app.post("/api/backtest/versions")
+def trigger_version_compare(
+    background_tasks: BackgroundTasks,
+    period: str = "1y",
+    hold_days: int = 10,
+):
+    """Compare v_prev vs v_current using definitions in data/versions.json."""
+    global _version_compare_running
+    if _version_compare_running:
+        return {"status": "already_running"}
+
+    sym_list = load_watchlist()
+    scan_candidates = (_scan_cache.get("sp500") or {}).get("candidates", [])
+    extra = [c["symbol"] for c in scan_candidates][:20]
+    for s in extra:
+        if s not in sym_list:
+            sym_list.append(s)
+
+    def _run():
+        global _version_compare_running
+        _version_compare_running = True
+        _version_compare_cache["result"] = {"status": "running"}
+        try:
+            from src.analysis.backtester import backtest_compare_versions
+            result = backtest_compare_versions(sym_list, period=period, hold_days=hold_days)
+            _version_compare_cache["result"] = result
+        except Exception as e:
+            _version_compare_cache["result"] = {"status": "error", "error": str(e)}
+        finally:
+            _version_compare_running = False
+
+    background_tasks.add_task(_run)
+    return {"status": "started", "symbols": sym_list}
+
+
 # ── Scheduler: auto-trigger after market close ────────────────────────────────
 
 def _start_scheduler():

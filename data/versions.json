@@ -1,0 +1,47 @@
+[
+  {
+    "version": "v1",
+    "label": "v1 — 单轨 + 固定止盈",
+    "created_at": "2026-05-13",
+    "description": "单轨选股（RSI<60 + MA20≤8%）+ 固定止盈 8%",
+    "changes": ["初始版本"],
+    "backtest_params": {
+      "entry_mode": "strict",
+      "stop_type": "atr",
+      "exit_mode": "fixed",
+      "target_pct": 0.08,
+      "trail_trigger": 0.08,
+      "trail_pct": 0.08
+    }
+  },
+  {
+    "version": "v2",
+    "label": "v2 — 单轨 + 追踪止盈",
+    "created_at": "2026-05-21",
+    "description": "单轨选股（RSI<60 + MA20≤8%）+ 追踪止盈（+12% 激活，8% 回落触发）",
+    "changes": ["固定止盈 → 追踪止盈", "止损 1.5×ATR"],
+    "backtest_params": {
+      "entry_mode": "strict",
+      "stop_type": "atr",
+      "exit_mode": "trailing",
+      "target_pct": 0.12,
+      "trail_trigger": 0.12,
+      "trail_pct": 0.08
+    }
+  },
+  {
+    "version": "v3",
+    "label": "v3 — 双轨 + 板块共振 + 优化追踪",
+    "created_at": "2026-05-22",
+    "description": "双轨选股（动能突破 RSI 50-75 / 盘整蓄力 RSI<55）+ 板块共振 + 追踪止盈（+6% 激活，5% 回落触发）",
+    "changes": ["单轨 → 双轨选股", "板块共振 RSI 上限提升", "止损 2×ATR", "追踪激活 12% → 6%", "追踪回落 8% → 5%", "财报过滤精确到今天/明天"],
+    "backtest_params": {
+      "entry_mode": "dual_track",
+      "stop_type": "atr",
+      "exit_mode": "trailing",
+      "target_pct": 0.06,
+      "trail_trigger": 0.06,
+      "trail_pct": 0.05
+    }
+  }
+]

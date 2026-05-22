@@ -956,6 +956,153 @@ body {
   padding: 16px;
 }
 
+/* ── Version Compare Backtest ─────────────────────────────────────────────── */
+.version-labels-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.version-tag-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.version-tag-prev { border-left: 3px solid #6366f1; }
+.version-tag-current { border-left: 3px solid #22c55e; }
+.version-tag-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.version-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  letter-spacing: 0.03em;
+}
+.version-date {
+  font-size: 11px;
+  color: var(--muted);
+}
+.version-new-chip {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: #22c55e20;
+  color: #22c55e;
+  border: 1px solid #22c55e40;
+  margin-left: auto;
+}
+.version-description {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+.version-changes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.version-change-tag {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.version-spy-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 16px;
+  margin-bottom: 14px;
+}
+
+.version-compare-table {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+.version-compare-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 1fr;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.version-compare-row:last-child { border-bottom: none; }
+.version-compare-header {
+  background: var(--bg);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.vcol-label {
+  padding: 10px 16px;
+  color: var(--muted);
+  font-size: 12px;
+  border-right: 1px solid var(--border);
+}
+.vcol-prev {
+  padding: 10px 16px;
+  border-right: 1px solid var(--border);
+}
+.vcol-curr {
+  padding: 10px 16px;
+}
+.vcol-win {
+  font-weight: 700;
+  color: #22c55e;
+}
+.version-compare-exits .vcol-prev,
+.version-compare-exits .vcol-curr {
+  padding: 8px 16px;
+}
+.version-compare-exits .vcol-label { align-self: flex-start; padding-top: 12px; }
+
+.version-curves-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.mini-curve-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.mini-curve-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.mini-curve-ret {
+  font-size: 16px;
+  font-weight: 700;
+  margin-top: 6px;
+  text-align: right;
+}
+
 /* ── Trade Buttons ─────────────────────────────────────────────────────────── */
 .trade-btn {
   width: 100%;

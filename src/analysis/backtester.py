@@ -106,22 +106,65 @@ def _buy_signal_strict(row) -> bool:
         return False
 
 
+def _buy_signal_dual_track(row) -> bool:
+    """Dual-track entry (v3):
+    Track 1 — Momentum Breakout: RSI 50-75, above MA20, positive momentum, moderate extension
+    Track 2 — Compression Coil: RSI<55, low volume (<0.8x), mild momentum
+    """
+    try:
+        def g(field):
+            try:
+                return row[field]
+            except (KeyError, TypeError):
+                return getattr(row, field)
+        rsi      = g("rsi")
+        macd     = g("macd_hist")
+        close    = g("Close")
+        ma20     = g("ma20")
+        vol      = g("vol_ratio")
+        mom5     = g("mom5")
+        vs_ma20  = (close - ma20) / ma20 * 100 if ma20 > 0 else 0
+
+        track1 = (
+            50 <= rsi <= 75
+            and close > ma20          # today_bull proxy
+            and mom5 > 0
+            and vs_ma20 <= 15.0
+            and macd > 0
+        )
+        track2 = (
+            rsi < 55
+            and vol < 0.8
+            and mom5 > -3
+            and macd > -0.1           # not strongly bearish
+        )
+        return track1 or track2
+    except Exception:
+        return False
+
+
 def _simulate_symbol(
     symbol: str,
     df: pd.DataFrame,
     hold_days: int,
     target_pct: float,
     slippage_pct: float = 0.003,
-    stop_type: str = "atr",      # "atr" | "fixed_3pct" | "fixed_5pct"
-    entry_mode: str = "normal",  # "normal" | "strict"
-    exit_mode: str = "fixed",    # "fixed" | "trailing"
-    trail_pct: float = 0.08,     # trailing stop: sell if drops X% from high after target
+    stop_type: str = "atr",        # "atr" | "fixed_3pct" | "fixed_5pct"
+    entry_mode: str = "normal",    # "normal" | "strict" | "dual_track"
+    exit_mode: str = "fixed",      # "fixed" | "trailing"
+    trail_pct: float = 0.08,       # trailing: sell if drops X% from high water
+    trail_trigger: float = 0.08,   # trailing: activate when gain >= this %
 ) -> list[dict]:
     """Walk-forward simulation for one symbol. Returns list of trade dicts."""
     df = _precompute_signals(df)
     df = df.dropna(subset=["rsi", "macd_hist", "ma50", "atr"])
 
-    signal_fn = _buy_signal_strict if entry_mode == "strict" else _buy_signal
+    if entry_mode == "dual_track":
+        signal_fn = _buy_signal_dual_track
+    elif entry_mode == "strict":
+        signal_fn = _buy_signal_strict
+    else:
+        signal_fn = _buy_signal
 
     trades = []
     in_trade = False
@@ -167,8 +210,8 @@ def _simulate_symbol(
                 # Update high water mark
                 if high > high_water:
                     high_water = high
-                # Activate trailing once target is reached
-                if not trailing_active and high >= target:
+                # Activate trailing once trail_trigger gain is reached
+                if not trailing_active and high >= entry_price * (1 + trail_trigger):
                     trailing_active = True
                 # Exit conditions
                 if low <= stop_loss:
@@ -343,15 +386,16 @@ def run_backtest(
     entry_mode: str = "normal",
     exit_mode: str = "fixed",
     trail_pct: float = 0.08,
+    trail_trigger: float = 0.08,
 ) -> dict:
     """
     Run walk-forward backtest on given symbols.
     stop_type: "atr" | "fixed_3pct" | "fixed_5pct"
-    entry_mode: "normal" | "strict"
+    entry_mode: "normal" | "strict" | "dual_track"
     exit_mode: "fixed" | "trailing"
     Returns stats dict with equity_curve and trades list.
     """
-    print(f"[backtest] {len(symbols)} symbols, period={period}, stop={stop_type}, exit={exit_mode}…")
+    print(f"[backtest] {len(symbols)} symbols, period={period}, entry={entry_mode}, exit={exit_mode}…")
     try:
         _get_df, spy_return = _download_data(symbols, period)
     except Exception as e:
@@ -365,12 +409,86 @@ def run_backtest(
                 continue
             trades = _simulate_symbol(sym, df, hold_days, target_pct,
                                       stop_type=stop_type, entry_mode=entry_mode,
-                                      exit_mode=exit_mode, trail_pct=trail_pct)
+                                      exit_mode=exit_mode, trail_pct=trail_pct,
+                                      trail_trigger=trail_trigger)
             all_trades.extend(trades)
         except Exception as e:
             print(f"[backtest] {sym} error: {e}")
 
     return _compute_stats(all_trades, spy_return)
+
+
+def backtest_compare_versions(
+    symbols: list[str],
+    period: str = "1y",
+    hold_days: int = 10,
+) -> dict:
+    """
+    Run v_prev vs v_current backtest on the same symbols and time window.
+    Reads version definitions from data/versions.json (latest two entries).
+    Returns side-by-side comparison dict.
+    """
+    import json
+    from pathlib import Path
+
+    versions_path = Path(__file__).parent.parent.parent / "data" / "versions.json"
+    try:
+        versions = json.loads(versions_path.read_text())
+    except Exception as e:
+        return {"error": f"Cannot read versions.json: {e}"}
+
+    if len(versions) < 2:
+        return {"error": "Need at least 2 versions in versions.json"}
+
+    v_prev    = versions[-2]
+    v_current = versions[-1]
+
+    print(f"[backtest] Comparing {v_prev['version']} vs {v_current['version']} — {len(symbols)} symbols, period={period}")
+    try:
+        _get_df, spy_return = _download_data(symbols, period)
+    except Exception as e:
+        return {"error": str(e)}
+
+    results = {}
+    for v in [v_prev, v_current]:
+        p = v["backtest_params"]
+        all_trades: list[dict] = []
+        for sym in symbols:
+            try:
+                df = _get_df(sym)
+                if df.empty or len(df) < 60:
+                    continue
+                trades = _simulate_symbol(
+                    sym, df, hold_days,
+                    target_pct=p.get("target_pct", 0.08),
+                    stop_type=p.get("stop_type", "atr"),
+                    entry_mode=p.get("entry_mode", "strict"),
+                    exit_mode=p.get("exit_mode", "trailing"),
+                    trail_pct=p.get("trail_pct", 0.08),
+                    trail_trigger=p.get("trail_trigger", 0.12),
+                )
+                all_trades.extend(trades)
+            except Exception as e:
+                print(f"[backtest] {sym} ({v['version']}) error: {e}")
+
+        stats = _compute_stats(all_trades, spy_return)
+        results[v["version"]] = {
+            "label":       v["label"],
+            "description": v["description"],
+            "created_at":  v["created_at"],
+            "stats":       stats,
+        }
+        print(f"[backtest] {v['version']}: trades={stats.get('total_trades')}, "
+              f"win={stats.get('win_rate')}%, ret={stats.get('total_return_pct')}%")
+
+    return {
+        "status":       "done",
+        "period":       period,
+        "symbols_count": len(symbols),
+        "spy_return_pct": spy_return,
+        "v_prev":       results[v_prev["version"]],
+        "v_current":    results[v_current["version"]],
+    }
 
 
 def compare_exit_strategies(

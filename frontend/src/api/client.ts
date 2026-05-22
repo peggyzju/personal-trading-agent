@@ -240,6 +240,32 @@ export interface BacktestResult {
   error?: string;
 }
 
+export interface VersionMeta {
+  version: string;
+  label: string;
+  description: string;
+  created_at: string;
+  changes: string[];
+}
+
+export interface VersionStats {
+  label: string;
+  description: string;
+  created_at: string;
+  stats: BacktestResult;
+}
+
+export interface VersionCompareResult {
+  status: "not_run" | "running" | "done" | "error";
+  period?: string;
+  symbols_count?: number;
+  spy_return_pct?: number;
+  v_prev?: VersionStats;
+  v_current?: VersionStats;
+  versions_meta?: VersionMeta[];
+  error?: string;
+}
+
 export interface DailyBrief {
   headline: string;
   market_mood: "RISK_ON" | "RISK_OFF" | "MIXED";
@@ -448,6 +474,13 @@ export const api = {
       Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])
     ).toString();
     return post<{ status: string }>(`/backtest${q ? "?" + q : ""}`);
+  },
+  getVersionCompare: () => get<VersionCompareResult>("/backtest/versions"),
+  triggerVersionCompare: (params: { period?: string; hold_days?: number }) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])
+    ).toString();
+    return post<{ status: string }>(`/backtest/versions${q ? "?" + q : ""}`);
   },
   getScan: () => get<ScanResult>("/scan/sp500"),
   triggerScan: () => post<{ status: string }>("/scan/sp500"),
