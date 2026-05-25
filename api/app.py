@@ -71,6 +71,28 @@ def save_watchlist(symbols: list[str]):
     WATCHLIST_FILE.write_text(json.dumps(symbols))
 
 
+def load_backtest_universe(n: int = 150) -> list[str]:
+    """
+    Return a liquid backtest universe: S&P 500 top-N (by Wikipedia order, which
+    roughly tracks market cap) + Nasdaq-100 growth stocks + watchlist.
+    Deduped, capped at n symbols so download stays fast (~15-20s).
+    """
+    from src.monitor.sp500_scanner import get_sp500_tickers, get_nasdaq100_tickers
+    sp500  = get_sp500_tickers()          # ~500, roughly market-cap ordered
+    ndq100 = get_nasdaq100_tickers()      # ~100, growth/tech heavy
+    wl     = load_watchlist()
+
+    seen: set[str] = set()
+    universe: list[str] = []
+    for sym in sp500[:n] + ndq100 + wl:  # sp500 first so top-cap lead
+        if sym not in seen:
+            seen.add(sym)
+            universe.append(sym)
+        if len(universe) >= n:
+            break
+    return universe
+
+
 # ── Watchlist ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/watchlist")
@@ -1408,12 +1430,7 @@ def trigger_version_compare(
     if _version_compare_running:
         return {"status": "already_running"}
 
-    sym_list = load_watchlist()
-    scan_candidates = (_scan_cache.get("sp500") or {}).get("candidates", [])
-    extra = [c["symbol"] for c in scan_candidates][:20]
-    for s in extra:
-        if s not in sym_list:
-            sym_list.append(s)
+    sym_list = load_backtest_universe(n=150)
 
     def _run():
         global _version_compare_running
