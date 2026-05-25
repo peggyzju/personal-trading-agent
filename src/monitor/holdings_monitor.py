@@ -16,7 +16,8 @@ _PRICE_MOVE_THRESHOLD = 1.5           # re-analyse if price moved >1.5%
 
 # ── Trailing stop config ──────────────────────────────────────────────────────
 _TRAILING_FILE = Path(__file__).parent.parent.parent / "data" / "trailing_stops.json"
-TRAIL_PCT = 6.0   # trail 6% below high watermark (wider than 3% hard stop → lets winners run)
+TRAIL_PCT = 6.0          # trail 6% below high watermark (wider than 3% hard stop → lets winners run)
+TREND_FILTER_PCT = 5.0   # suppress REDUCE when gain from entry ≥ 5% — let trailing stop manage exit
 
 
 def _load_trailing_stops() -> dict:
@@ -233,19 +234,37 @@ def analyze_sell_signals(positions: list[dict]) -> list[dict]:
             parts.append(f"2xATR_stop=${tech['stop_2atr']:.2f}")
         return " | ".join(parts) if parts else "no tech data"
 
+    def _trend_info(p: dict) -> str:
+        """Compute gain-from-entry and trend-protected status for prompt context."""
+        try:
+            entry = float(p.get("avg_entry_price") or 0)
+            cur   = float(p.get("current_price") or 0)
+            if entry and cur:
+                gain = (cur - entry) / entry * 100
+                protected = gain >= TREND_FILTER_PCT
+                return f"gain_from_entry={gain:+.1f}% trend_protected={'Yes' if protected else 'No'}"
+        except Exception:
+            pass
+        return ""
+
     rows = "\n".join(
         f'{i+1}. {p["symbol"]} | entry=${p["avg_entry_price"]:.2f} | '
         f'now=${p["current_price"]:.2f} | P&L={p["unrealized_plpc"]:+.1f}% | '
-        f'qty={p["qty"]} | {_tech_line(p.get("_tech", {}))}'
+        f'qty={p["qty"]} | {_trend_info(p)} | {_tech_line(p.get("_tech", {}))}'
         for i, p in enumerate(enriched)
     )
 
     prompt = f"""You are a portfolio risk manager. Assess each position for a sell/hold decision.
 Use BOTH the P&L data AND the technical indicators (RSI, momentum, MACD, MA position).
 
+CRITICAL TREND FILTER (highest priority rule):
+- If trend_protected=Yes (position up ≥5% from entry) → return HOLD, do NOT return REDUCE.
+  The mechanical trailing stop is already protecting this position.
+  Only override to SELL if: price breaks below MA20 AND MACD bearish cross confirmed simultaneously.
+
 Key guidelines:
 - RSI < 35 + positive momentum → consider HOLD even if P&L is negative (possible recovery)
-- RSI > 70 + bearish MACD cross → consider REDUCE or SELL even if P&L is positive
+- RSI > 70 alone is NOT a sell signal if trend_protected=Yes — strong momentum stocks stay overbought
 - Position below 2×ATR stop level → SELL (stop hit)
 - MACD bullish cross + above MA20 → lean HOLD or ADD if fundamentals support
 - Pure P&L alone is NOT sufficient reason to sell; combine with technicals
@@ -317,9 +336,24 @@ Return ONLY a JSON array."""
         override = _rule_based_override(p)
         ai_sig   = sig_map.get(p["symbol"], {})
         if override:
-            # Rule-based overrides always win
+            # Rule-based overrides always win (hard stop / trailing stop)
             merged = {**ai_sig, **override}
         else:
+            # ── 趋势过滤器 post-processing: belt-and-suspenders ─────────────────
+            # Even if Claude still returns REDUCE, override to HOLD when gain ≥ 5%
+            if ai_sig.get("sell_signal") == "REDUCE":
+                try:
+                    entry = float(p.get("avg_entry_price") or 0)
+                    cur   = float(p.get("current_price") or 0)
+                    gain  = (cur - entry) / entry * 100 if entry else 0
+                    if gain >= TREND_FILTER_PCT:
+                        print(f"[holdings] {p['symbol']} 趋势过滤器: +{gain:.1f}% ≥ {TREND_FILTER_PCT}% — REDUCE→HOLD")
+                        ai_sig = {**ai_sig,
+                                  "sell_signal": "HOLD",
+                                  "urgency": "LOW",
+                                  "reason": f"[趋势过滤器] 涨幅{gain:.1f}%≥{TREND_FILTER_PCT}%，追踪止盈托底，屏蔽REDUCE"}
+                except Exception:
+                    pass
             merged = ai_sig if ai_sig else {"sell_signal": "HOLD", "urgency": "LOW", "reason": ""}
 
         final = {k: v for k, v in {**p, **merged}.items() if k != "_tech"}

@@ -157,6 +157,34 @@ def _is_market_hours() -> bool:
     return dtime(9, 25) <= now_et.time() <= dtime(16, 5)
 
 
+# ── SPY trend gate ────────────────────────────────────────────────────────────
+
+_spy_trend_cache: dict = {}   # {"trend": "bull"|"bear", "ts": float}
+_SPY_CACHE_TTL = 4 * 3600    # refresh every 4 hours
+
+def _get_spy_trend() -> str:
+    """Return 'bull' if SPY > 20-day MA, else 'bear'. Cached for 4 h."""
+    import time
+    now = time.time()
+    if _spy_trend_cache and now - _spy_trend_cache.get("ts", 0) < _SPY_CACHE_TTL:
+        return _spy_trend_cache["trend"]
+    try:
+        import yfinance as yf
+        df = yf.Ticker("SPY").history(period="60d", auto_adjust=True)
+        if df.empty or len(df) < 20:
+            return "bull"   # conservative: don't block if data unavailable
+        close = df["Close"].iloc[-1]
+        ma20  = df["Close"].rolling(20).mean().iloc[-1]
+        trend = "bull" if close > ma20 else "bear"
+        _spy_trend_cache["trend"] = trend
+        _spy_trend_cache["ts"]    = now
+        print(f"[agent] SPY trend: {trend} (close={close:.2f} MA20={ma20:.2f})")
+        return trend
+    except Exception as e:
+        print(f"[agent] SPY trend check failed: {e} — defaulting to bull")
+        return "bull"
+
+
 # ── Trade construction ────────────────────────────────────────────────────────
 
 def _make_trade(
@@ -641,6 +669,10 @@ def run_agent(
                 return False
             return True
 
+        # Constants used by Gate A and Gate B in both scanner and watchlist sections
+        TRAIL_TRIGGER = 0.10   # used for R:R denominator (target gain)
+        RR_MIN        = 1.5    # minimum reward:risk ratio (target / stop-distance)
+
         # ── 1. S&P 500 Scanner: quality gate (ai_score) + Rex execution rules ──
         # Scout (AI) owns quality scoring; Rex owns execution decision.
         # Gate: ai_score >= min_ai_score (quality) AND signal != SELL (Scout flagged danger).
@@ -685,6 +717,24 @@ def run_agent(
                     continue
                 price = c.get("price", 0)
                 stop = c.get("stop_loss") or (price * (1 - stop_loss_pct) if price else None)
+
+                # Gate A: SPY trend — Track 1 (momentum) requires bull market
+                # Track 2 (compression) is exempt: it targets independent breakouts
+                track = c.get("track", "track1")
+                if track != "track2" and _get_spy_trend() == "bear":
+                    print(f"[agent] {c['symbol']} skip — SPY bear trend (Track1 blocked)")
+                    summary["signals_found"] += 1
+                    continue
+
+                # Gate B: R:R pre-screen — reject if stop too wide (risk > 6.7% → R:R < 1.5)
+                if price and stop and stop < price:
+                    risk_pct_actual = (price - stop) / price
+                    rr = TRAIL_TRIGGER / risk_pct_actual if risk_pct_actual > 0 else 0
+                    if rr < RR_MIN:
+                        print(f"[agent] {c['symbol']} skip — R:R {rr:.2f}x < {RR_MIN} (stop {risk_pct_actual:.1%} too wide)")
+                        summary["signals_found"] += 1
+                        continue
+
                 notional = _size(price, stop) if (price and stop and stop < price) else \
                            min(portfolio_value * risk_pct * 3 * size_factor, max_notional)
 
@@ -769,6 +819,22 @@ def run_agent(
                         continue
                     price = cached.get("price") or 0
                     stop  = cached.get("stop_loss") or (price * (1 - stop_loss_pct) if price else None)
+
+                    # Gate A: SPY trend (watchlist uses track1 by default)
+                    if _get_spy_trend() == "bear":
+                        print(f"[agent] {wl_sym} skip — SPY bear trend (watchlist blocked)")
+                        summary["signals_found"] += 1
+                        continue
+
+                    # Gate B: R:R pre-screen
+                    if price and stop and stop < price:
+                        risk_pct_actual = (price - stop) / price
+                        rr = TRAIL_TRIGGER / risk_pct_actual if risk_pct_actual > 0 else 0
+                        if rr < RR_MIN:
+                            print(f"[agent] {wl_sym} skip — R:R {rr:.2f}x < {RR_MIN} (stop {risk_pct_actual:.1%} too wide)")
+                            summary["signals_found"] += 1
+                            continue
+
                     notional = _size(price, stop) if (price and stop and stop < price) else \
                                min(portfolio_value * risk_pct * 3 * size_factor, max_notional)
 
@@ -951,6 +1017,17 @@ def run_agent(
             if sell_signal == "REDUCE" and _reduce_today.get(pos["symbol"]) == today_str:
                 print(f"[agent] skip {pos['symbol']} REDUCE — already reduced today")
                 continue
+
+            # ── 趋势过滤器: 涨幅 ≥ 5% 时屏蔽 REDUCE，让追踪止盈管理退出 ──────────
+            TREND_FILTER_PCT = 0.05
+            if sell_signal == "REDUCE":
+                _entry  = _sym_trade.get(pos["symbol"], {})
+                _epx    = _entry.get("price") or float(pos.get("avg_entry_price") or 0)
+                _cpx    = float(pos.get("current_price") or 0)
+                if _epx and _cpx >= _epx * (1 + TREND_FILTER_PCT):
+                    _gain = (_cpx / _epx - 1) * 100
+                    print(f"[agent] {pos['symbol']} 趋势过滤器: +{_gain:.1f}% ≥ 5% — skip REDUCE, trailing stop managing")
+                    continue
 
             # ── REDUCE streak escalation ───────────────────────────────────────
             # If the same position has been REDUCE'd 2+ times → escalate to full SELL
