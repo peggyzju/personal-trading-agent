@@ -154,7 +154,7 @@ def _buy_signal_dual_track(row) -> str | None:
 def _buy_signal_dual_track_v6(row) -> str | None:
     """Dual-track entry (v6):
     Track 1 — Momentum Breakout (with vol gate):
-        RSI 50-75, vol_ratio ≥ 1.5, above MA20, vs_ma20 ≤ 15%, mom5 > 0
+        RSI 50-75, vol_ratio ≥ 1.2, above MA20, vs_ma20 ≤ 15%, mom5 > 0
     Track 2 — Compression Coil (with MA20 slope gate):
         RSI < 55, vol_ratio < 0.8, mom5 > -3, vs_ma20 ≥ -3.0, ma20_slope > 0
     """
@@ -177,7 +177,7 @@ def _buy_signal_dual_track_v6(row) -> str | None:
 
         # Track 1: momentum breakout with volume confirmation
         if (50 <= rsi <= 75 and close > ma20 and mom5 > 0
-                and vs_ma20 <= 15.0 and not pd.isna(vol) and vol >= 1.5):
+                and vs_ma20 <= 15.0 and not pd.isna(vol) and vol >= 1.2):
             return "track1"
         # Track 2: compression coil with slope gate (not dead water)
         if (rsi < 55 and not pd.isna(vol) and vol < 0.8 and mom5 > -3

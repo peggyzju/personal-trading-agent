@@ -519,9 +519,9 @@ def quick_screen(
 
         rsi_ceiling = 75 + (SECTOR_RSI_BOOST if sector in hot_sectors else 0)
 
-        # Track 1 (动能突破): 加爆量验证 vol_ratio ≥ 1.5x，确保有机构资金背书
+        # Track 1 (动能突破): 加爆量验证 vol_ratio ≥ 1.2x，确保有机构资金背书
         track1 = (50 <= rsi <= rsi_ceiling and bull_ok and mom5d > 0
-                  and vs_ma20 <= 15.0 and vol_ratio >= 1.5)
+                  and vs_ma20 <= 15.0 and vol_ratio >= 1.2)
 
         # Track 2 (盘整蓄力): 加安全垫——价格在 MA20 附近（≥-3%）且 MA20 本身向上
         # 排除下降趋势中的"死水"股，只选多头趋势中的横盘蓄力
