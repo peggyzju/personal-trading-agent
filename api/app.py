@@ -1424,9 +1424,29 @@ def trigger_version_compare(
             result = backtest_compare_versions(sym_list, period=period, hold_days=hold_days)
             _version_compare_cache["result"] = result
             try:
-                _VERSION_COMPARE_FILE.write_text(json.dumps(result))
-            except Exception:
-                pass
+                import math as _math
+
+                class _NumpySafeEncoder(json.JSONEncoder):
+                    """Handle numpy/pandas scalar types that json can't serialize natively."""
+                    def default(self, obj):
+                        try:
+                            import numpy as _np
+                            if isinstance(obj, (_np.integer,)):
+                                return int(obj)
+                            if isinstance(obj, (_np.floating,)):
+                                v = float(obj)
+                                return None if (_math.isnan(v) or _math.isinf(v)) else v
+                            if isinstance(obj, _np.ndarray):
+                                return obj.tolist()
+                        except ImportError:
+                            pass
+                        return super().default(obj)
+
+                _VERSION_COMPARE_FILE.write_text(
+                    json.dumps(result, cls=_NumpySafeEncoder)
+                )
+            except Exception as _e:
+                print(f"[backtest] disk save error: {_e}")
         except Exception as e:
             _version_compare_cache["result"] = {"status": "error", "error": str(e)}
         finally:
