@@ -518,7 +518,8 @@ def _download_data(symbols: list[str], period: str) -> tuple:
     spy_return = 0.0
     if not spy_df.empty:
         spy_close = spy_df["Close"].dropna()
-        spy_return = (float(spy_close.iloc[-1]) / float(spy_close.iloc[0]) - 1) * 100
+        if len(spy_close) >= 2:   # guard against empty / single-row SPY data
+            spy_return = (float(spy_close.iloc[-1]) / float(spy_close.iloc[0]) - 1) * 100
 
     return _get_df, spy_return
 

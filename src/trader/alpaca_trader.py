@@ -95,7 +95,8 @@ def place_order(
                 take_profit = None
 
         if stop_loss or take_profit:
-            kwargs["order_class"] = "bracket"
+            # bracket requires BOTH legs; oto (one-triggers-other) works with just one
+            kwargs["order_class"] = "bracket" if (stop_loss and take_profit) else "oto"
             if stop_loss:
                 kwargs["stop_loss"] = {"stop_price": str(round(stop_loss, 2))}
             if take_profit:

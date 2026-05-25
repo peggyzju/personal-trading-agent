@@ -7,7 +7,7 @@ interface Props { backendOnline: boolean }
 export function BacktestView({ backendOnline }: Props) {
   const [data, setData] = useState<VersionCompareResult | null>(null);
   const [loading, setLoading] = useState(false);
-  const [period, setPeriod] = useState<"6mo" | "1y" | "2025" | "2024" | "2023">("6mo");
+  const [period, setPeriod] = useState<"6mo" | "1y" | "2025" | "2024" | "2023">("2025");
   const [holdDays, setHoldDays] = useState(14);
 
   useEffect(() => {
@@ -19,7 +19,7 @@ export function BacktestView({ backendOnline }: Props) {
       if (r.status === "not_run" || (r.status === "done" && !hasValidData)) {
         // cache empty or stale bad result — auto-trigger with defaults
         setLoading(true);
-        api.triggerVersionCompare({ period: "6mo", hold_days: 14 }).then(() => {
+        api.triggerVersionCompare({ period: "2025", hold_days: 14 }).then(() => {
           const poll = setInterval(async () => {
             const res = await api.getVersionCompare();
             setData(res);
