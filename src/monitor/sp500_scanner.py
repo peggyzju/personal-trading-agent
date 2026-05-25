@@ -373,15 +373,25 @@ def compute_technicals(df: pd.DataFrame) -> dict:
         - slope_penalty
     )
 
+    # MA20 slope: compare current MA20 to 5 days ago (positive = uptrend)
+    ma20_series = closes.rolling(20).mean().dropna()
+    if len(ma20_series) >= 6:
+        ma20_now_val = float(ma20_series.iloc[-1])
+        ma20_5d_val  = float(ma20_series.iloc[-6])
+        ma20_slope_pct = (ma20_now_val - ma20_5d_val) / ma20_5d_val * 100 if ma20_5d_val else 0.0
+    else:
+        ma20_slope_pct = 0.0
+
     result = {
-        "price":        round(price_now, 2),
-        "momentum_5d":  round(momentum_5d, 2),
-        "momentum_1m":  round(momentum_1m, 2),
-        "momentum_3m":  round(momentum_3m, 2),
-        "volume_ratio": round(volume_ratio, 2),
-        "near_breakout": near_breakout,
-        "rsi":          rsi,
-        "tech_score":   round(score, 2),
+        "price":          round(price_now, 2),
+        "momentum_5d":    round(momentum_5d, 2),
+        "momentum_1m":    round(momentum_1m, 2),
+        "momentum_3m":    round(momentum_3m, 2),
+        "volume_ratio":   round(volume_ratio, 2),
+        "near_breakout":  near_breakout,
+        "rsi":            rsi,
+        "tech_score":     round(score, 2),
+        "ma20_slope_pct": round(ma20_slope_pct, 3),
         # K-line fields
         "candle_quality": kline.get("candle_quality"),
         "candle_desc":    kline.get("candle_desc"),
@@ -498,18 +508,25 @@ def quick_screen(
     # Phase 3: apply dual-track filter with sector-adjusted RSI ceiling
     all_results: list[dict] = []
     for r in raw_results:
-        symbol    = r["symbol"]
-        rsi       = r["rsi"]
-        mom5d     = r["momentum_5d"]
-        vs_ma20   = r.get("vs_ma20_pct") or 0
-        vol_ratio = r.get("volume_ratio") or 1.0
-        bull_ok   = r.get("today_bull", False)
-        sector    = r["sector"]
+        symbol      = r["symbol"]
+        rsi         = r["rsi"]
+        mom5d       = r["momentum_5d"]
+        vs_ma20     = r.get("vs_ma20_pct") or 0
+        vol_ratio   = r.get("volume_ratio") or 1.0
+        bull_ok     = r.get("today_bull", False)
+        sector      = r["sector"]
+        ma20_slope  = r.get("ma20_slope_pct", 0)
 
         rsi_ceiling = 75 + (SECTOR_RSI_BOOST if sector in hot_sectors else 0)
 
-        track1 = (50 <= rsi <= rsi_ceiling and bull_ok and mom5d > 0 and vs_ma20 <= 15.0)
-        track2 = (rsi < 55 and vol_ratio < 0.8 and mom5d > -3)
+        # Track 1 (动能突破): 加爆量验证 vol_ratio ≥ 1.5x，确保有机构资金背书
+        track1 = (50 <= rsi <= rsi_ceiling and bull_ok and mom5d > 0
+                  and vs_ma20 <= 15.0 and vol_ratio >= 1.5)
+
+        # Track 2 (盘整蓄力): 加安全垫——价格在 MA20 附近（≥-3%）且 MA20 本身向上
+        # 排除下降趋势中的"死水"股，只选多头趋势中的横盘蓄力
+        track2 = (rsi < 55 and vol_ratio < 0.8 and mom5d > -3
+                  and vs_ma20 >= -3.0 and ma20_slope > 0)
 
         if symbol in _force:
             passes = bull_ok or track2

@@ -718,18 +718,22 @@ def test_v3_strategy():
 
         # Build minimal mock raw records
         mock_raws = [
-            # Track 1: RSI=60, today_bull=True, mom5d=2%, vs_ma20=5% → passes
+            # Track 1: RSI=60, today_bull=True, mom5d=2%, vs_ma20=5%, vol_ratio=1.6 → passes
             {"symbol": "T1OK", "rsi": 60, "today_bull": True, "momentum_5d": 2.0,
-             "vs_ma20_pct": 5.0, "volume_ratio": 1.2, "sector": "SEMIS",
-             "price": 100, "ma20": 95, "tech_score": 50.0, "macd_hist": 0.5},
-            # Track 2: RSI=50, today_bull=False, vol_ratio=0.6, mom5d=0 → passes
+             "vs_ma20_pct": 5.0, "volume_ratio": 1.6, "sector": "SEMIS",
+             "price": 100, "ma20": 95, "tech_score": 50.0, "macd_hist": 0.5,
+             "ma20_slope_pct": 0.5},
+            # Track 2: RSI=50, today_bull=False, vol_ratio=0.6, mom5d=0,
+            #          vs_ma20=3% (≥-3%), ma20_slope=+0.3% (>0) → passes
             {"symbol": "T2OK", "rsi": 50, "today_bull": False, "momentum_5d": 0.0,
              "vs_ma20_pct": 3.0, "volume_ratio": 0.6, "sector": "SOFTWARE",
-             "price": 100, "ma20": 97, "tech_score": 40.0, "macd_hist": 0.2},
+             "price": 100, "ma20": 97, "tech_score": 40.0, "macd_hist": 0.2,
+             "ma20_slope_pct": 0.3},
             # Fails both: RSI=80 (>75, not in hot sector), today_bull=False
             {"symbol": "FAIL", "rsi": 80, "today_bull": False, "momentum_5d": 1.0,
              "vs_ma20_pct": 5.0, "volume_ratio": 1.0, "sector": "OTHER",
-             "price": 100, "ma20": 95, "tech_score": 30.0, "macd_hist": -0.1},
+             "price": 100, "ma20": 95, "tech_score": 30.0, "macd_hist": -0.1,
+             "ma20_slope_pct": 0.0},
         ]
 
         from unittest.mock import patch as _patch
@@ -764,15 +768,16 @@ def test_v3_strategy():
         # Create 3 SEMIS stocks with today_bull → sector becomes hot → RSI ceiling 85
         semis_hot = [
             {"symbol": f"SEMI{i}", "rsi": 78, "today_bull": True, "momentum_5d": 1.0,
-             "vs_ma20_pct": 5.0, "volume_ratio": 1.0, "sector": "SEMIS",
-             "price": 100, "ma20": 95, "tech_score": 50.0, "macd_hist": 0.5}
+             "vs_ma20_pct": 5.0, "volume_ratio": 1.6, "sector": "SEMIS",
+             "price": 100, "ma20": 95, "tech_score": 50.0, "macd_hist": 0.5,
+             "ma20_slope_pct": 0.4}
             for i in range(SECTOR_RESONANCE_THRESHOLD)
         ]
         # One stock with RSI=78 that should only pass when sector is hot
         test_stock = {"symbol": "SEMIHIGH", "rsi": 78, "today_bull": True,
-                      "momentum_5d": 1.0, "vs_ma20_pct": 5.0, "volume_ratio": 1.0,
+                      "momentum_5d": 1.0, "vs_ma20_pct": 5.0, "volume_ratio": 1.6,
                       "sector": "SEMIS", "price": 100, "ma20": 95,
-                      "tech_score": 48.0, "macd_hist": 0.3}
+                      "tech_score": 48.0, "macd_hist": 0.3, "ma20_slope_pct": 0.4}
 
         all_mock = semis_hot + [test_stock]
         syms_all = [r["symbol"] for r in all_mock]
@@ -812,14 +817,15 @@ def test_v3_strategy():
     except Exception as e:
         fail("财报过滤", str(e))
 
-    # ── 6. Trail 参数验证 (TRAIL_TRIGGER=6%, TRAIL_PCT=5%) ─────────────────
+    # ── 6. Trail 参数验证 (TRAIL_TRIGGER=20%, TRAIL_PCT=5%) ─────────────────
     try:
         import src.trader.trade_agent as ta
         import inspect
         src_code = inspect.getsource(ta.run_agent)
         import src.trader.trade_agent as _ta_mod
         ta_src = inspect.getsource(_ta_mod)
-        if "TRAIL_TRIGGER = 0.10" in ta_src:
+        import re as _re
+        if _re.search(r"TRAIL_TRIGGER\s+=\s+0\.10", ta_src):
             ok("Trail trigger", "TRAIL_TRIGGER = 10% ✓")
         else:
             fail("Trail trigger", "TRAIL_TRIGGER 不是 0.10")

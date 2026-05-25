@@ -651,27 +651,49 @@ def run_agent(
                 print(f"[agent] Skip {symbol} — sector limit: {reason}")
             return allowed
 
-        def _strict_entry_ok(c: dict) -> bool:
+        def _strict_entry_ok(c: dict, hot_sectors: set | None = None) -> bool:
             """
-            Strict entry filter (A+B combined strategy):
-            - RSI < 60: not extended / chasing a run
-            - vs_ma20_pct < 5%: price within 5% above MA20 (near support, not extended)
-            STRONG_BUY signals bypass the MA20 check (strong enough to justify extension).
+            Track-aware entry filter — Track 1 (momentum) and Track 2 (compression)
+            have fundamentally different entry DNA and must NOT share the same gate.
+
+            Track 1 (动能突破): RSI ≤ 75 (80 if hot sector), vs_ma20 ≤ 10%
+              - Scanner already pre-filtered RSI 50–75/85; Rex aligns with that range.
+              - Hot-sector resonance grants +5 RSI allowance (same logic as Scout).
+
+            Track 2 (盘整蓄力) / Watchlist: strict RSI < 60, vs_ma20 ≤ 5%
+              - Compression coil is conservative by nature; strict gate stays.
             """
-            rsi = c.get("rsi")
+            rsi    = c.get("rsi")
             vs_ma20 = c.get("vs_ma20_pct")
-            signal = c.get("signal", "")
-            if rsi is not None and rsi >= 60:
-                print(f"[agent] Skip {c['symbol']}: RSI={rsi:.0f} ≥ 60 (strict entry)")
-                return False
-            if signal != "STRONG_BUY" and vs_ma20 is not None and vs_ma20 > 5.0:
-                print(f"[agent] Skip {c['symbol']}: vs_MA20={vs_ma20:+.1f}% > 5% (chasing, strict entry)")
-                return False
+            signal  = c.get("signal", "")
+            # screen_track = "momentum" (Track1) or "compression" (Track2)
+            track   = c.get("screen_track", "compression")
+            sector  = c.get("sector", "")
+            in_hot  = bool(hot_sectors and sector in hot_sectors)
+
+            if track == "momentum":
+                # Track 1: release the throttle — momentum stocks need room to breathe
+                rsi_limit = 80 if in_hot else 75
+                if rsi is not None and rsi > rsi_limit:
+                    print(f"[agent] Skip {c['symbol']}: RSI={rsi:.0f} > {rsi_limit} (Track1 entry, hot={in_hot})")
+                    return False
+                if signal != "STRONG_BUY" and vs_ma20 is not None and vs_ma20 > 10.0:
+                    print(f"[agent] Skip {c['symbol']}: vs_MA20={vs_ma20:+.1f}% > 10% (Track1 entry)")
+                    return False
+            else:
+                # Track 2 / Watchlist: keep strict gate
+                if rsi is not None and rsi >= 60:
+                    print(f"[agent] Skip {c['symbol']}: RSI={rsi:.0f} ≥ 60 (strict entry)")
+                    return False
+                if signal != "STRONG_BUY" and vs_ma20 is not None and vs_ma20 > 5.0:
+                    print(f"[agent] Skip {c['symbol']}: vs_MA20={vs_ma20:+.1f}% > 5% (chasing, strict entry)")
+                    return False
             return True
 
         # Constants used by Gate A and Gate B in both scanner and watchlist sections
-        TRAIL_TRIGGER = 0.10   # used for R:R denominator (target gain)
-        RR_MIN        = 1.5    # minimum reward:risk ratio (target / stop-distance)
+        TRAIL_TRIGGER   = 0.10   # used for R:R denominator (target gain)
+        RR_MIN          = 1.5    # minimum reward:risk ratio (Track 2 / watchlist)
+        HARD_STOP_PCT_T1 = 0.08  # Track 1 max stop: up to -8% (position sizing handles risk)
 
         # ── 1. S&P 500 Scanner: quality gate (ai_score) + Rex execution rules ──
         # Scout (AI) owns quality scoring; Rex owns execution decision.
@@ -696,6 +718,17 @@ def run_agent(
 
         if scan.get("status") == "done" and can_buy and _scan_fresh_today:
             scanner_added = 0
+
+            # Derive hot sectors from today's scan candidates (mirrors Scout logic)
+            from collections import Counter as _Counter
+            _sector_bull = _Counter(
+                c.get("sector", "") for c in scan.get("candidates", [])
+                if c.get("today_bull") and c.get("sector", "")
+            )
+            _hot_sectors: set = {s for s, cnt in _sector_bull.items() if cnt >= 3}
+            if _hot_sectors:
+                print(f"[agent] Hot sectors (sector resonance): {_hot_sectors}")
+
             for c in list(scan.get("candidates", [])):
                 signal   = c.get("signal", "HOLD")
                 ai_score = c.get("ai_score") or 0
@@ -703,8 +736,9 @@ def run_agent(
                     continue   # Scout flagged deterioration — respect it
                 if ai_score < min_ai_score:
                     continue   # quality gate
-                # Strict entry: RSI < 60, not extended above MA20
-                if not _strict_entry_ok(c):
+
+                # Track-aware entry: Track1 RSI≤75/80 + vs_ma20≤10%; Track2 RSI<60 + vs_ma20≤5%
+                if not _strict_entry_ok(c, _hot_sectors):
                     summary["signals_found"] += 1
                     continue
                 # Problem 4: skip if earnings this week
@@ -717,23 +751,32 @@ def run_agent(
                     continue
                 price = c.get("price", 0)
                 stop = c.get("stop_loss") or (price * (1 - stop_loss_pct) if price else None)
+                track = c.get("screen_track", "compression")   # "momentum" or "compression"
 
                 # Gate A: SPY trend — Track 1 (momentum) requires bull market
                 # Track 2 (compression) is exempt: it targets independent breakouts
-                track = c.get("track", "track1")
-                if track != "track2" and _get_spy_trend() == "bear":
+                if track == "momentum" and _get_spy_trend() == "bear":
                     print(f"[agent] {c['symbol']} skip — SPY bear trend (Track1 blocked)")
                     summary["signals_found"] += 1
                     continue
 
-                # Gate B: R:R pre-screen — reject if stop too wide (risk > 6.7% → R:R < 1.5)
+                # Gate B: R:R pre-screen
+                # Track 1: high-vol stocks allowed up to -8% stop — position sizing naturally
+                #          reduces shares (portfolio×2%÷stop), no extra hard cap needed.
+                # Track 2: keep strict R:R ≥ 1.5 (compression coil = conservative entry)
                 if price and stop and stop < price:
                     risk_pct_actual = (price - stop) / price
-                    rr = TRAIL_TRIGGER / risk_pct_actual if risk_pct_actual > 0 else 0
-                    if rr < RR_MIN:
-                        print(f"[agent] {c['symbol']} skip — R:R {rr:.2f}x < {RR_MIN} (stop {risk_pct_actual:.1%} too wide)")
-                        summary["signals_found"] += 1
-                        continue
+                    if track == "momentum":
+                        if risk_pct_actual > HARD_STOP_PCT_T1:
+                            print(f"[agent] {c['symbol']} skip — stop {risk_pct_actual:.1%} > 8% hard limit (Track1)")
+                            summary["signals_found"] += 1
+                            continue
+                    else:
+                        rr = TRAIL_TRIGGER / risk_pct_actual if risk_pct_actual > 0 else 0
+                        if rr < RR_MIN:
+                            print(f"[agent] {c['symbol']} skip — R:R {rr:.2f}x < {RR_MIN} (Track2 stop too wide)")
+                            summary["signals_found"] += 1
+                            continue
 
                 notional = _size(price, stop) if (price and stop and stop < price) else \
                            min(portfolio_value * risk_pct * 3 * size_factor, max_notional)
@@ -805,8 +848,8 @@ def run_agent(
                 conf = cached.get("confidence", 0)
                 wl_min_conf = 0.75 if regime.get("regime") == "CAUTION" else 0.70
                 if sig == "BUY" and conf >= wl_min_conf:
-                    # Strict entry: RSI < 60, not extended above MA20
-                    if not _strict_entry_ok(cached):
+                    # Watchlist: always strict entry (Track 2 conservative gate)
+                    if not _strict_entry_ok(cached, hot_sectors=None):
                         summary["signals_found"] += 1
                         continue
                     # Problem 4: skip if earnings this week
