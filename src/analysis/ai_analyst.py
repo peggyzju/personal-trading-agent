@@ -51,11 +51,16 @@ The ATR-based suggested stop loss is ${suggested_stop:.2f}. Use this as your sto
 
 Consider both technical indicators AND any news catalysts. Pay attention to MACD crossovers, RSI extremes, Bollinger Band position, and MA alignment.
 
+IMPORTANT constraints on your price targets:
+- target_price MUST be above the current price (${price:.2f}). This is a long-only strategy — target_price represents the upside exit, not a downside level.
+- stop_loss MUST be below the current price.
+- target_price must always be strictly greater than stop_loss.
+
 Respond in JSON with these exact fields:
 - signal: "BUY" | "SELL" | "HOLD"
 - confidence: 0.0–1.0
-- target_price: float
-- stop_loss: float
+- target_price: float  (must be > current price ${price:.2f})
+- stop_loss: float     (must be < current price ${price:.2f})
 - reasoning: 2–3 sentences covering price action, indicator signals, and news drivers
 - key_risks: list of 2–4 strings
 - technical_notes: one sentence naming the strongest technical signal (e.g. MACD crossover, RSI oversold)
@@ -70,6 +75,14 @@ Respond in JSON with these exact fields:
     text = message.content[0].text
     match = re.search(r"\{.*\}", text, re.DOTALL)
     result = json.loads(match.group()) if match else {"raw": text}
+
+    # Sanity-check: target_price must be above current price, stop_loss must be below
+    tp = result.get("target_price")
+    sl = result.get("stop_loss")
+    if tp is not None and tp <= price:
+        result["target_price"] = round(price * 1.08, 2)
+    if sl is not None and sl >= price:
+        result["stop_loss"] = round(price * 0.97, 2)
 
     # Attach computed indicators so callers can use them
     result["indicators"] = indicators
