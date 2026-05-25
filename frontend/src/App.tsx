@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api/client";
-import type { Account, Position, Order, MarketRegime, CircuitBreaker } from "./api/client";
+import type { Account, Position, Order, MarketRegime, CircuitBreaker, PerformanceStats } from "./api/client";
 import { PortfolioCommandCenter } from "./components/PortfolioCommandCenter";
 import { SignalsView } from "./components/SignalsView";
 import { StrategyReviewPanel } from "./components/StrategyReview";
@@ -28,6 +28,7 @@ export default function App() {
   const [pendingCount, setPendingCount] = useState(0);
   const [regime, setRegime] = useState<MarketRegime | null>(null);
   const [breaker, setBreaker] = useState<CircuitBreaker | null>(null);
+  const [perfStats, setPerfStats] = useState<PerformanceStats | null>(null);
 
   const refresh = useCallback(async () => {
     const [q, a, p, o] = await Promise.allSettled([
@@ -44,17 +45,19 @@ export default function App() {
 
   const refreshHeader = useCallback(async () => {
     if (!backendOnline) return;
-    const [aa, agent, reg, brk] = await Promise.allSettled([
+    const [aa, agent, reg, brk, perf] = await Promise.allSettled([
       api.getAutoApprove(),
       api.getAgentState(),
       api.getMarketRegime(),
       api.getCircuitBreaker(),
+      api.getPerformanceStats(),
     ]);
     if (aa.status    === "fulfilled") setAutoApprove(aa.value);
     if (agent.status === "fulfilled")
       setPendingCount(agent.value.trades.filter(t => t.status === "pending").length);
     if (reg.status   === "fulfilled") setRegime(reg.value);
     if (brk.status   === "fulfilled") setBreaker(brk.value);
+    if (perf.status  === "fulfilled") setPerfStats(perf.value);
   }, [backendOnline]);
 
   useEffect(() => {
@@ -143,24 +146,57 @@ export default function App() {
           </span>
         )}
 
-        {/* Win rate + P&L ratio chip */}
-        {positions.length > 0 && (() => {
-          const winners = positions.filter(p => p.unrealized_plpc > 0);
-          const losers  = positions.filter(p => p.unrealized_plpc < 0);
-          const winRate = Math.round(winners.length / positions.length * 100);
-          const avgWin  = winners.length ? winners.reduce((s, p) => s + p.unrealized_plpc, 0) / winners.length : 0;
-          const avgLoss = losers.length  ? Math.abs(losers.reduce((s, p) => s + p.unrealized_plpc, 0) / losers.length) : 0;
-          const plRatio = avgLoss > 0 ? (avgWin / avgLoss).toFixed(1) : "∞";
+        {/* Chip 1: 历史已平仓胜率 */}
+        {perfStats && perfStats.total > 0 && (() => {
+          const pf = perfStats.profit_factor;
+          const pfColor = pf >= 1 ? "#22c55e" : "#f59e0b";
+          const wrColor = perfStats.win_rate >= 50 ? "#22c55e" : "#f59e0b";
           return (
-            <span className="hdr-stats-chip" title={`${winners.length}盈/${losers.length}亏  均盈+${avgWin.toFixed(1)}% 均亏-${avgLoss.toFixed(1)}%`}>
+            <span
+              className="hdr-stats-chip"
+              title={`${perfStats.total}笔已平仓  均盈+${perfStats.avg_win_pct}%  均亏${perfStats.avg_loss_pct}%`}
+            >
+              <span className="hdr-stats-label" style={{ marginRight: 4, opacity: 0.6, fontSize: "0.65rem" }}>历史</span>
               <span className="hdr-stats-row">
-                <span className="hdr-stats-val" style={{ color: winRate >= 50 ? "#22c55e" : "#f59e0b" }}>{winRate}%</span>
+                <span className="hdr-stats-val" style={{ color: wrColor }}>{perfStats.win_rate}%</span>
                 <span className="hdr-stats-label">胜率</span>
               </span>
               <span className="hdr-stats-div" />
               <span className="hdr-stats-row">
-                <span className="hdr-stats-val" style={{ color: parseFloat(plRatio as string) >= 1 ? "#22c55e" : "#f59e0b" }}>{plRatio}x</span>
+                <span className="hdr-stats-val" style={{ color: pfColor }}>{pf.toFixed(2)}x</span>
                 <span className="hdr-stats-label">盈亏比</span>
+              </span>
+              <span className="hdr-stats-div" />
+              <span className="hdr-stats-row">
+                <span className="hdr-stats-val" style={{ color: "#94a3b8" }}>{perfStats.total}</span>
+                <span className="hdr-stats-label">笔</span>
+              </span>
+            </span>
+          );
+        })()}
+
+        {/* Chip 2: 当前持仓盈亏分布 */}
+        {positions.length > 0 && (() => {
+          const winners = positions.filter(p => p.unrealized_plpc > 0);
+          const losers  = positions.filter(p => p.unrealized_plpc < 0);
+          const avgWin  = winners.length ? winners.reduce((s, p) => s + p.unrealized_plpc, 0) / winners.length : 0;
+          const avgLoss = losers.length  ? Math.abs(losers.reduce((s, p) => s + p.unrealized_plpc, 0) / losers.length) : 0;
+          return (
+            <span
+              className="hdr-stats-chip"
+              title={`${winners.length}盈/${losers.length}亏  均浮盈+${avgWin.toFixed(1)}%  均浮亏-${avgLoss.toFixed(1)}%`}
+            >
+              <span className="hdr-stats-label" style={{ marginRight: 4, opacity: 0.6, fontSize: "0.65rem" }}>持仓</span>
+              <span className="hdr-stats-row">
+                <span className="hdr-stats-val" style={{ color: "#22c55e" }}>{winners.length}盈</span>
+              </span>
+              <span className="hdr-stats-div" />
+              <span className="hdr-stats-row">
+                <span className="hdr-stats-val" style={{ color: losers.length > 0 ? "#ef4444" : "#94a3b8" }}>{losers.length}亏</span>
+              </span>
+              <span className="hdr-stats-div" />
+              <span className="hdr-stats-row">
+                <span className="hdr-stats-val" style={{ color: "#94a3b8" }}>{positions.length}总</span>
               </span>
             </span>
           );

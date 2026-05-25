@@ -1260,6 +1260,32 @@ def get_portfolio_history():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/stats/performance")
+def get_performance_stats():
+    """已平仓交易的历史胜率 / 盈亏比统计，从 trade_history.json 实时计算。"""
+    hist_file = Path(__file__).parent.parent / "data" / "trade_history.json"
+    try:
+        hist = json.loads(hist_file.read_text()) if hist_file.exists() else []
+        closed = [t for t in hist if t.get("pnl_pct") is not None]
+        wins   = [t for t in closed if t["pnl_pct"] > 0]
+        losses = [t for t in closed if t["pnl_pct"] <= 0]
+        avg_win  = sum(t["pnl_pct"] for t in wins)   / len(wins)   if wins   else 0.0
+        avg_loss = abs(sum(t["pnl_pct"] for t in losses) / len(losses)) if losses else 0.0
+        pf = (len(wins) * avg_win) / (len(losses) * avg_loss) if losses and avg_loss > 0 else 0.0
+        return {
+            "total":          len(closed),
+            "wins":           len(wins),
+            "losses":         len(losses),
+            "win_rate":       round(len(wins) / len(closed) * 100, 1) if closed else 0.0,
+            "avg_win_pct":    round(avg_win,  2),
+            "avg_loss_pct":   round(-avg_loss, 2),
+            "profit_factor":  round(pf, 2),
+        }
+    except Exception as e:
+        return {"total": 0, "wins": 0, "losses": 0, "win_rate": 0.0,
+                "avg_win_pct": 0.0, "avg_loss_pct": 0.0, "profit_factor": 0.0}
+
+
 # ── Backtesting ───────────────────────────────────────────────────────────────
 
 _backtest_cache: dict = {}

@@ -446,6 +446,16 @@ export interface CircuitBreaker {
   date: string;
 }
 
+export interface PerformanceStats {
+  total: number;
+  wins: number;
+  losses: number;
+  win_rate: number;
+  avg_win_pct: number;
+  avg_loss_pct: number;
+  profit_factor: number;
+}
+
 async function del<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`, { method: "DELETE" });
   if (!r.ok) throw new Error(await r.text());
@@ -498,6 +508,7 @@ export const api = {
   getAutoApprove: () => get<{ enabled: boolean; threshold: number }>("/agent/auto-approve"),
   setAutoApprove: (enabled: boolean, threshold: number) =>
     post<{ enabled: boolean; threshold: number }>("/agent/auto-approve", { enabled, threshold }),
+  getPerformanceStats: () => get<PerformanceStats>("/stats/performance"),
   getMarketRegime: () => get<MarketRegime>("/market/regime"),
   getCircuitBreaker: () => get<CircuitBreaker>("/circuit-breaker"),
   resetCircuitBreaker: () => post<CircuitBreaker>("/circuit-breaker/reset"),
