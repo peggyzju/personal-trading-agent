@@ -58,5 +58,47 @@
       "trail_trigger": 0.10,
       "trail_pct": 0.05
     }
+  },
+  {
+    "version": "v5",
+    "label": "v5 — 双轨 + SPY趋势门 + R:R ≥ 1.5",
+    "created_at": "2026-05-22",
+    "description": "在 v4 基础上新增两道入场过滤：Track1 需要 SPY > MA20（趋势顺风），所有入场需要 R:R ≥ 1.5（止损不超过 6.7%）",
+    "changes": ["Track1 入场新增 SPY > MA20 趋势门", "新增 R:R ≥ 1.5 预筛（拒绝大 ATR 股票）"],
+    "backtest_params": {
+      "entry_mode": "dual_track",
+      "stop_type": "atr",
+      "exit_mode": "trailing",
+      "target_pct": 0.10,
+      "trail_trigger": 0.10,
+      "trail_pct": 0.05,
+      "spy_gate": true,
+      "rr_min": 1.5
+    }
+  },
+  {
+    "version": "v6",
+    "label": "v6 — 双轨解耦 + 成交量门 + MA20斜率",
+    "created_at": "2026-05-25",
+    "description": "Track1 加成交量门(vol≥1.5x)防假突破；Track2 加MA20斜率(>0)防死水；Track1/2 入场条件彻底解耦；Track1 Gate B 放宽为止损≤8%",
+    "changes": [
+      "Track1 新增 vol_ratio ≥ 1.5 成交量门",
+      "Track2 新增 ma20_slope > 0 斜率门（防死水股）",
+      "Track2 新增 vs_ma20 ≥ -3% 安全垫",
+      "Track1/2 RSI 门槛解耦（T1: RSI 50-75, T2: RSI < 55）",
+      "Track1 Gate B 放宽：止损距离 ≤ 8%（原 R:R ≥ 1.5）",
+      "趋势过滤：持仓盈利 ≥ +5% 时压制 REDUCE 信号"
+    ],
+    "backtest_params": {
+      "entry_mode": "dual_track_v6",
+      "stop_type": "atr",
+      "exit_mode": "trailing",
+      "target_pct": 0.10,
+      "trail_trigger": 0.10,
+      "trail_pct": 0.05,
+      "spy_gate": true,
+      "rr_min": 1.5,
+      "max_stop_t1": 0.08
+    }
   }
 ]

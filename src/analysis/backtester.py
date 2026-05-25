@@ -6,10 +6,10 @@ import yfinance as yf
 
 # ── Signal logic (mirrors live strategy, no lookahead) ────────────────────────
 
-def _precompute_signals(df: pd.DataFrame) -> pd.DataFrame:
+def _precompute_signals(df: pd.DataFrame, spy_close: "pd.Series | None" = None) -> pd.DataFrame:
     """
     Add all indicator columns using only past data (pandas rolling = no lookahead).
-    Returns the same DataFrame with indicator columns appended.
+    spy_close: optional SPY Close series aligned to same index, for RS score.
     """
     c = df["Close"]
     v = df["Volume"]
@@ -54,6 +54,22 @@ def _precompute_signals(df: pd.DataFrame) -> pd.DataFrame:
 
     # 5-day momentum
     df["mom5"] = c.pct_change(5) * 100
+
+    # MA20 slope: 5-day change in MA20 value (mirrors scanner logic)
+    df["ma20_slope"] = (ma20 - ma20.shift(5)) / ma20.shift(5).replace(0, np.nan) * 100
+
+    # Relative strength vs SPY (rs_score > 1 = outperforming)
+    if spy_close is not None:
+        spy = spy_close.reindex(df.index, method="ffill")
+        stock_ret_20 = c.pct_change(20)
+        stock_ret_60 = c.pct_change(60)
+        spy_ret_20   = spy.pct_change(20)
+        spy_ret_60   = spy.pct_change(60)
+        df["rs_20"]    = (1 + stock_ret_20) / (1 + spy_ret_20).replace(0, np.nan)
+        df["rs_60"]    = (1 + stock_ret_60) / (1 + spy_ret_60).replace(0, np.nan)
+        df["rs_score"] = df["rs_20"] * 0.4 + df["rs_60"] * 0.6
+    else:
+        df["rs_20"] = df["rs_60"] = df["rs_score"] = np.nan
 
     return df
 
@@ -135,6 +151,70 @@ def _buy_signal_dual_track(row) -> str | None:
         return None
 
 
+def _buy_signal_dual_track_v6(row) -> str | None:
+    """Dual-track entry (v6):
+    Track 1 — Momentum Breakout (with vol gate):
+        RSI 50-75, vol_ratio ≥ 1.5, above MA20, vs_ma20 ≤ 15%, mom5 > 0
+    Track 2 — Compression Coil (with MA20 slope gate):
+        RSI < 55, vol_ratio < 0.8, mom5 > -3, vs_ma20 ≥ -3.0, ma20_slope > 0
+    """
+    try:
+        def g(field):
+            try:
+                return row[field]
+            except (KeyError, TypeError):
+                return getattr(row, field)
+        rsi        = g("rsi")
+        close      = g("Close")
+        ma20       = g("ma20")
+        vol        = g("vol_ratio")
+        mom5       = g("mom5")
+        try:
+            ma20_slope = g("ma20_slope")
+        except Exception:
+            ma20_slope = float("nan")
+        vs_ma20 = (close - ma20) / ma20 * 100 if ma20 > 0 else 0.0
+
+        # Track 1: momentum breakout with volume confirmation
+        if (50 <= rsi <= 75 and close > ma20 and mom5 > 0
+                and vs_ma20 <= 15.0 and not pd.isna(vol) and vol >= 1.5):
+            return "track1"
+        # Track 2: compression coil with slope gate (not dead water)
+        if (rsi < 55 and not pd.isna(vol) and vol < 0.8 and mom5 > -3
+                and vs_ma20 >= -3.0
+                and not pd.isna(ma20_slope) and ma20_slope > 0):
+            return "track2"
+        return None
+    except Exception:
+        return None
+
+
+def _buy_signal_rs_momentum(row) -> bool:
+    """Relative-strength momentum entry:
+    Stock outperforms SPY on both 20d and 60d, price above MA20, slight volume confirmation.
+    Intentionally simple — only 3 conditions, no RSI/MACD/BB clutter.
+    """
+    try:
+        def g(f):
+            try: return row[f]
+            except (KeyError, TypeError): return getattr(row, f)
+        rs_score  = g("rs_score")
+        close     = g("Close")
+        ma20      = g("ma20")
+        vol_ratio = g("vol_ratio")
+        rs_20     = g("rs_20")
+        if pd.isna(rs_score) or pd.isna(rs_20):
+            return False
+        return (
+            rs_score  > 1.05   # outperforming SPY composite score
+            and rs_20 > 1.0    # must be outperforming on 20d too (recent strength)
+            and close > ma20   # above short-term trend
+            and vol_ratio > 1.1  # mild volume confirmation
+        )
+    except Exception:
+        return False
+
+
 def _simulate_symbol(
     symbol: str,
     df: pd.DataFrame,
@@ -146,17 +226,26 @@ def _simulate_symbol(
     exit_mode: str = "fixed",
     trail_pct: float = 0.08,
     trail_trigger: float = 0.08,
-    trail_trigger_t1: float | None = None,  # if set, dual_track uses per-track triggers
+    trail_trigger_t1: float | None = None,
     trail_trigger_t2: float | None = None,
+    spy_gate: bool = False,          # Gate A: block Track1 when SPY < MA20
+    rr_min: float = 0.0,             # Gate B: skip entry if R:R < rr_min (Track2 / legacy)
+    max_stop_t1: float | None = None, # Gate B v6: max stop distance for Track1 (e.g. 0.08)
+    spy_df: "pd.DataFrame | None" = None,  # SPY Close + ma20 indexed by date
 ) -> list[dict]:
     """Walk-forward simulation for one symbol. Returns list of trade dicts."""
-    df = _precompute_signals(df)
+    spy_close = spy_df["Close"] if spy_df is not None else None
+    df = _precompute_signals(df, spy_close=spy_close)
     df = df.dropna(subset=["rsi", "macd_hist", "ma50", "atr"])
 
-    if entry_mode == "dual_track":
+    if entry_mode == "dual_track_v6":
+        signal_fn = _buy_signal_dual_track_v6
+    elif entry_mode == "dual_track":
         signal_fn = _buy_signal_dual_track
     elif entry_mode == "strict":
         signal_fn = _buy_signal_strict
+    elif entry_mode == "rs_momentum":
+        signal_fn = _buy_signal_rs_momentum
     else:
         signal_fn = _buy_signal
 
@@ -198,6 +287,34 @@ def _simulate_symbol(
                     stop_loss = entry_price * 0.95
                 else:  # atr
                     stop_loss = entry_price - 2 * atr_at_entry
+
+                # Gate B: R:R pre-screen (track-aware for v6)
+                if entry_price > stop_loss:
+                    risk_pct_entry = (entry_price - stop_loss) / entry_price
+                    _is_dual = entry_mode in ("dual_track", "dual_track_v6")
+                    _track = signal if _is_dual else "track1"
+                    if _track == "track1" and max_stop_t1 is not None:
+                        # v6 Track1: allow if stop distance ≤ max_stop_t1 (e.g. 8%)
+                        if risk_pct_entry > max_stop_t1:
+                            continue
+                    elif rr_min > 0:
+                        # Track2 / legacy: require R:R ≥ rr_min
+                        rr = trail_trigger / risk_pct_entry if risk_pct_entry > 0 else 0.0
+                        if rr < rr_min:
+                            continue
+
+                # Gate A: SPY trend — block Track1 when SPY < MA20
+                if spy_gate and spy_df is not None:
+                    try:
+                        spy_row = spy_df.asof(row.Index)
+                        spy_bear = (not pd.isna(spy_row["ma20"]) and
+                                    float(spy_row["Close"]) < float(spy_row["ma20"]))
+                    except Exception:
+                        spy_bear = False
+                    track = signal if entry_mode == "dual_track" else "track1"
+                    if spy_bear and track != "track2":
+                        continue
+
                 target = entry_price * (1 + target_pct)
                 entry_date = next_row.Index
                 entry_idx = i + 1
@@ -406,6 +523,19 @@ def _download_data(symbols: list[str], period: str) -> tuple:
     return _get_df, spy_return
 
 
+def _build_spy_ma(get_df_fn) -> "pd.DataFrame | None":
+    """Return SPY Close + MA20 DataFrame indexed by date, for Gate A checks."""
+    try:
+        spy_df = get_df_fn("SPY")
+        if spy_df.empty:
+            return None
+        spy_df = spy_df[["Close"]].copy()
+        spy_df["ma20"] = spy_df["Close"].rolling(20).mean()
+        return spy_df
+    except Exception:
+        return None
+
+
 def run_backtest(
     symbols: list[str],
     period: str = "2y",
@@ -418,6 +548,9 @@ def run_backtest(
     trail_trigger: float = 0.08,
     trail_trigger_t1: float | None = None,
     trail_trigger_t2: float | None = None,
+    spy_gate: bool = False,
+    rr_min: float = 0.0,
+    max_stop_t1: float | None = None,
 ) -> dict:
     """
     Run walk-forward backtest on given symbols.
@@ -432,6 +565,8 @@ def run_backtest(
     except Exception as e:
         return {"error": str(e)}
 
+    spy_df_ma = _build_spy_ma(_get_df) if spy_gate else None
+
     all_trades: list[dict] = []
     for sym in symbols:
         try:
@@ -443,7 +578,10 @@ def run_backtest(
                                       exit_mode=exit_mode, trail_pct=trail_pct,
                                       trail_trigger=trail_trigger,
                                       trail_trigger_t1=trail_trigger_t1,
-                                      trail_trigger_t2=trail_trigger_t2)
+                                      trail_trigger_t2=trail_trigger_t2,
+                                      spy_gate=spy_gate, rr_min=rr_min,
+                                      max_stop_t1=max_stop_t1,
+                                      spy_df=spy_df_ma)
             all_trades.extend(trades)
         except Exception as e:
             print(f"[backtest] {sym} error: {e}")
@@ -482,9 +620,18 @@ def backtest_compare_versions(
     except Exception as e:
         return {"error": str(e)}
 
+    # Precompute SPY MA20 once — reused for any version with spy_gate=true
+    _spy_df_ma = _build_spy_ma(_get_df)
+
     results = {}
     for v in [v_prev, v_current]:
         p = v["backtest_params"]
+        spy_gate    = bool(p.get("spy_gate", False))
+        rr_min      = float(p.get("rr_min", 0.0))
+        max_stop_t1 = p.get("max_stop_t1")
+        if max_stop_t1 is not None:
+            max_stop_t1 = float(max_stop_t1)
+        spy_df   = _spy_df_ma if spy_gate else None
         all_trades: list[dict] = []
         for sym in symbols:
             try:
@@ -501,6 +648,8 @@ def backtest_compare_versions(
                     trail_trigger=p.get("trail_trigger", 0.12),
                     trail_trigger_t1=p.get("trail_trigger_t1"),
                     trail_trigger_t2=p.get("trail_trigger_t2"),
+                    spy_gate=spy_gate, rr_min=rr_min,
+                    max_stop_t1=max_stop_t1, spy_df=spy_df,
                 )
                 all_trades.extend(trades)
             except Exception as e:
