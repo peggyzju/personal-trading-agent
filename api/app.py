@@ -723,6 +723,26 @@ def _refresh_holdings():
     from src.monitor.holdings_monitor import get_paper_positions, analyze_sell_signals
     from src.trader.trade_agent import reject_trade, get_pending_trades
     positions = get_paper_positions()
+
+    # ── Inject trail_active from trades.json ──────────────────────────────────
+    # When trail_active=True (+10% gain reached), Alpaca manages exit entirely.
+    # holdings_monitor will bypass Claude AI for these positions.
+    try:
+        from src.trader.trade_agent import _load_from_disk
+        _all_trades = _load_from_disk()
+        _trail_map: dict[str, bool] = {}
+        for _t in _all_trades.values():
+            if _t.get("side") == "buy" and _t.get("symbol"):
+                _sym = _t["symbol"]
+                # Keep the most recent buy record per symbol
+                if _sym not in _trail_map or _t.get("created_at", "") > _trail_map.get(_sym + "_at", ""):
+                    _trail_map[_sym] = bool(_t.get("trail_active", False))
+                    _trail_map[_sym + "_at"] = _t.get("created_at", "")
+        for p in positions:
+            p["trail_active"] = _trail_map.get(p["symbol"], False)
+    except Exception as _e:
+        print(f"[holdings] trail_active inject error: {_e}")
+
     _holdings_cache["positions"] = positions
     _holdings_cache["analyzed"] = False
     try:
@@ -1343,6 +1363,20 @@ def get_compare():
 
 _version_compare_cache: dict = {}
 _version_compare_running: bool = False
+_VERSION_COMPARE_FILE = Path(__file__).parent.parent / "data" / "version_compare_cache.json"
+
+
+def _load_version_compare_from_disk():
+    """Load persisted backtest result on startup so cache survives restarts."""
+    try:
+        if _VERSION_COMPARE_FILE.exists():
+            data = json.loads(_VERSION_COMPARE_FILE.read_text())
+            if data.get("status") == "done":
+                _version_compare_cache["result"] = data
+    except Exception:
+        pass
+
+_load_version_compare_from_disk()
 
 
 @app.get("/api/backtest/versions")
@@ -1389,6 +1423,10 @@ def trigger_version_compare(
             from src.analysis.backtester import backtest_compare_versions
             result = backtest_compare_versions(sym_list, period=period, hold_days=hold_days)
             _version_compare_cache["result"] = result
+            try:
+                _VERSION_COMPARE_FILE.write_text(json.dumps(result))
+            except Exception:
+                pass
         except Exception as e:
             _version_compare_cache["result"] = {"status": "error", "error": str(e)}
         finally:

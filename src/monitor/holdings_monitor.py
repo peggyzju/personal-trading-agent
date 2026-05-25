@@ -183,6 +183,23 @@ def analyze_sell_signals(positions: list[dict]) -> list[dict]:
 
     now = _time.time()
 
+    # ── trail_active bypass: Alpaca owns the exit, AI must stay silent ────────
+    # When trail_active=True the stock has gained ≥+10% and a server-side
+    # trailing stop is active on Alpaca. Any local AI SELL/REDUCE would race
+    # with Alpaca's order. Bypass Claude entirely; only _rule_based_override
+    # (hard stop / trailing_stop.json hit) can still trigger a SELL.
+    trail_bypass: list[dict] = []
+    remaining: list[dict] = []
+    for p in positions:
+        if p.get("trail_active"):
+            print(f"[holdings] {p['symbol']} trail_active=True — AI bypassed, Alpaca manages exit")
+            trail_bypass.append({**p, "sell_signal": "HOLD", "urgency": "LOW",
+                                  "reason": "[trail_active] Trailing stop active — Alpaca manages exit"})
+        else:
+            remaining.append(p)
+    # Replace positions list with only non-trail positions for the rest of analysis
+    positions = remaining
+
     # ── Split positions: use cache vs. needs fresh analysis ───────────────────
     to_analyze: list[dict] = []
     cached_results: list[dict] = []
@@ -384,4 +401,15 @@ Return ONLY a JSON array."""
             cached_hit = next((c for c in cached_results if c["symbol"] == sym), None)
             if cached_hit:
                 ordered.append(cached_hit)
+
+    # Re-append trail_active bypass positions (trail_stop _rule_based_override still applies)
+    # Run them through _rule_based_override so hard stop / trailing_stop.json can still fire
+    _update_trailing_stops(trail_bypass)   # keep high watermarks current
+    for p in trail_bypass:
+        override = _rule_based_override(p)
+        if override:
+            ordered.append({**p, **override})
+        else:
+            ordered.append(p)
+
     return ordered

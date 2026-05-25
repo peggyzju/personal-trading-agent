@@ -143,7 +143,11 @@ def _next_session_close() -> datetime:
 
 
 def _is_market_hours() -> bool:
-    """True between 9:25 AM and 4:05 PM US/Eastern Mon-Fri (approximate)."""
+    """True between 9:31 AM and 4:05 PM US/Eastern Mon-Fri.
+    Starts at 9:31 (not 9:30) to avoid the first-minute liquidity chaos:
+    wide spreads, erratic vol_ratio, and unreliable price signals.
+    Scanner cascade also runs at 9:31 AM, so buy gate and scan are naturally synced.
+    """
     from datetime import time as dtime
     try:
         import zoneinfo
@@ -154,7 +158,7 @@ def _is_market_hours() -> bool:
     now_et = _now().astimezone(et)
     if now_et.weekday() >= 5:   # Saturday / Sunday
         return False
-    return dtime(9, 25) <= now_et.time() <= dtime(16, 5)
+    return dtime(9, 31) <= now_et.time() <= dtime(16, 5)
 
 
 # ── SPY trend gate ────────────────────────────────────────────────────────────
