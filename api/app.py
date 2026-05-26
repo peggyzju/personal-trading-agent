@@ -34,16 +34,35 @@ WATCHLIST_FILE = Path(__file__).parent.parent / "watchlist.json"
 DEFAULT_WATCHLIST = ["AAPL", "NVDA", "MSFT", "TSLA"]
 _SCAN_CACHE_FILE = Path(__file__).parent.parent / "data" / "scan_cache.json"
 _SCAN_TRIGGERED_FILE = Path(__file__).parent.parent / "data" / "scan_triggered.json"
+_SCOUT_RUN_FILE      = Path(__file__).parent.parent / "data" / "scout_run_dates.json"
 
 def _load_scan_triggered() -> set:
     try:
-        return set(json.loads(_SCAN_TRIGGERED_FILE.read_text()))
+        from datetime import date
+        today = date.today().isoformat()
+        all_keys = set(json.loads(_SCAN_TRIGGERED_FILE.read_text()))
+        return {k for k in all_keys if k.startswith(today)}  # only keep today's
     except Exception:
         return set()
 
 def _save_scan_triggered(s: set):
     try:
         _SCAN_TRIGGERED_FILE.write_text(json.dumps(list(s)))
+    except Exception:
+        pass
+
+def _load_scout_run_dates() -> set:
+    try:
+        from datetime import date
+        today = date.today().isoformat()
+        all_dates = set(json.loads(_SCOUT_RUN_FILE.read_text()))
+        return {d for d in all_dates if d >= today}  # only keep today and future
+    except Exception:
+        return set()
+
+def _save_scout_run_dates(s: set):
+    try:
+        _SCOUT_RUN_FILE.write_text(json.dumps(list(s)))
     except Exception:
         pass
 
@@ -1535,7 +1554,7 @@ def _start_scheduler():
     # ── Shared state ────────────────────────────────────────────────────────────
     review_triggered:  set[str] = set()   # dates where close-review ran
     vera_extra_dates:  set[str] = set()   # dates where intraday Vera already fired
-    scout_run_dates:   set[str] = set()   # dates where Scout already ran
+    scout_run_dates:   set[str] = _load_scout_run_dates()   # persisted across restarts
     rex_last_run:      dict = {"ts": time.time()} # last Rex run timestamp; init to now to avoid immediate fire on startup
     last_regime:       dict = {"value": None}
 
@@ -1613,6 +1632,7 @@ def _start_scheduler():
             pre_market_scout = is_weekday and (h, m) == (8, 45)
             if pre_market_scout and today_str not in scout_run_dates:
                 scout_run_dates.add(today_str)
+                _save_scout_run_dates(scout_run_dates)
                 print(f"[scheduler] 8:45 AM pre-market — running Scout dynamic discovery")
                 try:
                     import threading as _threading
