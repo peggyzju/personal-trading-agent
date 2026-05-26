@@ -552,24 +552,22 @@ def run_agent(
                 for o in open_sell_orders:
                     current_signal = signal_map.get(o.symbol, "HOLD")
                     if current_signal in ("HOLD", "ADD"):
+                        # Never touch stop / stop_limit orders — those are bracket stop-losses
+                        # placed at entry time and must survive independently of AI signals.
+                        order_type = getattr(o, "order_type", None) or getattr(o, "type", None) or ""
+                        if str(order_type).lower() in ("stop", "stop_limit"):
+                            continue
                         _sell_hold_count[o.symbol] = _sell_hold_count.get(o.symbol, 0) + 1
                         print(f"[agent] {o.symbol} HOLD/ADD signal — hold_count={_sell_hold_count[o.symbol]}/2 (cancel after 2 consecutive)")
                         if _sell_hold_count[o.symbol] >= 2:
-                            # Check our internal queue — skip if it was a hard-stop trade
-                            is_hard_stop = any(
-                                t.get("source") == "hard_stop" and t.get("symbol") == o.symbol
-                                and t.get("status") in ("pending", "executed")
-                                for t in _pending.values()
-                            )
-                            if not is_hard_stop:
-                                try:
-                                    from src.trader.alpaca_trader import cancel_order as _cancel
-                                    _cancel(o.id)
-                                    _sell_hold_count[o.symbol] = 0
-                                    print(f"[agent] Auto-cancelled sell order {o.id} for {o.symbol} — 2 consecutive HOLD signals")
-                                    summary.setdefault("cancelled_orders", []).append(o.symbol)
-                                except Exception as ce:
-                                    print(f"[agent] Failed to cancel {o.symbol} order: {ce}")
+                            try:
+                                from src.trader.alpaca_trader import cancel_order as _cancel
+                                _cancel(o.id)
+                                _sell_hold_count[o.symbol] = 0
+                                print(f"[agent] Auto-cancelled sell order {o.id} for {o.symbol} — 2 consecutive HOLD signals")
+                                summary.setdefault("cancelled_orders", []).append(o.symbol)
+                            except Exception as ce:
+                                print(f"[agent] Failed to cancel {o.symbol} order: {ce}")
                     else:
                         if _sell_hold_count.get(o.symbol, 0) > 0:
                             print(f"[agent] {o.symbol} signal back to {current_signal} — resetting hold_count")
