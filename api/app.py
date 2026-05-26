@@ -1610,8 +1610,8 @@ def _start_scheduler():
                 except Exception as e:
                     print(f"[scheduler] Scout launch error: {e}")
 
-            # ── P0b: Fixed-time SP500 scans: 9:31, 11:00, 12:30 ET ───────────────
-            SCAN_TIMES = {(9, 31), (11, 0), (12, 30)}
+            # ── P0b: Fixed-time SP500 scans: 9:31, 11:00, 12:30, 14:30 ET ─────────
+            SCAN_TIMES = {(9, 31), (11, 0), (12, 30), (14, 30)}
             scan_key = f"{today_str} {h:02d}:{m:02d}"
             if is_weekday and (h, m) in SCAN_TIMES and scan_key not in scan_triggered_times:
                 scan_triggered_times.add(scan_key)

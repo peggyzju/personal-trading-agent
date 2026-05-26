@@ -108,7 +108,8 @@ def _save_reduce_streak(data: dict):
         pass
 _sell_hold_count: dict[str, int] = {}  # symbol -> consecutive HOLD count; cancel only after >= 2
 
-ERROR_TTL_HOURS   = 24    # auto-clear error trades after 24 h
+ERROR_TTL_HOURS    = 24   # auto-clear error trades after 24 h
+REJECTED_TTL_HOURS = 48   # auto-clear rejected trades after 48 h
 MAX_LOG = 20
 
 
@@ -250,6 +251,12 @@ def get_pending_trades() -> list[dict]:
             if age > ERROR_TTL_HOURS * 3600:
                 del _pending[t["id"]]
                 changed = True
+        # Auto-clear rejected trades older than 48 h
+        if t["status"] == "rejected":
+            age = (now - datetime.fromisoformat(t["created_at"])).total_seconds()
+            if age > REJECTED_TTL_HOURS * 3600:
+                del _pending[t["id"]]
+                changed = True
     if changed:
         _save_to_disk(_pending)
     return sorted(_pending.values(), key=lambda x: x["created_at"], reverse=True)
@@ -377,7 +384,9 @@ def reject_trade(trade_id: str) -> dict:
     trade = _pending.get(trade_id)
     if not trade:
         raise ValueError(f"Trade {trade_id} not found")
+    trade = dict(trade)
     trade["status"] = "rejected"
+    del _pending[trade_id]
     _save_to_disk(_pending)
     return trade
 

@@ -179,8 +179,10 @@ export default function App() {
         {positions.length > 0 && (() => {
           const winners = positions.filter(p => p.unrealized_plpc > 0);
           const losers  = positions.filter(p => p.unrealized_plpc < 0);
+          const winRate = Math.round(winners.length / positions.length * 100);
           const avgWin  = winners.length ? winners.reduce((s, p) => s + p.unrealized_plpc, 0) / winners.length : 0;
           const avgLoss = losers.length  ? Math.abs(losers.reduce((s, p) => s + p.unrealized_plpc, 0) / losers.length) : 0;
+          const plRatio = avgLoss > 0 ? (avgWin / avgLoss).toFixed(1) : "∞";
           return (
             <span
               className="hdr-stats-chip"
@@ -188,15 +190,18 @@ export default function App() {
             >
               <span className="hdr-stats-label" style={{ marginRight: 4, opacity: 0.6, fontSize: "0.65rem" }}>持仓</span>
               <span className="hdr-stats-row">
-                <span className="hdr-stats-val" style={{ color: "#22c55e" }}>{winners.length}盈</span>
+                <span className="hdr-stats-val" style={{ color: winRate >= 50 ? "#22c55e" : "#f59e0b" }}>{winRate}%</span>
+                <span className="hdr-stats-label">胜率</span>
               </span>
               <span className="hdr-stats-div" />
               <span className="hdr-stats-row">
-                <span className="hdr-stats-val" style={{ color: losers.length > 0 ? "#ef4444" : "#94a3b8" }}>{losers.length}亏</span>
+                <span className="hdr-stats-val" style={{ color: parseFloat(plRatio as string) >= 1 ? "#22c55e" : "#f59e0b" }}>{plRatio}x</span>
+                <span className="hdr-stats-label">盈亏比</span>
               </span>
               <span className="hdr-stats-div" />
               <span className="hdr-stats-row">
-                <span className="hdr-stats-val" style={{ color: "#94a3b8" }}>{positions.length}总</span>
+                <span className="hdr-stats-val" style={{ color: "#94a3b8" }}>{winners.length}/{positions.length}</span>
+                <span className="hdr-stats-label">盈/总</span>
               </span>
             </span>
           );

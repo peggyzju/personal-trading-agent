@@ -114,6 +114,8 @@ LAYER2_TICKERS: list[str] = [
     "JOBY","ACHR",
     # 中概股 ADR（流动性 >5M 日均成交量）
     "NIO","XPEV","LI","FUTU","BILI","EDU","TCOM","VIPS",
+    # Watchlist additions
+    "QS","APP","SPOT","CBRS",
 ]
 
 
@@ -530,11 +532,14 @@ def quick_screen(
 
         if symbol in _force:
             passes = bull_ok or track2
+            force_track = "momentum" if bull_ok else "compression"
         else:
             passes = track1 or track2
+            force_track = None
 
         if passes:
-            all_results.append({**r, "screen_track": "momentum" if track1 else "compression"})
+            track_label = force_track if force_track else ("momentum" if track1 else "compression")
+            all_results.append({**r, "screen_track": track_label})
 
     passed = len(all_results)
     if passed == 0:

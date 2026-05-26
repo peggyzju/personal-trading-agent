@@ -623,6 +623,12 @@ function PendingCard({
   trade: t, budget, onApprove, onReject,
 }: { trade: PendingTrade; budget: BudgetAllocation | null; onApprove: () => void; onReject: () => void }) {
   const [confirming, setConfirming] = useState(false);
+  const [approving, setApproving] = useState(false);
+
+  async function handleApproveClick() {
+    setApproving(true);
+    try { await onApprove(); } finally { setApproving(false); }
+  }
   const expiresIn = Math.max(0, Math.round((new Date(t.expires_at).getTime() - Date.now()) / 60000));
   const portfolioValue = budget?.portfolio_value ?? 100_000;
 
@@ -656,10 +662,11 @@ function PendingCard({
         <div className="pending-card-actions">
           {confirming ? (
             <>
-              <button className="trade-btn buy-btn" style={{ width: "auto", margin: 0, padding: "5px 16px", background: sideColor }} onClick={onApprove}>
-                ✓ 确认执行
+              <button className="trade-btn buy-btn" style={{ width: "auto", margin: 0, padding: "5px 16px", background: approving ? "#555" : sideColor, opacity: approving ? 0.7 : 1 }}
+                onClick={handleApproveClick} disabled={approving}>
+                {approving ? "执行中…" : "✓ 确认执行"}
               </button>
-              <button className="cancel-small-btn" onClick={() => setConfirming(false)}>✕</button>
+              {!approving && <button className="cancel-small-btn" onClick={() => setConfirming(false)}>✕</button>}
             </>
           ) : (
             <>
@@ -1021,6 +1028,10 @@ function DashboardSummary({ goal, history, account }: { goal: GoalProgress | nul
   const loMark    = goal ? Math.round(goal.target_pct_low / goal.target_pct_high * 100) : 67;
   const barColor  = !goal ? "#818cf8" : goal.on_track ? "#22c55e" : goalPct != null && goalPct >= 0 ? "#f59e0b" : "#ef4444";
 
+  const totalPL    = history?.total_pl ?? null;
+  const totalPct   = history?.total_return_pct ?? null;
+  const totalColor = totalPL != null ? (totalPL >= 0 ? "#22c55e" : "#ef4444") : "var(--muted)";
+
   return (
     <div className="pcc-summary">
       {/* left: today */}
@@ -1054,11 +1065,18 @@ function DashboardSummary({ goal, history, account }: { goal: GoalProgress | nul
           <div className="pcc-summary-mark" style={{ left: `${loMark}%` }} title={`最低目标 ${goal?.target_pct_low}%`} />
         </div>
         <div className="pcc-summary-goal-bottom">
-          <span style={{ color: barColor, fontSize: 13, fontWeight: 700 }}>
-            {goalPct != null ? `${goalPct >= 0 ? "+" : ""}${goalPct.toFixed(2)}%` : "—"}
+          <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+            <span style={{ color: barColor, fontSize: 13, fontWeight: 700 }}>
+              {goalPct != null ? `${goalPct >= 0 ? "+" : ""}${goalPct.toFixed(2)}%` : "—"}
+            </span>
+            {totalPL != null && (
+              <span style={{ color: totalColor, fontSize: 11, fontWeight: 600 }}>
+                {totalPL >= 0 ? "+" : "−"}${Math.abs(totalPL).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+              </span>
+            )}
             {goal && (
               <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 11 }}>
-                {" "}· 目标 {goal.target_pct_low}–{goal.target_pct_high}%
+                · 目标 {goal.target_pct_low}–{goal.target_pct_high}%
               </span>
             )}
           </span>
