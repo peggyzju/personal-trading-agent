@@ -131,14 +131,13 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
     } catch (e: unknown) { alert(e instanceof Error ? e.message : "Failed"); }
   }
 
-  async function handleReject(id: string) {
-    try {
-      const updated = await api.rejectTrade(id);
-      setData(prev => prev.agent ? {
-        ...prev,
-        agent: { ...prev.agent, trades: prev.agent.trades.map(t => t.id === id ? updated : t) },
-      } : prev);
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : "Failed"); }
+  function handleReject(id: string) {
+    // Optimistic: remove immediately from UI
+    setData(prev => prev.agent ? {
+      ...prev,
+      agent: { ...prev.agent, trades: prev.agent.trades.filter(t => t.id !== id) },
+    } : prev);
+    api.rejectTrade(id).catch(() => {});
   }
 
   if (!backendOnline) {

@@ -33,6 +33,19 @@ app.add_middleware(
 WATCHLIST_FILE = Path(__file__).parent.parent / "watchlist.json"
 DEFAULT_WATCHLIST = ["AAPL", "NVDA", "MSFT", "TSLA"]
 _SCAN_CACHE_FILE = Path(__file__).parent.parent / "data" / "scan_cache.json"
+_SCAN_TRIGGERED_FILE = Path(__file__).parent.parent / "data" / "scan_triggered.json"
+
+def _load_scan_triggered() -> set:
+    try:
+        return set(json.loads(_SCAN_TRIGGERED_FILE.read_text()))
+    except Exception:
+        return set()
+
+def _save_scan_triggered(s: set):
+    try:
+        _SCAN_TRIGGERED_FILE.write_text(json.dumps(list(s)))
+    except Exception:
+        pass
 
 _analysis_cache: dict = {}           # symbol -> analysis dict
 _analysis_timestamps: dict = {}      # symbol -> unix timestamp of last update
@@ -61,13 +74,21 @@ def _save_scan_cache(cache: dict):
 _scan_cache: dict = _load_scan_cache()   # restore from disk on startup
 
 
+_watchlist_cache: list[str] = []
+
 def load_watchlist() -> list[str]:
-    if WATCHLIST_FILE.exists():
-        return json.loads(WATCHLIST_FILE.read_text())
-    return DEFAULT_WATCHLIST
+    global _watchlist_cache
+    if not _watchlist_cache:
+        if WATCHLIST_FILE.exists():
+            _watchlist_cache = json.loads(WATCHLIST_FILE.read_text())
+        else:
+            _watchlist_cache = list(DEFAULT_WATCHLIST)
+    return _watchlist_cache
 
 
 def save_watchlist(symbols: list[str]):
+    global _watchlist_cache
+    _watchlist_cache = list(symbols)
     WATCHLIST_FILE.write_text(json.dumps(symbols))
 
 
@@ -1568,7 +1589,7 @@ def _start_scheduler():
         except Exception:
             pass
 
-    scan_triggered_times: set[str] = set()   # "YYYY-MM-DD HH:MM" already fired
+    scan_triggered_times: set[str] = _load_scan_triggered()  # persisted across restarts
 
     def _trigger_scan_cascade(label: str):
         """Launch SP500 scan + cascade to Rex in background."""
@@ -1615,6 +1636,7 @@ def _start_scheduler():
             scan_key = f"{today_str} {h:02d}:{m:02d}"
             if is_weekday and (h, m) in SCAN_TIMES and scan_key not in scan_triggered_times:
                 scan_triggered_times.add(scan_key)
+                _save_scan_triggered(scan_triggered_times)
                 _trigger_scan_cascade(f"{h:02d}:{m:02d}")
 
             # ── P1: Rex every 30 min during market hours ───────────────────────
