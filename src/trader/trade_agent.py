@@ -743,8 +743,8 @@ def run_agent(
             for c in list(scan.get("candidates", [])):
                 signal   = c.get("signal", "HOLD")
                 ai_score = c.get("ai_score") or 0
-                if signal == "SELL":
-                    continue   # Scout flagged deterioration — respect it
+                if signal in ("SELL", "HOLD"):
+                    continue   # Scout flagged deterioration or no conviction — skip
                 if ai_score < min_ai_score:
                     continue   # quality gate
 
