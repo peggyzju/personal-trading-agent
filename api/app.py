@@ -1568,6 +1568,19 @@ def _start_scheduler():
         except Exception:
             pass
 
+    scan_triggered_times: set[str] = set()   # "YYYY-MM-DD HH:MM" already fired
+
+    def _trigger_scan_cascade(label: str):
+        """Launch SP500 scan + cascade to Rex in background."""
+        if _scan_running:
+            print(f"[scheduler] {label} scan skipped — already running")
+            return
+        print(f"[scheduler] {label} — launching SP500 scan + cascade")
+        threading.Thread(
+            target=_run_sp500_scan, kwargs={"cascade_agent": True},
+            daemon=True, name=f"scan-{label}"
+        ).start()
+
     def _loop():
         while True:
             now_et  = datetime.now(ET)
@@ -1596,6 +1609,13 @@ def _start_scheduler():
                     _threading.Thread(target=_scout_bg, daemon=True, name="scout").start()
                 except Exception as e:
                     print(f"[scheduler] Scout launch error: {e}")
+
+            # ── P0b: Fixed-time SP500 scans: 9:31, 11:00, 12:30 ET ───────────────
+            SCAN_TIMES = {(9, 31), (11, 0), (12, 30)}
+            scan_key = f"{today_str} {h:02d}:{m:02d}"
+            if is_weekday and (h, m) in SCAN_TIMES and scan_key not in scan_triggered_times:
+                scan_triggered_times.add(scan_key)
+                _trigger_scan_cascade(f"{h:02d}:{m:02d}")
 
             # ── P1: Rex every 30 min during market hours ───────────────────────
             if _market_open(now_et):
@@ -1638,7 +1658,7 @@ def _start_scheduler():
 
     t = threading.Thread(target=_loop, daemon=True, name="trading-scheduler")
     t.start()
-    print("[scheduler] Autonomous scheduler started: Scout 8:45 AM + Rex every 30 min (market hours) + Vera at 4:15 PM ET")
+    print("[scheduler] Autonomous scheduler started: Scout 8:45 AM + SP500 scan 9:31/11:00/12:30 + Rex every 30 min (market hours) + Vera at 4:15 PM ET")
 
 
 # ── Strategy Review ──────────────────────────────────────────────────────────
