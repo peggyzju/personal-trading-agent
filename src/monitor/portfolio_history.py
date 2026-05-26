@@ -11,6 +11,16 @@ def get_history() -> dict:
         return _get_demo_history()
 
 
+def _is_trading_day(api, date_str: str) -> bool:
+    """Return True if date_str is a US market trading day (not weekend/holiday)."""
+    try:
+        calendars = api.get_calendar(start=date_str, end=date_str)
+        return len(calendars) > 0
+    except Exception:
+        # Fallback: at least skip weekends
+        return date.fromisoformat(date_str).weekday() < 5
+
+
 def _get_alpaca_history() -> dict:
     from src.config import get_alpaca_creds
     import alpaca_trade_api as tradeapi
@@ -51,9 +61,9 @@ def _get_alpaca_history() -> dict:
     current = live_equity or (float(hist.equity[-1]) if hist.equity[-1] else 100_000.0)
     base = float(hist.base_value) if hist.base_value else 100_000.0
 
-    # Patch today's entry with live equity so the chart shows real intraday P&L
+    # Patch today's entry with live equity — only on actual trading days
     today_str = date.today().isoformat()
-    if days and live_equity:
+    if days and live_equity and _is_trading_day(api, today_str):
         # Find yesterday's closing equity for today's daily P&L calc
         yesterday_equity = days[-1]["equity"] if days[-1]["date"] != today_str else (days[-2]["equity"] if len(days) > 1 else base)
         today_pl = round(live_equity - yesterday_equity, 2)

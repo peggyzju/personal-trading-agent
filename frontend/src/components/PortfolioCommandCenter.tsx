@@ -1025,7 +1025,7 @@ function DashboardSummary({ goal, history, account }: { goal: GoalProgress | nul
     <div className="pcc-summary">
       {/* left: today */}
       <div className="pcc-summary-today">
-        <div className="pcc-summary-label">{isToday ? "今日收益" : todayDay ? `${todayDay.date.slice(5)} 收益` : "今日收益"}</div>
+        <div className="pcc-summary-label">{isToday ? "今日收益" : todayDay ? `${todayDay.date.slice(5)} 收益（休市）` : "今日收益"}</div>
         <div className="pcc-summary-big">
           {todayPL != null ? (
             <span className={todayPL >= 0 ? "up" : "down"}>
@@ -1054,20 +1054,19 @@ function DashboardSummary({ goal, history, account }: { goal: GoalProgress | nul
           <div className="pcc-summary-mark" style={{ left: `${loMark}%` }} title={`最低目标 ${goal?.target_pct_low}%`} />
         </div>
         <div className="pcc-summary-goal-bottom">
-          <span style={{ color: barColor, fontSize: 11, fontWeight: 600 }}>
+          <span style={{ color: barColor, fontSize: 13, fontWeight: 700 }}>
             {goalPct != null ? `${goalPct >= 0 ? "+" : ""}${goalPct.toFixed(2)}%` : "—"}
             {goal && (
-              <span style={{ color: "var(--muted)", fontWeight: 400 }}>
-                {" "}(${(goal.current_equity - goal.start_equity >= 0 ? "+" : "")}{(goal.current_equity - goal.start_equity).toLocaleString("en-US", { maximumFractionDigits: 0 })} / ${(goal.target_equity_low - goal.start_equity).toLocaleString("en-US", { maximumFractionDigits: 0 })})
-                {" · "}{goal.target_pct_low}–{goal.target_pct_high}%
+              <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 11 }}>
+                {" "}· 目标 {goal.target_pct_low}–{goal.target_pct_high}%
               </span>
             )}
           </span>
           {goal && !goal.on_track && (
-            <span style={{ color: "#f59e0b", fontSize: 10 }}>⚠ 需 +{goal.daily_return_needed.toFixed(2)}%/天</span>
+            <span style={{ color: "#f59e0b", fontSize: 11, fontWeight: 600 }}>⚠ 需 +{goal.daily_return_needed.toFixed(2)}%/天</span>
           )}
           {goal && goal.on_track && (
-            <span style={{ color: "#22c55e", fontSize: 10 }}>✓ 达标轨道</span>
+            <span style={{ color: "#22c55e", fontSize: 11, fontWeight: 600 }}>✓ 达标轨道</span>
           )}
         </div>
       </div>
