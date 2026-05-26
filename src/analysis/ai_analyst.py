@@ -12,7 +12,6 @@ from src.config import get_anthropic_key
 def analyze(symbol: str, ohlcv: pd.DataFrame, quote: dict, news: list[dict] | None = None, strategy_notes: list[str] | None = None) -> dict:
     client = anthropic.Anthropic(api_key=get_anthropic_key())
 
-
     # Compute full indicator suite
     indicators = compute_all(ohlcv) if len(ohlcv) >= 20 else {}
     ind_text = indicator_summary(indicators) if indicators else "Insufficient data for indicators."
@@ -24,6 +23,26 @@ def analyze(symbol: str, ohlcv: pd.DataFrame, quote: dict, news: list[dict] | No
     suggested_stop = atr_stop if atr_stop and atr_stop > 0 else default_stop
 
     recent = ohlcv.tail(10)[["Open", "High", "Low", "Close", "Volume"]].to_string()
+
+    # Earnings date — fetch and inject into prompt
+    earnings_section = ""
+    try:
+        from src.monitor.news_monitor import earnings_within_days
+        has_earnings, earn_date = earnings_within_days(symbol, days=14)
+        if has_earnings and earn_date:
+            from datetime import date
+            try:
+                days_to_earn = (date.fromisoformat(earn_date) - date.today()).days
+                if days_to_earn <= 1:
+                    earnings_section = f"\n⚠️  EARNINGS IN {days_to_earn} DAY(S) ({earn_date}): Extreme gap risk. Strongly consider HOLD or SELL unless you have very high conviction on the earnings outcome.\n"
+                elif days_to_earn <= 5:
+                    earnings_section = f"\n⚠️  Earnings in {days_to_earn} days ({earn_date}): High gap risk. Factor this into your signal — reduce confidence and consider tighter stop or smaller size.\n"
+                else:
+                    earnings_section = f"\nNote: Earnings in {days_to_earn} days ({earn_date}). Moderate event risk — mention in key_risks.\n"
+            except Exception:
+                earnings_section = f"\nNote: Earnings date detected: {earn_date}. Factor event risk into your analysis.\n"
+    except Exception:
+        pass
 
     news_section = ""
     if news:
@@ -43,7 +62,7 @@ Change today: {quote['change_pct']:+.2f}%
 
 Technical indicators:
 {ind_text}
-{news_section}{notes_section}
+{earnings_section}{news_section}{notes_section}
 Recent 10-day OHLCV data:
 {recent}
 
