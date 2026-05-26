@@ -13,21 +13,17 @@ export function BacktestView({ backendOnline }: Props) {
   useEffect(() => {
     if (!backendOnline) return;
     api.getVersionCompare().then(r => {
-      const hasValidData = r.status === "done" &&
-        r.v_prev?.stats && !("error" in r.v_prev.stats) &&
-        r.v_current?.stats && !("error" in r.v_current.stats);
-      if (r.status === "not_run" || (r.status === "done" && !hasValidData)) {
-        // cache empty or stale bad result — auto-trigger with defaults
+      if (r.status === "running") {
+        // already running — just poll
         setLoading(true);
-        api.triggerVersionCompare({ period: "2025", hold_days: 14 }).then(() => {
-          const poll = setInterval(async () => {
-            const res = await api.getVersionCompare();
-            setData(res);
-            if (res.status !== "running") { clearInterval(poll); setLoading(false); }
-          }, 3000);
-          setTimeout(() => { clearInterval(poll); setLoading(false); }, 180_000);
-        }).catch(() => setLoading(false));
+        const poll = setInterval(async () => {
+          const res = await api.getVersionCompare();
+          setData(res);
+          if (res.status !== "running") { clearInterval(poll); setLoading(false); }
+        }, 3000);
+        setTimeout(() => { clearInterval(poll); setLoading(false); }, 180_000);
       } else {
+        // done or not_run — just show what we have, don't auto-trigger
         setData(r);
       }
     }).catch(() => {});

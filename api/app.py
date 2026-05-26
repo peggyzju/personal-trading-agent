@@ -1456,12 +1456,14 @@ def trigger_version_compare(
     if _version_compare_running:
         return {"status": "already_running"}
 
+    # Set flag immediately (before background task starts) to prevent race condition
+    _version_compare_running = True
+    _version_compare_cache["result"] = {"status": "running"}
+
     sym_list = load_backtest_universe(n=150)
 
     def _run():
         global _version_compare_running
-        _version_compare_running = True
-        _version_compare_cache["result"] = {"status": "running"}
         try:
             from src.analysis.backtester import backtest_compare_versions
             result = backtest_compare_versions(sym_list, period=period, hold_days=hold_days)
@@ -1485,9 +1487,10 @@ def trigger_version_compare(
                             pass
                         return super().default(obj)
 
-                _VERSION_COMPARE_FILE.write_text(
-                    json.dumps(result, cls=_NumpySafeEncoder)
-                )
+                _VERSION_COMPARE_FILE.parent.mkdir(parents=True, exist_ok=True)
+                tmp = _VERSION_COMPARE_FILE.with_suffix(".tmp")
+                tmp.write_text(json.dumps(result, cls=_NumpySafeEncoder))
+                tmp.replace(_VERSION_COMPARE_FILE)
             except Exception as _e:
                 print(f"[backtest] disk save error: {_e}")
         except Exception as e:
