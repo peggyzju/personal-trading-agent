@@ -472,7 +472,7 @@ def quick_screen(
     force_symbols (watchlist): today_bull=True → bypass everything; else → Track 2 only.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    WORKERS = 20   # parallel downloads
+    WORKERS = 10   # parallel downloads (reduced to avoid Too many open files)
     TIMEOUT  = 20  # seconds per individual ticker
     raw_results: list[dict] = []   # all tickers with valid technicals (pre-filter)
     total = len(tickers)
