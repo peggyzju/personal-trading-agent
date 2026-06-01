@@ -138,14 +138,23 @@ def generate_market_context() -> dict:
     sector_bias = _get_sector_bias()
 
     # 5. Derive agent params from aggression + regime
-    aggression = goal_ctx["aggression"]
-    if regime in ("BEAR", "CAUTION"):
-        # Override: market too risky, cap at normal
-        aggression = "conservative" if regime == "BEAR" else min(aggression, "normal")
+    # aggression order: conservative(0) < normal(1) < aggressive(2)
+    _AGG_ORDER = {"conservative": 0, "normal": 1, "aggressive": 2}
 
-    # min_ai_score: aggressive=6, normal=6, conservative=6
-    # (conservative only differs in size_scale, not signal count)
-    min_ai_score_map = {"aggressive": 6, "normal": 6, "conservative": 6}
+    def _cap_agg(current: str, cap: str) -> str:
+        return current if _AGG_ORDER.get(current, 1) <= _AGG_ORDER.get(cap, 1) else cap
+
+    aggression = goal_ctx["aggression"]
+    if regime == "BEAR":
+        aggression = "conservative"
+    elif regime == "CAUTION":
+        aggression = _cap_agg(aggression, "normal")
+    elif regime == "NEUTRAL":
+        # NEUTRAL: no clear trend — cap at normal, no aggressive buys
+        aggression = _cap_agg(aggression, "normal")
+
+    # min_ai_score: conservative=8 (higher bar in weak/no-trend envs)
+    min_ai_score_map = {"aggressive": 6, "normal": 6, "conservative": 8}
     # size_scale: scales position size up/down
     size_scale_map   = {"aggressive": 1.1, "normal": 1.0, "conservative": 0.75}
 
@@ -160,6 +169,12 @@ def generate_market_context() -> dict:
         "size_scale":    size_scale_map[aggression],
         "generated_at":  datetime.now(timezone.utc).isoformat(),
     }
+
+    # NEUTRAL: extra gate — require min_ai_score≥8 and shrink size to 75%
+    # Prevents aggressive buys in non-trending environments (root cause of STEP/VIPS losses)
+    if regime == "NEUTRAL":
+        context["min_ai_score"] = max(context["min_ai_score"], 8)
+        context["size_scale"]   = min(context["size_scale"], 0.75)
 
     # Persist for other agents to read
     try:
