@@ -209,6 +209,7 @@ def _make_trade(
     volume_ratio: Optional[float] = None,
     near_breakout: Optional[bool] = None,
     universe: Optional[str] = None,
+    screen_track: Optional[str] = None,
 ) -> dict:
     now = _now()
     return {
@@ -229,6 +230,7 @@ def _make_trade(
         "volume_ratio": volume_ratio,
         "near_breakout": near_breakout,
         "universe": universe,
+        "screen_track": screen_track,   # "momentum"(Track1) / "compression"(Track2)
         "status": "pending",
         "created_at": now.isoformat(),
         "expires_at": _next_session_close().isoformat(),
@@ -813,6 +815,7 @@ def run_agent(
                     volume_ratio=c.get("volume_ratio"),
                     near_breakout=c.get("near_breakout"),
                     universe=c.get("universe"),
+                    screen_track=track,
                 )
                 # Allow adding to existing position when cash is very high and signal is strong,
                 # but only if the combined position stays within max_pos_pct of portfolio.
@@ -901,6 +904,7 @@ def run_agent(
                         stop_loss=stop,
                         target_price=cached.get("target_price"),
                         price=price,
+                        screen_track="watchlist",
                     )
                     if _add_trade(trade, owned_symbols):
                         summary["signals_found"] += 1

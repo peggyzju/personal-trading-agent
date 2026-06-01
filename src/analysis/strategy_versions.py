@@ -22,6 +22,33 @@ _ROOT        = Path(__file__).parents[2] / "data"
 _VER_PATH    = _ROOT / "strategy_versions.json"
 _HIST_PATH   = _ROOT / "trade_history.json"
 _OVR_PATH    = _ROOT / "strategy_overrides.json"
+_TRADES_PATH = _ROOT / "trades.json"
+
+
+def _lookup_screen_track(alpaca_order_id: Optional[str], symbol: str) -> Optional[str]:
+    """Find the entry track ("momentum"/"compression"/"watchlist") for a closed
+    trade by matching the original buy order in trades.json.
+
+    Primary match: executed_order_id == alpaca_order_id (exact).
+    Fallback: most recent buy trade for the same symbol that carries a track.
+    Returns None if no track was recorded (e.g. pre-instrumentation trades).
+    """
+    try:
+        trades = json.loads(_TRADES_PATH.read_text())
+    except Exception:
+        return None
+    rows = trades.values() if isinstance(trades, dict) else trades
+    buys = [t for t in rows if isinstance(t, dict) and t.get("side") == "buy"]
+    if alpaca_order_id:
+        for t in buys:
+            if t.get("executed_order_id") == alpaca_order_id and t.get("screen_track"):
+                return t["screen_track"]
+    # Fallback: latest buy for this symbol with a track label
+    sym_buys = sorted(
+        (t for t in buys if t.get("symbol") == symbol and t.get("screen_track")),
+        key=lambda t: t.get("created_at", ""), reverse=True,
+    )
+    return sym_buys[0]["screen_track"] if sym_buys else None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -126,6 +153,7 @@ def record_closed_trade(
     vma20_at_entry: Optional[float] = None,
     market_regime: Optional[str] = None,
     alpaca_order_id: Optional[str] = None,
+    screen_track: Optional[str] = None,
 ) -> dict:
     """Append one closed trade to trade_history.json with version tag."""
     history = _load_history()
@@ -137,6 +165,10 @@ def record_closed_trade(
 
     version = get_version_at(entry_date + "T00:00:00+00:00")
     ver_id  = version["version"] if version else "unknown"
+
+    # Backfill entry track from the original buy order if caller didn't pass it
+    if screen_track is None:
+        screen_track = _lookup_screen_track(alpaca_order_id, symbol)
 
     trade = {
         "symbol":          symbol,
@@ -152,6 +184,7 @@ def record_closed_trade(
         "rsi_at_entry":    rsi_at_entry,
         "vma20_at_entry":  vma20_at_entry,
         "market_regime":   market_regime,
+        "screen_track":    screen_track,
         "strategy_version": ver_id,
         "alpaca_order_id": alpaca_order_id,
         "recorded_at":     datetime.now(timezone.utc).isoformat(),
@@ -237,6 +270,26 @@ def compute_version_stats(trades: list[dict]) -> dict:
         d["avg_pnl"]  = round(sum(d["pnls"]) / len(d["pnls"]), 2) if d["pnls"] else 0
         del d["pnls"]
 
+    # Track breakdown (momentum=Track1 / compression=Track2 / watchlist)
+    tracks: dict[str, dict] = {}
+    for t in trades:
+        tk = t.get("screen_track") or "unknown"
+        if tk not in tracks:
+            tracks[tk] = {"n": 0, "wins": 0, "pnls": [], "wins_pnl": [], "loss_pnl": []}
+        tracks[tk]["n"] += 1
+        tracks[tk]["pnls"].append(t["pnl_pct"])
+        if t["pnl_pct"] > 0:
+            tracks[tk]["wins"] += 1
+            tracks[tk]["wins_pnl"].append(t["pnl_pct"])
+        else:
+            tracks[tk]["loss_pnl"].append(t["pnl_pct"])
+    for tk, d in tracks.items():
+        d["win_rate"]      = round(d["wins"] / d["n"] * 100, 1) if d["n"] else 0
+        d["avg_pnl"]       = round(sum(d["pnls"]) / len(d["pnls"]), 2) if d["pnls"] else 0
+        win_sum, loss_sum  = sum(d["wins_pnl"]), sum(d["loss_pnl"])
+        d["profit_factor"] = round(abs(win_sum / loss_sum), 2) if loss_sum != 0 else None
+        del d["pnls"], d["wins_pnl"], d["loss_pnl"]
+
     return {
         "n":                    n,
         "needed_for_significance": needed,
@@ -254,6 +307,7 @@ def compute_version_stats(trades: list[dict]) -> dict:
             "vma20_mean":  round(sum(vma20_vals)/len(vma20_vals),1) if vma20_vals else None,
         },
         "by_regime":            regimes,
+        "by_track":             tracks,
     }
 
 
