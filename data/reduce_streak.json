@@ -1,4 +1,10 @@
 {
   "ENPH": 1,
-  "WDAY": 1
+  "WDAY": 1,
+  "CRM": 1,
+  "ASTS": 2,
+  "SNPS": 2,
+  "MRVL": 1,
+  "IOT": 1,
+  "AVGO": 1
 }

@@ -66,11 +66,14 @@ def run_scout():
     Scout caches results for the day; calling it again is a no-op if already ran.
     """
     print("[scheduler] Running pre-market Scout discovery…")
+    from api.agent_runs import record_agent_run
     try:
         from src.monitor.scout import run as scout_run
         tickers = scout_run()
+        record_agent_run("scout", trigger="auto", result="success")
         print(f"[scheduler] Scout done: {len(tickers)} dynamic tickers discovered")
     except Exception as e:
+        record_agent_run("scout", trigger="auto", result="fail", error=str(e))
         print(f"[scheduler] Scout error: {e}")
 
 
@@ -78,8 +81,15 @@ def run_market_context():
     """Step 1 of pipeline — generate market context (regime + goal progress + sector bias).
     Runs at 8:00 AM ET, before scan and agent."""
     from src.analysis.market_context import generate_market_context
+    from api.agent_runs import record_agent_run
     print("[scheduler] Generating market context…")
-    ctx = generate_market_context()
+    try:
+        ctx = generate_market_context()
+        record_agent_run("maya", trigger="auto", result="success")
+    except Exception as e:
+        record_agent_run("maya", trigger="auto", result="fail", error=str(e))
+        print(f"[scheduler] Market context error: {e}")
+        return
     gc  = ctx.get("goal_context", {})
     print(
         f"[scheduler] Context: regime={ctx['regime']} aggression={ctx['aggression']} "
@@ -93,8 +103,14 @@ def run_market_context():
 def run_sp500_scan():
     """Step 2 of pipeline — scan S&P 500, then auto-cascade to agent."""
     from api.app import _run_sp500_scan
+    from api.agent_runs import record_agent_run
     print("[scheduler] Running daily S&P 500 scan (cascade→agent)…")
-    _run_sp500_scan(cascade_agent=True)
+    try:
+        _run_sp500_scan(cascade_agent=True)
+        record_agent_run("scout", trigger="auto", result="success")
+    except Exception as e:
+        record_agent_run("scout", trigger="auto", result="fail", error=str(e))
+        print(f"[scheduler] S&P 500 scan error: {e}")
 
 
 def run_holdings_refresh():
@@ -117,10 +133,13 @@ def run_holdings_refresh():
     # ── Cascade to Rex (sell-signal execution) ────────────────────────────────
     if positions:
         print("[scheduler] Holdings refresh done → cascading to Rex (sell signals)…")
+        from api.agent_runs import record_agent_run
         try:
             from api.app import _run_agent_internal
             _run_agent_internal()
+            record_agent_run("rex", trigger="auto", result="success")
         except Exception as e:
+            record_agent_run("rex", trigger="auto", result="fail", error=str(e))
             print(f"[scheduler] Rex cascade error: {e}")
 
 

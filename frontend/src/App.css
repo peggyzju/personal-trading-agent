@@ -4056,6 +4056,103 @@ body {
   gap: 4px;
 }
 
+/* ── Agent 运行记录面板 ── */
+.agent-runs-panel {
+  padding: 10px 20px 14px;
+  border-top: 1px solid var(--border);
+}
+.agent-runs-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.agent-runs-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.agent-runs-sub { font-size: 11px; color: var(--text-dim); }
+.agent-runs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.agent-run-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--bg-elevated, rgba(255,255,255,0.02));
+  border-left: 3px solid #475569;
+}
+.agent-run-card.run-ok { border-left-color: #22c55e; }
+.agent-run-card.run-missed,
+.agent-run-card.run-never { border-left-color: #ef4444; }
+.agent-run-card.run-waiting { border-left-color: #64748b; }
+.agent-run-card.run-idle { border-left-color: #475569; opacity: 0.75; }
+.agent-run-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.agent-run-emoji { font-size: 14px; }
+.agent-run-name { font-size: 14px; font-weight: 600; }
+.agent-run-trigger {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+.agent-run-trigger.trigger-manual { background: rgba(245,158,11,0.18); color: #f59e0b; }
+.agent-run-trigger.trigger-auto { background: rgba(99,102,241,0.18); color: #818cf8; }
+.agent-run-role { font-size: 11px; color: var(--text-dim); line-height: 1.35; margin-bottom: 6px; }
+.agent-run-meta { margin-bottom: 6px; display: flex; flex-direction: column; gap: 2px; }
+.agent-run-sched { font-size: 11px; color: var(--text); font-variant-numeric: tabular-nums; }
+.agent-run-cadence { font-size: 10px; color: var(--text-dim); }
+.agent-run-status-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.agent-run-health { font-size: 12px; font-weight: 600; }
+.agent-run-age { font-size: 10px; color: var(--text-dim); }
+
+.agent-run-history {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.agent-run-history-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.agent-run-history-empty { font-size: 10px; color: var(--text-dim); }
+.agent-run-history-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.agent-run-history-age {
+  font-size: 10px;
+  color: var(--text-dim);
+  min-width: 56px;
+}
+.agent-run-tag {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.agent-run-tag.tag-manual { background: rgba(245,158,11,0.18); color: #f59e0b; }
+.agent-run-tag.tag-auto { background: rgba(99,102,241,0.18); color: #818cf8; }
+.agent-run-tag.result-success { background: rgba(34,197,94,0.18); color: #22c55e; }
+.agent-run-tag.result-fail { background: rgba(239,68,68,0.18); color: #ef4444; }
+
 .pcc-agent-pill-wrap {
   display: flex;
   align-items: center;

@@ -561,7 +561,13 @@ def _run_sp500_scan(cascade_agent: bool = False):
         if now - _last_cascade_at > 120:   # at least 2 min between cascades
             _last_cascade_at = now
             print("[scan] Cascading to trade agent…")
-            _run_agent_internal()
+            from api.agent_runs import record_agent_run
+            try:
+                _run_agent_internal()
+                record_agent_run("rex", trigger="auto", result="success")
+            except Exception as _e:
+                record_agent_run("rex", trigger="auto", result="fail", error=str(_e))
+                raise
         else:
             print(f"[scan] cascade skipped (last cascade {now - _last_cascade_at:.0f}s ago)")
 
@@ -655,7 +661,14 @@ def trigger_scan(background_tasks: BackgroundTasks):
     global _scan_running
     if _scan_running:
         return {"status": "already_running"}
-    background_tasks.add_task(_run_sp500_scan, True)   # cascade_agent=True
+    def _manual_scan():
+        from api.agent_runs import record_agent_run
+        try:
+            _run_sp500_scan(True)   # cascade_agent=True
+            record_agent_run("scout", trigger="manual", result="success")
+        except Exception as e:
+            record_agent_run("scout", trigger="manual", result="fail", error=str(e))
+    background_tasks.add_task(_manual_scan)
     return {"status": "started", "cascade": "agent will auto-run after scan"}
 
 
@@ -694,11 +707,14 @@ def trigger_scout(background_tasks: BackgroundTasks):
     def _run_scout():
         global _scout_running
         _scout_running = True
+        from api.agent_runs import record_agent_run
         try:
             from src.monitor.scout import run as scout_run
             tickers = scout_run()
+            record_agent_run("scout", trigger="manual", result="success")
             print(f"[scout] Manual trigger done: {len(tickers)} tickers")
         except Exception as e:
+            record_agent_run("scout", trigger="manual", result="fail", error=str(e))
             print(f"[scout] Manual trigger error: {e}")
         finally:
             _scout_running = False
@@ -776,6 +792,13 @@ def get_pipeline_status():
             "one_line": review_cache_val.get("one_line_summary"),
         },
     }
+
+
+@app.get("/api/agents/status")
+def get_agents_status_endpoint():
+    """Maya / Scout / Rex 运行记录 + 调度时间 + 健康检查（含手动/自动标记）。"""
+    from api.agent_runs import get_agents_status
+    return get_agents_status()
 
 
 # ── Holdings Monitor ──────────────────────────────────────────────────────────
@@ -1143,7 +1166,14 @@ def _run_agent_internal():
 @app.post("/api/agent/run")
 def run_agent(background_tasks: BackgroundTasks):
     """Manual override trigger — normally the pipeline runs automatically."""
-    background_tasks.add_task(_run_agent_internal)
+    def _manual_rex():
+        from api.agent_runs import record_agent_run
+        try:
+            _run_agent_internal()
+            record_agent_run("rex", trigger="manual", result="success")
+        except Exception as e:
+            record_agent_run("rex", trigger="manual", result="fail", error=str(e))
+    background_tasks.add_task(_manual_rex)
     return {"status": "started"}
 
 
@@ -1918,19 +1948,8 @@ def save_strategy_overrides(req: OverridesRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not save overrides: {e}")
 
-    # Auto-create a new strategy version whenever overrides change
-    try:
-        from src.analysis.strategy_versions import create_version as _create_ver
-        _create_ver(
-            stop_loss_pct=updated.get("stop_loss_pct", 3.0),
-            max_position_pct=updated.get("max_position_pct", 0.10),
-            entry_rsi_max=updated.get("entry_rsi_max"),
-            entry_vma20_max=updated.get("entry_vma20_max"),
-            notes=req.reason or "",
-        )
-    except Exception as _ve:
-        print(f"[overrides] strategy version creation failed (non-fatal): {_ve}")
-
+    # 注：不再自动建策略版本。版本史唯一事实源是 data/versions.json，
+    # 由选股/买卖逻辑迭代时手工维护（纯参数采纳不算新版本）。
     return updated
 
 
@@ -1984,8 +2003,17 @@ def get_strategy_versions():
 
 
 @app.get("/api/strategy/versions/compare")
-def compare_strategy_versions(v1: str = "v1.0", v2: str = "v2.0"):
-    from src.analysis.strategy_versions import compare_versions
+def compare_strategy_versions(v1: Optional[str] = None, v2: Optional[str] = None):
+    """默认对比最近两个版本（v_prev vs v_current）；也可显式指定 v1/v2。"""
+    from src.analysis.strategy_versions import compare_versions, get_all_versions
+    if v1 is None or v2 is None:
+        vers = get_all_versions()
+        if len(vers) >= 2:
+            v1, v2 = vers[-2]["version"], vers[-1]["version"]
+        elif vers:
+            v1 = v2 = vers[-1]["version"]
+        else:
+            return {"v1": {}, "v2": {}, "verdict": "暂无版本数据"}
     return compare_versions(v1, v2)
 
 

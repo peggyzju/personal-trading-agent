@@ -6,8 +6,8 @@ Each closed trade is tagged with the version active at entry time.
 Computes per-version stats with Wilson confidence intervals.
 
 Data files:
-  data/strategy_versions.json  — version history
-  data/trade_history.json      — closed trades with version + regime tags
+  data/versions.json       — 版本史唯一事实源（v1–v7，复盘/UI 共用，手工维护）
+  data/trade_history.json  — closed trades with version + regime tags
 """
 from __future__ import annotations
 
@@ -19,7 +19,9 @@ from pathlib import Path
 from typing import Optional
 
 _ROOT        = Path(__file__).parents[2] / "data"
-_VER_PATH    = _ROOT / "strategy_versions.json"
+# 版本归因的单一事实源：versions.json（复盘/UI 用的完整策略迭代史 v1–v7）。
+# 旧的 strategy_versions.json 已废弃（曾停在 v2.0，与代码级迭代分叉）。
+_VER_PATH    = _ROOT / "versions.json"
 _HIST_PATH   = _ROOT / "trade_history.json"
 _OVR_PATH    = _ROOT / "strategy_overrides.json"
 _TRADES_PATH = _ROOT / "trades.json"
@@ -62,10 +64,6 @@ def _load_versions() -> list[dict]:
         return []
 
 
-def _save_versions(versions: list[dict]) -> None:
-    _VER_PATH.write_text(json.dumps(versions, indent=2, default=str))
-
-
 def create_version(
     stop_loss_pct: float,
     max_position_pct: float,
@@ -73,35 +71,15 @@ def create_version(
     entry_vma20_max: Optional[float] = None,
     notes: str = "",
 ) -> dict:
-    """
-    Record a new strategy version. Called whenever overrides change.
-    Returns the new version dict.
-    """
-    versions = _load_versions()
+    """[已废弃] 版本史唯一事实源是 data/versions.json，由策略迭代时手工维护。
 
-    # Auto-increment version number
-    if versions:
-        last_major = int(versions[-1]["version"].split(".")[0].lstrip("v"))
-        ver_id = f"v{last_major + 1}.0"
-    else:
-        ver_id = "v1.0"
-
-    version = {
-        "version":          ver_id,
-        "created_at":       datetime.now(timezone.utc).isoformat(),
-        "params": {
-            "stop_loss_pct":      stop_loss_pct,
-            "max_position_pct":   max_position_pct,
-            "entry_rsi_max":      entry_rsi_max,
-            "entry_vma20_max":    entry_vma20_max,
-        },
-        "notes": notes,
-    }
-    versions.append(version)
-    _save_versions(versions)
-    print(f"[versions] Created {ver_id}: stop={stop_loss_pct}% | "
-          f"rsi_max={entry_rsi_max} | vma20_max={entry_vma20_max}%")
-    return version
+    历史上 overrides 采纳会自动建版本，导致与代码级迭代分叉（strategy_versions.json
+    停在 v2.0）。现在此函数为 no-op：只记日志，不再写任何版本文件。
+    新增策略版本请直接编辑 versions.json。
+    """
+    print("[versions] create_version() 已废弃 — 版本请在 data/versions.json 手工维护，"
+          f"本次调用被忽略（notes={notes!r}）")
+    return {}
 
 
 def get_current_version() -> Optional[dict]:
