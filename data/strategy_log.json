@@ -53,46 +53,446 @@
   },
   {
     "date": "2026-05-21",
-    "recorded_at": "2026-05-21T08:29:37.422065+00:00",
+    "recorded_at": "2026-05-21T15:27:21.948369+00:00",
     "scan_quality": {
-      "total_candidates": 25,
-      "rsi_mean": 53.7,
+      "total_candidates": 10,
+      "rsi_mean": 53.5,
       "rsi_dist": {
         "rsi_below40": 0,
-        "rsi_40_55": 15,
-        "rsi_55_60": 6,
-        "rsi_60_65": 4,
-        "rsi_above65": 0
+        "rsi_40_55": 7,
+        "rsi_55_60": 2,
+        "rsi_60_65": 0,
+        "rsi_above65": 1
       },
-      "vma20_mean": 1.8,
+      "vma20_mean": 2.0,
       "vma20_dist": {
         "vma20_neg": 2,
-        "vma20_0_3": 19,
-        "vma20_3_5": 4,
+        "vma20_0_3": 7,
+        "vma20_3_5": 0,
         "vma20_5_8": 0,
-        "vma20_above8": 0
+        "vma20_above8": 1
       },
       "signal_counts": {
-        "BUY": 6,
-        "HOLD": 19
+        "HOLD": 10
       },
-      "ai_score_mean": 6.2,
-      "quality_score": 92.0
+      "ai_score_mean": null,
+      "quality_score": 82.0
     },
     "portfolio": {
-      "equity": 99477.0,
-      "cash": 22491.0,
-      "invested": 76986.0,
-      "alloc_pct": 77.4,
-      "float_pnl": 323.0,
-      "float_pct": 0.32,
-      "positions": 8
+      "equity": 99638.0,
+      "cash": 21329.0,
+      "invested": 78309.0,
+      "alloc_pct": 78.6,
+      "float_pnl": 615.0,
+      "float_pct": 0.62,
+      "positions": 9
+    },
+    "trades_today": {
+      "closed_trades_today": 9,
+      "symbols_closed": [
+        "CRM",
+        "DOCU",
+        "ASTS",
+        "SNPS",
+        "KLAC",
+        "VEEV",
+        "CVX",
+        "ADBE",
+        "ODFL"
+      ]
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 165,
+    "tech_passed": 25,
+    "quality_gate_removed": 0,
+    "ai_scored": 0,
+    "market_regime": "BULL"
+  },
+  {
+    "date": "2026-05-22",
+    "recorded_at": "2026-05-22T13:31:00.403239+00:00",
+    "scan_quality": {},
+    "portfolio": {
+      "error": "HTTPSConnectionPool(host='paper-api.alpaca.markets', port=443): Max retries exceeded with url: /v2/account (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10f5762b0>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))"
+    },
+    "trades_today": {
+      "closed_trades_today": null,
+      "error": "HTTPSConnectionPool(host='paper-api.alpaca.markets', port=443): Max retries exceeded with url: /v2/orders?limit=100&after=2026-05-22T00%3A00%3A00%2B00%3A00&direction=asc&status=closed (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10eea2c40>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))"
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 165,
+    "tech_passed": 0,
+    "quality_gate_removed": 0,
+    "ai_scored": 0,
+    "market_regime": "BULL"
+  },
+  {
+    "date": "2026-05-23",
+    "recorded_at": "2026-05-22T16:34:08.412576+00:00",
+    "scan_quality": {
+      "total_candidates": 25,
+      "rsi_mean": 58.3,
+      "rsi_dist": {
+        "rsi_below40": 0,
+        "rsi_40_55": 12,
+        "rsi_55_60": 3,
+        "rsi_60_65": 4,
+        "rsi_above65": 6
+      },
+      "vma20_mean": 6.1,
+      "vma20_dist": {
+        "vma20_neg": 1,
+        "vma20_0_3": 12,
+        "vma20_3_5": 6,
+        "vma20_5_8": 2,
+        "vma20_above8": 4
+      },
+      "signal_counts": {
+        "STRONG_BUY": 1,
+        "BUY": 3,
+        "HOLD": 20,
+        "SELL": 1
+      },
+      "ai_score_mean": 5.2,
+      "quality_score": 71.2
+    },
+    "portfolio": {
+      "equity": 100515.0,
+      "cash": 6534.0,
+      "invested": 93981.0,
+      "alloc_pct": 93.5,
+      "float_pnl": 711.0,
+      "float_pct": 0.71,
+      "positions": 10
+    },
+    "trades_today": {
+      "closed_trades_today": 3,
+      "symbols_closed": [
+        "SNPS",
+        "ASTS"
+      ]
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 165,
+    "tech_passed": 25,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "BULL"
+  },
+  {
+    "date": "2026-05-24",
+    "recorded_at": "2026-05-24T04:07:43.401808+00:00",
+    "scan_quality": {
+      "total_candidates": 25,
+      "rsi_mean": 57.8,
+      "rsi_dist": {
+        "rsi_below40": 0,
+        "rsi_40_55": 12,
+        "rsi_55_60": 3,
+        "rsi_60_65": 5,
+        "rsi_above65": 5
+      },
+      "vma20_mean": 5.8,
+      "vma20_dist": {
+        "vma20_neg": 1,
+        "vma20_0_3": 13,
+        "vma20_3_5": 5,
+        "vma20_5_8": 3,
+        "vma20_above8": 3
+      },
+      "signal_counts": {
+        "STRONG_BUY": 1,
+        "BUY": 2,
+        "HOLD": 20,
+        "SELL": 2
+      },
+      "ai_score_mean": 5.1,
+      "quality_score": 74.4
+    },
+    "portfolio": {
+      "equity": 100428.0,
+      "cash": 6537.0,
+      "invested": 93891.0,
+      "alloc_pct": 93.5,
+      "float_pnl": 621.0,
+      "float_pct": 0.62,
+      "positions": 10
     },
     "trades_today": {
       "closed_trades_today": 0
     },
     "closed_pnl_pct": null,
     "total_screened": 165,
+    "tech_passed": 25,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "BULL"
+  },
+  {
+    "date": "2026-05-25",
+    "recorded_at": "2026-05-25T13:34:34.717246+00:00",
+    "scan_quality": {
+      "total_candidates": 13,
+      "rsi_mean": 56.8,
+      "rsi_dist": {
+        "rsi_below40": 0,
+        "rsi_40_55": 7,
+        "rsi_55_60": 1,
+        "rsi_60_65": 4,
+        "rsi_above65": 1
+      },
+      "vma20_mean": 7.0,
+      "vma20_dist": {
+        "vma20_neg": 2,
+        "vma20_0_3": 4,
+        "vma20_3_5": 3,
+        "vma20_5_8": 2,
+        "vma20_above8": 2
+      },
+      "signal_counts": {
+        "BUY": 2,
+        "HOLD": 8,
+        "SELL": 3
+      },
+      "ai_score_mean": 5.2,
+      "quality_score": 72.3
+    },
+    "portfolio": {
+      "equity": 100428.0,
+      "cash": 6537.0,
+      "invested": 93891.0,
+      "alloc_pct": 93.5,
+      "float_pnl": 621.0,
+      "float_pct": 0.62,
+      "positions": 10
+    },
+    "trades_today": {
+      "closed_trades_today": 0
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 165,
+    "tech_passed": 13,
+    "quality_gate_removed": 0,
+    "ai_scored": 13,
+    "market_regime": "BULL"
+  },
+  {
+    "date": "2026-05-26",
+    "recorded_at": "2026-05-26T15:22:28.360708+00:00",
+    "scan_quality": {
+      "total_candidates": 20,
+      "rsi_mean": 62.5,
+      "rsi_dist": {
+        "rsi_below40": 1,
+        "rsi_40_55": 6,
+        "rsi_55_60": 2,
+        "rsi_60_65": 5,
+        "rsi_above65": 6
+      },
+      "vma20_mean": 10.9,
+      "vma20_dist": {
+        "vma20_neg": 3,
+        "vma20_0_3": 2,
+        "vma20_3_5": 2,
+        "vma20_5_8": 5,
+        "vma20_above8": 8
+      },
+      "signal_counts": {
+        "STRONG_BUY": 3,
+        "BUY": 4,
+        "HOLD": 13
+      },
+      "ai_score_mean": 6.1,
+      "quality_score": 35.0
+    },
+    "portfolio": {
+      "equity": 100717.0,
+      "cash": 46336.0,
+      "invested": 54381.0,
+      "alloc_pct": 54.0,
+      "float_pnl": 34.0,
+      "float_pct": 0.03,
+      "positions": 5
+    },
+    "trades_today": {
+      "closed_trades_today": 10,
+      "symbols_closed": [
+        "XOM",
+        "MSFT",
+        "NKE",
+        "DOCU",
+        "MRVL",
+        "V",
+        "ACN",
+        "BRZE",
+        "ABT",
+        "LRCX"
+      ]
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 20,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "BULL"
+  },
+  {
+    "date": "2026-05-27",
+    "recorded_at": "2026-05-26T16:32:59.954477+00:00",
+    "scan_quality": {
+      "total_candidates": 19,
+      "rsi_mean": 62.0,
+      "rsi_dist": {
+        "rsi_below40": 1,
+        "rsi_40_55": 7,
+        "rsi_55_60": 2,
+        "rsi_60_65": 3,
+        "rsi_above65": 6
+      },
+      "vma20_mean": 10.8,
+      "vma20_dist": {
+        "vma20_neg": 4,
+        "vma20_0_3": 2,
+        "vma20_3_5": 1,
+        "vma20_5_8": 5,
+        "vma20_above8": 7
+      },
+      "signal_counts": {
+        "STRONG_BUY": 2,
+        "BUY": 4,
+        "HOLD": 11,
+        "SELL": 2
+      },
+      "ai_score_mean": 5.4,
+      "quality_score": 37.9
+    },
+    "portfolio": {
+      "equity": 100464.0,
+      "cash": 15085.0,
+      "invested": 85379.0,
+      "alloc_pct": 85.0,
+      "float_pnl": -217.0,
+      "float_pct": -0.22,
+      "positions": 9
+    },
+    "trades_today": {
+      "closed_trades_today": 10,
+      "symbols_closed": [
+        "XOM",
+        "MSFT",
+        "NKE",
+        "DOCU",
+        "MRVL",
+        "V",
+        "ACN",
+        "BRZE",
+        "ABT",
+        "LRCX"
+      ]
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 19,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "BULL"
+  },
+  {
+    "date": "2026-05-28",
+    "recorded_at": "2026-05-28T13:34:12.004657+00:00",
+    "scan_quality": {
+      "total_candidates": 25,
+      "rsi_mean": 54.9,
+      "rsi_dist": {
+        "rsi_below40": 1,
+        "rsi_40_55": 14,
+        "rsi_55_60": 3,
+        "rsi_60_65": 3,
+        "rsi_above65": 4
+      },
+      "vma20_mean": 5.8,
+      "vma20_dist": {
+        "vma20_neg": 5,
+        "vma20_0_3": 7,
+        "vma20_3_5": 4,
+        "vma20_5_8": 3,
+        "vma20_above8": 5
+      },
+      "signal_counts": {
+        "BUY": 3,
+        "HOLD": 21,
+        "SELL": 1
+      },
+      "ai_score_mean": 5.7,
+      "quality_score": 59.1
+    },
+    "portfolio": {
+      "equity": 99024.0,
+      "cash": 36100.0,
+      "invested": 62924.0,
+      "alloc_pct": 63.5,
+      "float_pnl": -613.0,
+      "float_pct": -0.62,
+      "positions": 8
+    },
+    "trades_today": {
+      "closed_trades_today": 0
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 25,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "BULL"
+  },
+  {
+    "date": "2026-05-29",
+    "recorded_at": "2026-05-28T16:33:36.837057+00:00",
+    "scan_quality": {
+      "total_candidates": 25,
+      "rsi_mean": 57.8,
+      "rsi_dist": {
+        "rsi_below40": 0,
+        "rsi_40_55": 13,
+        "rsi_55_60": 1,
+        "rsi_60_65": 3,
+        "rsi_above65": 8
+      },
+      "vma20_mean": 7.3,
+      "vma20_dist": {
+        "vma20_neg": 5,
+        "vma20_0_3": 5,
+        "vma20_3_5": 3,
+        "vma20_5_8": 4,
+        "vma20_above8": 8
+      },
+      "signal_counts": {
+        "STRONG_BUY": 1,
+        "BUY": 5,
+        "HOLD": 18,
+        "SELL": 1
+      },
+      "ai_score_mean": 6.3,
+      "quality_score": 48.8
+    },
+    "portfolio": {
+      "equity": 100100.0,
+      "cash": 26303.0,
+      "invested": 73797.0,
+      "alloc_pct": 73.7,
+      "float_pnl": 683.0,
+      "float_pct": 0.68,
+      "positions": 9
+    },
+    "trades_today": {
+      "closed_trades_today": 2,
+      "symbols_closed": [
+        "VIPS",
+        "IOT"
+      ]
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
     "tech_passed": 25,
     "quality_gate_removed": 0,
     "ai_scored": 15,
