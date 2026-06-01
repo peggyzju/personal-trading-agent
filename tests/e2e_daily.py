@@ -738,7 +738,8 @@ def test_v3_strategy():
 
         from unittest.mock import patch as _patch
         _mock_map = {r["symbol"]: r for r in mock_raws}
-        with _patch("src.monitor.sp500_scanner._fetch_raw", side_effect=lambda sym: _mock_map.get(sym)):
+        with _patch("src.monitor.sp500_scanner._fetch_raw", side_effect=lambda sym, *a, **k: _mock_map.get(sym)), \
+             _patch("src.monitor.sp500_scanner.fetch_bars_batch", return_value={}):
             results_q = quick_screen(["T1OK", "T2OK", "FAIL"], force_symbols=set())
 
         syms = {r["symbol"] for r in results_q}
@@ -784,7 +785,8 @@ def test_v3_strategy():
 
         from unittest.mock import patch as _patch
         _mock_map2 = {r["symbol"]: r for r in all_mock}
-        with _patch("src.monitor.sp500_scanner._fetch_raw", side_effect=lambda sym: _mock_map2.get(sym)):
+        with _patch("src.monitor.sp500_scanner._fetch_raw", side_effect=lambda sym, *a, **k: _mock_map2.get(sym)), \
+             _patch("src.monitor.sp500_scanner.fetch_bars_batch", return_value={}):
             res_hot = quick_screen(syms_all, force_symbols=set())
 
         hot_syms = {r["symbol"] for r in res_hot}

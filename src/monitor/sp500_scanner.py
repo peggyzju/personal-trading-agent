@@ -456,11 +456,68 @@ def enrich_with_fundamentals(candidates: list[dict]) -> list[dict]:
         return list(pool.map(fetch_one, candidates))
 
 
-def _fetch_raw(symbol: str) -> dict | None:
-    """Download technicals for a single symbol. Module-level for testability."""
+def fetch_bars_batch(tickers, days: int = 95, feed: str = "iex",
+                     progress_cb=None, chunk_size: int = 100) -> dict:
+    """批量拉日线 OHLCV（Alpaca data API），返回 {symbol: DataFrame(Open/High/Low/Close/Volume)}。
+
+    用 Alpaca 一次取多 symbol 替代逐个 yfinance —— 把 169 个请求压到几个，根治 yfinance rate limit。
+    注意：免费 IEX feed 的 volume 是 IEX-only（非全市场），vol_ratio 为近似值。
+    取数窗口 ~90 日历日，与原 yfinance period="90d" 一致，避免技术指标漂移。
+    一个无效 symbol 会让整批 API 失败 → 分块 + 剔除无效 symbol 重试。
+    """
+    import datetime as _dt
+    import re as _re
+    from src.trader.alpaca_trader import get_client
+    api = get_client()
+    end   = _dt.datetime.utcnow().date()
+    start = end - _dt.timedelta(days=days)
+    out: dict = {}
+    total = len(tickers)
+    done = 0
+    for i in range(0, total, chunk_size):
+        batch_n = len(tickers[i:i + chunk_size])
+        chunk   = list(tickers[i:i + chunk_size])
+        df = None
+        attempts = 0
+        while chunk and attempts < 6:
+            attempts += 1
+            try:
+                df = api.get_bars(chunk, "1Day", start=start.isoformat(),
+                                  end=end.isoformat(), feed=feed).df
+                break
+            except Exception as e:
+                m = _re.search(r"invalid symbol:\s*([A-Za-z0-9._-]+)", str(e))
+                if m and m.group(1) in chunk:
+                    chunk.remove(m.group(1))   # 剔除无效 symbol 再试，避免整批失败
+                    df = None
+                    continue
+                print(f"[scanner] batch fetch error (chunk {i//chunk_size}): {e}")
+                df = None
+                break
+        if df is not None and not df.empty and "symbol" in df.columns:
+            for sym, sub in df.groupby("symbol"):
+                out[sym] = pd.DataFrame({
+                    "Open":   sub["open"].values,
+                    "High":   sub["high"].values,
+                    "Low":    sub["low"].values,
+                    "Close":  sub["close"].values,
+                    "Volume": sub["volume"].values,
+                }, index=sub.index)
+        done += batch_n
+        if progress_cb:
+            progress_cb("downloading", done, total)
+    return out
+
+
+def _fetch_raw(symbol: str, bars_by_sym: dict | None = None) -> dict | None:
+    """Compute technicals for a single symbol from pre-fetched Alpaca bars.
+
+    bars_by_sym: {symbol: DataFrame(Open/High/Low/Close/Volume)} from fetch_bars_batch().
+    Module-level for testability (e2e patches this to inject synthetic technicals).
+    """
     try:
-        df = yf.Ticker(symbol, session=_get_yf_session()).history(period="90d", auto_adjust=True)
-        if df.empty or len(df) < 5:
+        df = (bars_by_sym or {}).get(symbol)
+        if df is None or len(df) < 5:
             return None
         tech = compute_technicals(df)
         if not tech:
@@ -491,28 +548,20 @@ def quick_screen(
 
     force_symbols (watchlist): today_bull=True → bypass everything; else → Track 2 only.
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    WORKERS = 10   # parallel downloads (reduced to avoid Too many open files)
-    TIMEOUT  = 20  # seconds per individual ticker
     raw_results: list[dict] = []   # all tickers with valid technicals (pre-filter)
     total = len(tickers)
     _force = force_symbols or set()
 
-    print(f"[scanner] downloading {total} tickers individually ({WORKERS} parallel)…")
+    # 批量从 Alpaca 取日线 bars（替代逐个 yfinance，根治 rate limit）
+    print(f"[scanner] batch-fetching {total} tickers via Alpaca…")
+    bars_by_sym = fetch_bars_batch(tickers, progress_cb=progress_cb)
+    downloaded_ok = len(bars_by_sym)
+    print(f"[scanner] Alpaca bars: {downloaded_ok}/{total} symbols got data")
 
-    done = 0
-    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        futures = {pool.submit(_fetch_raw, sym): sym for sym in tickers}
-        for fut in as_completed(futures, timeout=TIMEOUT * total / WORKERS + 60):
-            done += 1
-            try:
-                result = fut.result(timeout=TIMEOUT)
-                if result:
-                    raw_results.append(result)
-            except Exception:
-                pass
-            if progress_cb and done % 20 == 0:
-                progress_cb("downloading", done, total)
+    for sym in tickers:
+        result = _fetch_raw(sym, bars_by_sym)
+        if result:
+            raw_results.append(result)
 
     if progress_cb:
         progress_cb("screening_done", total, total)
