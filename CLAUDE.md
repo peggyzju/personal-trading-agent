@@ -19,20 +19,21 @@
 | Agent | 职责 | 触发时间（ET）|
 |-------|------|--------------|
 | **Maya** | 读取市场 regime（牛/熊/震荡），设定当日仓位激进度和板块偏好 | 8:00 AM |
-| **Scout** | 动态发现新标的（Finviz），扫描全量 universe，AI 评分候选股 | 9:00 AM + 9:31 AM + 12:30 PM |
-| **Rex** | 读取 Scout 信号执行买入；监控持仓执行卖出 | 每次扫描后（买）+ 每 30 分钟（卖）|
-| **Vera** | 收盘复盘，分析胜负特征，提取策略教训注入未来扫描 | 4:15 PM |
+| **Scout** | 选股：盘前动态发现新标的（Finviz）+ 日内扫描全量 universe + AI 评分候选股 | 8:45 AM（发现）+ 9:31 / 11:00 / 12:30 / 14:30（扫描）|
+| **Rex** | 交易执行：读取 Scout 信号执行买入；监控持仓执行卖出 | 每次扫描后 cascade（买）+ 每 30 分钟（卖）|
+| **Vera** | 收盘复盘，分析胜负特征，提取策略教训注入未来扫描 | 手动 trigger（POST /api/strategy/review，已移除自动定时）|
 
-### 当前策略版本：v5
+### 当前策略版本：v7
 
-**选股（Scout）** — 双轨制 + 板块共振
+**选股（Scout）** — 双轨制解耦 + 板块共振
 
 | Track | 条件 |
 |-------|------|
-| Track 1 动能突破 | RSI 50–75（热板块升至 85）+ today_bull + mom5d > 0 + vs_ma20 ≤ 15% |
-| Track 2 盘整蓄力 | RSI < 55 + vol_ratio < 0.8 + mom5d > −3%（bypass today_bull）|
+| Track 1 动能突破 | RSI 50–75（热板块升至 85）+ today_bull + mom5d > 0 + vs_ma20 ≤ 15% + **vol_ratio ≥ 1.2（v6 成交量门，防假突破）** |
+| Track 2 盘整蓄力 | RSI < 55 + vol_ratio < 0.8 + mom5d > −3% + **ma20_slope > 0（v6 斜率门，防死水股）** + **vs_ma20 ≥ −3%（v6 安全垫）**（bypass today_bull）|
 
-板块共振：同板块 ≥ 3 只 today_bull → 该板块 RSI 上限 75 → 85
+- 板块共振：同板块 ≥ 3 只 today_bull → 该板块 RSI 上限 75 → 85
+- v6 起 Track1/Track2 的 RSI 门槛彻底解耦（T1: 50–75，T2: < 55）
 
 **买入（Rex）** — Entry Gate（任一不通过则跳过）
 
@@ -41,8 +42,12 @@
 - 价格漂移 > 1.5% → 拒单
 - 财报今天 / 明天未公布 → 跳过（已公布放行）
 - 止损：`max(MA20×0.99, entry − 2×ATR)`，钳位 −3% 至 −8%
-- **Gate A（v5新增）**：Track1 入场需 SPY > MA20；Track2 盘整蓄力豁免
-- **Gate B（v5新增）**：R:R = 10% / 止损距离 ≥ 1.5（止损超过 6.7% 则拒绝）
+- **Gate A（v5）**：Track1 入场需 SPY > MA20；Track2 盘整蓄力豁免
+- **Gate B（v6 放宽）**：止损距离 ≤ 8%（v5 原为 R:R ≥ 1.5，止损超 6.7% 拒绝）
+- **市场环境门控（v7）**：Maya 给出 regime → 决定买入激进度
+  - `NEUTRAL`（无趋势）：min_ai_score 6 → **8**、aggression 封顶 normal（禁止 aggressive 买入）、size_scale **0.75**
+  - `BEAR`：aggression = conservative；`CAUTION`：aggression 封顶 normal
+  - conservative tier：min_ai_score 6 → 8（与 BEAR 一致）
 
 **卖出（Rex）** — 三层保护
 
@@ -52,7 +57,10 @@
 | 2 | 追踪止盈：+10% 激活，高水位回落 5% 触发（`TRAIL_TRIGGER=0.10, TRAIL_PCT=0.05`）|
 | 3 | AI 软清仓：Claude 每 30 分钟评估持仓，SELL / REDUCE / HOLD 信号 |
 
-Holdings Monitor `HARD_STOP_PCT = −8.0` 是最后兜底，不是主止损。
+- Holdings Monitor `HARD_STOP_PCT = −8.0` 是最后兜底，不是主止损。
+- 趋势过滤（v6）：持仓盈利 ≥ +5% 时压制 REDUCE 信号，让赢家跑。
+
+> 完整版本历史见 `data/versions.json`（v1–v7）。注意：v6 → v7 的回测结果必然相同——v7 是 regime/AI-score 实盘门控，机械回测引擎读不到这些参数，只能看实盘 Track 数据。
 
 ---
 

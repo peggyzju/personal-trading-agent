@@ -523,6 +523,7 @@ export const api = {
   saveOverrides: (patch: Partial<StrategyOverrides> & { reason?: string }) =>
     post<StrategyOverrides>("/strategy/overrides", patch),
   getPipelineStatus: () => get<PipelineStatus>("/pipeline/status"),
+  getAgentsStatus: () => get<AgentsStatus>("/agents/status"),
   getGoalProgress: () => get<GoalProgress>("/goal/progress"),
   getScanNasdaq: () => get<ScanResult>("/scan/nasdaq"),
   getNotes: () => get<StrategyNote[]>("/strategy/notes"),
@@ -652,4 +653,34 @@ export interface PipelineStatus {
   scan: PipelineStage & { total_screened?: number; candidates?: number };
   agent: PipelineStage & { signals_found?: number; trades_queued?: number; pending_approval?: number };
   review: PipelineStage & { one_line?: string };
+}
+
+export interface AgentRunStatus {
+  id: string;
+  name: string;
+  role: string;
+  scheduled_times_et: string[];
+  cadence_note: string | null;
+  kind: "daily" | "intraday";
+  last_run_at: string | null;
+  age: string | null;
+  trigger: "manual" | "auto" | null;
+  result: "success" | "fail" | null;
+  status: "ok" | "waiting" | "missed" | "idle" | "never";
+  status_label: string;
+  history: AgentRunHistoryEntry[];
+}
+
+export interface AgentRunHistoryEntry {
+  ran_at: string | null;
+  age: string | null;
+  trigger: "manual" | "auto" | null;
+  result: "success" | "fail" | null;
+  error: string | null;
+}
+
+export interface AgentsStatus {
+  now_et: string;
+  is_trading_day: boolean;
+  agents: AgentRunStatus[];
 }

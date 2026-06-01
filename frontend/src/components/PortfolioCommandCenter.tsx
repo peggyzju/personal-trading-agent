@@ -4,6 +4,7 @@ import type {
   BudgetAllocation, HoldingsResult, ScanResult,
   AgentState, PendingTrade, HoldingPosition, ScanCandidate, Position,
   PipelineStatus, GoalProgress, Quote, PortfolioDay, Account,
+  AgentsStatus, AgentRunStatus, AgentRunHistoryEntry,
 } from "../api/client";
 import { TradeModal } from "./TradeModal";
 import type { PortfolioHistory } from "../api/client";
@@ -24,6 +25,7 @@ interface PCC {
   agent: AgentState | null;
   history: PortfolioHistory | null;
   pipeline: PipelineStatus | null;
+  agentsStatus: AgentsStatus | null;
   goal: GoalProgress | null;
   account: Account | null;
   quotes: Record<string, Quote>;
@@ -34,12 +36,12 @@ interface PCC {
 }
 
 export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, autoApprove }: Props) {
-  const [data, setData] = useState<PCC>({ budget: null, holdings: null, positions: [], scan: null, agent: null, history: null, pipeline: null, goal: null, account: null, quotes: {}, openSellSymbols: new Set(), cancellingSymbols: new Set(), errorSellSymbols: new Set(), allOrders: [] });
+  const [data, setData] = useState<PCC>({ budget: null, holdings: null, positions: [], scan: null, agent: null, history: null, pipeline: null, agentsStatus: null, goal: null, account: null, quotes: {}, openSellSymbols: new Set(), cancellingSymbols: new Set(), errorSellSymbols: new Set(), allOrders: [] });
   const [tradeLogTab, setTradeLogTab] = useState<"open" | "filled" | "failed" | "cancelled">("open");
 
   const load = useCallback(async () => {
     if (!backendOnline) return;
-    const [budget, holdings, positions, scan, agent, history, pipeline, goal, account, orders] = await Promise.allSettled([
+    const [budget, holdings, positions, scan, agent, history, pipeline, agentsStatus, goal, account, orders] = await Promise.allSettled([
       api.getBudget(),
       api.getHoldings(),
       api.getPositions(),
@@ -47,6 +49,7 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
       api.getAgentState(),
       api.getPortfolioHistory(),
       api.getPipelineStatus(),
+      api.getAgentsStatus(),
       api.getGoalProgress(),
       api.getAccount(),
       api.getOrders(),
@@ -88,6 +91,7 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
       agent: agent.status === "fulfilled" ? agent.value : null,
       history: history.status === "fulfilled" ? history.value : null,
       pipeline: pipeline.status === "fulfilled" ? pipeline.value : null,
+      agentsStatus: agentsStatus.status === "fulfilled" ? agentsStatus.value : null,
       goal: goal.status === "fulfilled" ? goal.value : null,
       account: account.status === "fulfilled" ? account.value : null,
       openSellSymbols,
@@ -232,7 +236,7 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
         {(data.history?.days.length ?? 0) > 10 && (
           <CompactHeatmap days={data.history!.days} />
         )}
-        <AgentPills pipeline={data.pipeline} pendingCount={pendingTrades.length} />
+        <AgentRunsPanel status={data.agentsStatus} />
       </div>
 
       {/* ── Zone labels ── */}
@@ -1195,76 +1199,73 @@ function CompactHeatmap({ days }: { days: PortfolioDay[] }) {
   );
 }
 
-const REGIME_COLOR: Record<string, string> = {
-  BULL: "#22c55e", NEUTRAL: "#818cf8", CAUTION: "#f59e0b", BEAR: "#ef4444",
+// ── Agent 运行记录：调度时间 + 健康检查 + 手动/自动标记 ────────────────────────
+const AGENT_EMOJI: Record<string, string> = { maya: "🧠", scout: "🔍", rex: "⚡" };
+const AGENT_COLOR: Record<string, string> = { maya: "#6366f1", scout: "#06b6d4", rex: "#f59e0b" };
+const RUN_STATUS_COLOR: Record<string, string> = {
+  ok: "#22c55e", waiting: "#64748b", missed: "#ef4444", idle: "#475569", never: "#ef4444",
 };
 
-function timeAgo(ts: string | null | undefined): string {
-  if (!ts) return "";
-  // Append Z if no timezone info to force UTC parsing
-  const normalized = /[Z+]/.test(ts) ? ts : ts + "Z";
-  const mins = Math.round((Date.now() - new Date(normalized).getTime()) / 60000);
-  if (mins < 1) return "刚刚";
-  if (mins < 60) return `${mins}m 前`;
-  return `${Math.floor(mins / 60)}h 前`;
-}
-
-function AgentPills({ pipeline, pendingCount }: { pipeline: PipelineStatus | null; pendingCount: number }) {
-  const agents = [
-    {
-      name: "Maya", emoji: "🧠", color: "#6366f1",
-      status: pipeline?.market_context.status ?? "not_run",
-      metric: pipeline?.market_context.regime
-        ? `${pipeline.market_context.regime} · ${pipeline.market_context.aggression}`
-        : null,
-      metricColor: REGIME_COLOR[pipeline?.market_context.regime ?? ""] ?? "var(--text)",
-      ts: pipeline?.market_context.generated_at ?? null,
-    },
-    {
-      name: "Scout", emoji: "🔍", color: "#06b6d4",
-      status: pipeline?.scan.status ?? "not_run",
-      metric: pipeline?.scan.candidates != null ? `${pipeline.scan.candidates} 候选` : null,
-      metricColor: "var(--text)",
-      ts: pipeline?.scan.scanned_at ?? null,
-    },
-    {
-      name: "Rex", emoji: "⚡", color: "#f59e0b",
-      status: pipeline?.agent.status ?? "not_run",
-      metric: pendingCount > 0 ? `${pendingCount} 待审批` : pipeline?.agent.signals_found != null ? `${pipeline.agent.signals_found} 信号` : null,
-      metricColor: pendingCount > 0 ? "#f59e0b" : "var(--text)",
-      ts: pipeline?.agent.last_run_at ?? null,
-    },
-    {
-      name: "Vera", emoji: "📈", color: "#22c55e",
-      status: pipeline?.review.status ?? "not_run",
-      metric: pipeline?.review.one_line
-        ? pipeline.review.one_line.slice(0, 28) + (pipeline.review.one_line.length > 28 ? "…" : "")
-        : null,
-      metricColor: "var(--text)",
-      ts: pipeline?.review.generated_at ?? null,
-    },
-  ];
-
-  const dotColor: Record<string, string> = {
-    done: "#22c55e", running: "#3b82f6", error: "#ef4444", not_run: "#475569",
-  };
-
+function AgentRunsPanel({ status }: { status: AgentsStatus | null }) {
+  if (!status) return null;
   return (
-    <div className="pcc-agent-pills">
-      {agents.map((a, i) => (
-        <div key={a.name} className="pcc-agent-pill-wrap">
-          <div className={`pcc-agent-pill status-${a.status}`}>
-            <span className="pcc-pill-dot" style={{ background: dotColor[a.status] ?? "#475569" }} />
-            <span className="pcc-pill-emoji">{a.emoji}</span>
-            <span className="pcc-pill-name" style={{ color: a.color }}>{a.name}</span>
-            {a.metric && (
-              <span className="pcc-pill-metric" style={{ color: a.metricColor }}>{a.metric}</span>
-            )}
-            {a.ts && <span className="pcc-pill-time">{timeAgo(a.ts)}</span>}
+    <div className="agent-runs-panel">
+      <div className="agent-runs-head">
+        <span className="agent-runs-title">📋 Agent 运行记录</span>
+        <span className="agent-runs-sub">
+          {status.is_trading_day ? "交易日" : "非交易日"} · 美东时间 单一调度
+        </span>
+      </div>
+      <div className="agent-runs-grid">
+        {status.agents.map((a: AgentRunStatus) => (
+          <div key={a.id} className={`agent-run-card run-${a.status}`}>
+            <div className="agent-run-top">
+              <span className="agent-run-emoji">{AGENT_EMOJI[a.id] ?? "🤖"}</span>
+              <span className="agent-run-name" style={{ color: AGENT_COLOR[a.id] ?? "var(--text)" }}>
+                {a.name}
+              </span>
+              {a.trigger && (
+                <span className={`agent-run-trigger trigger-${a.trigger}`}>
+                  {a.trigger === "manual" ? "👤 手动" : "🤖 自动"}
+                </span>
+              )}
+            </div>
+            <div className="agent-run-role">{a.role}</div>
+            <div className="agent-run-meta">
+              <span className="agent-run-sched">🕐 {a.scheduled_times_et.join(" / ")} ET</span>
+              {a.cadence_note && <span className="agent-run-cadence">{a.cadence_note}</span>}
+            </div>
+            <div className="agent-run-status-row">
+              <span className="agent-run-health" style={{ color: RUN_STATUS_COLOR[a.status] ?? "var(--text)" }}>
+                {a.status_label}
+              </span>
+              <span className="agent-run-age">{a.age ?? "—"}</span>
+            </div>
+            <div className="agent-run-history">
+              <div className="agent-run-history-title">运行历史</div>
+              {a.history.length === 0 ? (
+                <div className="agent-run-history-empty">暂无记录</div>
+              ) : (
+                a.history.map((h: AgentRunHistoryEntry, i: number) => (
+                  <div key={i} className="agent-run-history-row" title={h.error ?? undefined}>
+                    <span className="agent-run-history-age">{h.age ?? "—"}</span>
+                    {h.trigger && (
+                      <span className={`agent-run-tag tag-${h.trigger}`}>
+                        {h.trigger === "manual" ? "👤 手动" : "🤖 自动"}
+                      </span>
+                    )}
+                    {h.result && (
+                      <span className={`agent-run-tag result-${h.result}`}>
+                        {h.result === "success" ? "✓ 成功" : "✗ 失败"}
+                      </span>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-          {i < agents.length - 1 && <span className="pcc-pill-arrow">→</span>}
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }

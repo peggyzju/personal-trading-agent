@@ -561,7 +561,13 @@ def _run_sp500_scan(cascade_agent: bool = False):
         if now - _last_cascade_at > 120:   # at least 2 min between cascades
             _last_cascade_at = now
             print("[scan] Cascading to trade agent…")
-            _run_agent_internal()
+            from api.agent_runs import record_agent_run
+            try:
+                _run_agent_internal()
+                record_agent_run("rex", trigger="auto", result="success")
+            except Exception as _e:
+                record_agent_run("rex", trigger="auto", result="fail", error=str(_e))
+                raise
         else:
             print(f"[scan] cascade skipped (last cascade {now - _last_cascade_at:.0f}s ago)")
 
@@ -655,7 +661,14 @@ def trigger_scan(background_tasks: BackgroundTasks):
     global _scan_running
     if _scan_running:
         return {"status": "already_running"}
-    background_tasks.add_task(_run_sp500_scan, True)   # cascade_agent=True
+    def _manual_scan():
+        from api.agent_runs import record_agent_run
+        try:
+            _run_sp500_scan(True)   # cascade_agent=True
+            record_agent_run("scout", trigger="manual", result="success")
+        except Exception as e:
+            record_agent_run("scout", trigger="manual", result="fail", error=str(e))
+    background_tasks.add_task(_manual_scan)
     return {"status": "started", "cascade": "agent will auto-run after scan"}
 
 
@@ -694,11 +707,14 @@ def trigger_scout(background_tasks: BackgroundTasks):
     def _run_scout():
         global _scout_running
         _scout_running = True
+        from api.agent_runs import record_agent_run
         try:
             from src.monitor.scout import run as scout_run
             tickers = scout_run()
+            record_agent_run("scout", trigger="manual", result="success")
             print(f"[scout] Manual trigger done: {len(tickers)} tickers")
         except Exception as e:
+            record_agent_run("scout", trigger="manual", result="fail", error=str(e))
             print(f"[scout] Manual trigger error: {e}")
         finally:
             _scout_running = False
@@ -776,6 +792,13 @@ def get_pipeline_status():
             "one_line": review_cache_val.get("one_line_summary"),
         },
     }
+
+
+@app.get("/api/agents/status")
+def get_agents_status_endpoint():
+    """Maya / Scout / Rex 运行记录 + 调度时间 + 健康检查（含手动/自动标记）。"""
+    from api.agent_runs import get_agents_status
+    return get_agents_status()
 
 
 # ── Holdings Monitor ──────────────────────────────────────────────────────────
@@ -1143,7 +1166,14 @@ def _run_agent_internal():
 @app.post("/api/agent/run")
 def run_agent(background_tasks: BackgroundTasks):
     """Manual override trigger — normally the pipeline runs automatically."""
-    background_tasks.add_task(_run_agent_internal)
+    def _manual_rex():
+        from api.agent_runs import record_agent_run
+        try:
+            _run_agent_internal()
+            record_agent_run("rex", trigger="manual", result="success")
+        except Exception as e:
+            record_agent_run("rex", trigger="manual", result="fail", error=str(e))
+    background_tasks.add_task(_manual_rex)
     return {"status": "started"}
 
 
