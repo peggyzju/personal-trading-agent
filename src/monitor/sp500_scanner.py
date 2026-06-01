@@ -2,8 +2,28 @@ from __future__ import annotations
 import pandas as pd
 import yfinance as yf
 import numpy as np
+import requests
 from collections import Counter
 from src.analysis.technical_indicators import compute_all
+
+# ── Shared HTTP session — reuse connections to prevent FD leaks ───────────────
+# curl_cffi (yfinance's default backend) leaks FDs when creating a new Ticker
+# per symbol. Passing a shared requests.Session forces connection pooling
+# (max 10 keep-alive connections) and prevents "Too many open files" crashes.
+_YF_SESSION: requests.Session | None = None
+
+def _get_yf_session() -> requests.Session:
+    global _YF_SESSION
+    if _YF_SESSION is None:
+        _YF_SESSION = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=10,
+            pool_maxsize=10,
+            max_retries=1,
+        )
+        _YF_SESSION.mount("https://", adapter)
+        _YF_SESSION.mount("http://", adapter)
+    return _YF_SESSION
 
 
 # ── Sector Map (for sector-resonance boost) ───────────────────────────────────
@@ -416,7 +436,7 @@ def enrich_with_fundamentals(candidates: list[dict]) -> list[dict]:
 
     def fetch_one(c: dict) -> dict:
         try:
-            info = yf.Ticker(c["symbol"]).info
+            info = yf.Ticker(c["symbol"], session=_get_yf_session()).info
             pe   = info.get("trailingPE") or info.get("forwardPE")
             mc   = info.get("marketCap")
             beta = info.get("beta")
@@ -439,7 +459,7 @@ def enrich_with_fundamentals(candidates: list[dict]) -> list[dict]:
 def _fetch_raw(symbol: str) -> dict | None:
     """Download technicals for a single symbol. Module-level for testability."""
     try:
-        df = yf.Ticker(symbol).history(period="90d", auto_adjust=True)
+        df = yf.Ticker(symbol, session=_get_yf_session()).history(period="90d", auto_adjust=True)
         if df.empty or len(df) < 5:
             return None
         tech = compute_technicals(df)
