@@ -8,6 +8,11 @@ from __future__ import annotations
 import sys, os, json, traceback, time
 from pathlib import Path
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+def _now_et_str() -> str:
+    """测试报告时间统一用美东时间（机器本地是 CST/UTC+8，避免误导）。"""
+    return datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d %H:%M %Z")
 
 SMOKE_ONLY = "--smoke" in sys.argv
 
@@ -1042,7 +1047,7 @@ def print_report():
     warned = sum(1 for r in results if r[0] == WARN)
 
     print("\n" + "═" * 55)
-    print(f"  测试报告  {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"  测试报告  {_now_et_str()}")
     print("═" * 55)
     print(f"  {PASS} 通过: {passed}   {FAIL} 失败: {failed}   {WARN} 警告: {warned}  /  共 {total} 项")
 
@@ -1063,7 +1068,7 @@ def print_report():
 if __name__ == "__main__":
     mode = "smoke" if SMOKE_ONLY else "full"
     print("=" * 55)
-    print(f"  端到端测试 [{mode}] — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"  端到端测试 [{mode}] — {_now_et_str()}")
     print("=" * 55)
 
     os.chdir(Path(__file__).parent.parent)
