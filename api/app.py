@@ -1948,19 +1948,8 @@ def save_strategy_overrides(req: OverridesRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not save overrides: {e}")
 
-    # Auto-create a new strategy version whenever overrides change
-    try:
-        from src.analysis.strategy_versions import create_version as _create_ver
-        _create_ver(
-            stop_loss_pct=updated.get("stop_loss_pct", 3.0),
-            max_position_pct=updated.get("max_position_pct", 0.10),
-            entry_rsi_max=updated.get("entry_rsi_max"),
-            entry_vma20_max=updated.get("entry_vma20_max"),
-            notes=req.reason or "",
-        )
-    except Exception as _ve:
-        print(f"[overrides] strategy version creation failed (non-fatal): {_ve}")
-
+    # 注：不再自动建策略版本。版本史唯一事实源是 data/versions.json，
+    # 由选股/买卖逻辑迭代时手工维护（纯参数采纳不算新版本）。
     return updated
 
 
@@ -2014,8 +2003,17 @@ def get_strategy_versions():
 
 
 @app.get("/api/strategy/versions/compare")
-def compare_strategy_versions(v1: str = "v1.0", v2: str = "v2.0"):
-    from src.analysis.strategy_versions import compare_versions
+def compare_strategy_versions(v1: Optional[str] = None, v2: Optional[str] = None):
+    """默认对比最近两个版本（v_prev vs v_current）；也可显式指定 v1/v2。"""
+    from src.analysis.strategy_versions import compare_versions, get_all_versions
+    if v1 is None or v2 is None:
+        vers = get_all_versions()
+        if len(vers) >= 2:
+            v1, v2 = vers[-2]["version"], vers[-1]["version"]
+        elif vers:
+            v1 = v2 = vers[-1]["version"]
+        else:
+            return {"v1": {}, "v2": {}, "verdict": "暂无版本数据"}
     return compare_versions(v1, v2)
 
 

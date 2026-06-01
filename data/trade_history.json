@@ -13,7 +13,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "NEUTRAL",
-    "strategy_version": "v1.0",
+    "strategy_version": "v1",
     "alpaca_order_id": "c655af6b-8fdd-47ed-b3be-f9c54d6ffbc4",
     "recorded_at": "2026-05-20T03:28:25.338870+00:00"
   },
@@ -31,7 +31,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "NEUTRAL",
-    "strategy_version": "v1.0",
+    "strategy_version": "v1",
     "alpaca_order_id": "e5ec9c5b-686d-4aa9-8efd-ca4b13619fd0",
     "recorded_at": "2026-05-20T03:28:25.340039+00:00"
   },
@@ -49,7 +49,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "NEUTRAL",
-    "strategy_version": "v1.0",
+    "strategy_version": "v1",
     "alpaca_order_id": "1c22259e-7c43-4d5a-a277-5867d4ac72ae",
     "recorded_at": "2026-05-20T03:28:25.341273+00:00"
   },
@@ -67,7 +67,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "NEUTRAL",
-    "strategy_version": "v1.0",
+    "strategy_version": "v1",
     "alpaca_order_id": "d9e1e52e-fbcb-4222-8887-46940d4a3bad",
     "recorded_at": "2026-05-20T03:28:25.341985+00:00"
   },
@@ -85,7 +85,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "NEUTRAL",
-    "strategy_version": "v1.0",
+    "strategy_version": "v1",
     "alpaca_order_id": "4a62a31a-90af-4ef4-8f5e-44452d043f89",
     "recorded_at": "2026-05-20T03:28:25.342985+00:00"
   },
@@ -103,7 +103,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "NEUTRAL",
-    "strategy_version": "v1.0",
+    "strategy_version": "v1",
     "alpaca_order_id": "27e588d2-632d-4139-8bec-c2d4f76aee45",
     "recorded_at": "2026-05-20T03:28:25.343491+00:00"
   },
@@ -121,7 +121,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "NEUTRAL",
-    "strategy_version": "v1.0",
+    "strategy_version": "v1",
     "alpaca_order_id": "df9cef5d-99cf-4dfa-a8b7-4281307a0ab5",
     "recorded_at": "2026-05-20T03:28:25.343986+00:00"
   },
@@ -139,7 +139,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "NEUTRAL",
-    "strategy_version": "v1.0",
+    "strategy_version": "v1",
     "alpaca_order_id": "169860ab-ee63-440c-a87a-cb5102234a67",
     "recorded_at": "2026-05-20T03:28:25.345548+00:00"
   },
@@ -157,7 +157,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "NEUTRAL",
-    "strategy_version": "v1.0",
+    "strategy_version": "v1",
     "alpaca_order_id": "35437991-f781-48bf-8083-e58cde20cd8e",
     "recorded_at": "2026-05-20T03:28:25.346068+00:00"
   },
@@ -175,7 +175,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "NEUTRAL",
-    "strategy_version": "v1.0",
+    "strategy_version": "v1",
     "alpaca_order_id": "7b19f81c-f33b-464d-95ec-f72622155f10",
     "recorded_at": "2026-05-20T03:28:25.347684+00:00"
   },
@@ -193,7 +193,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "NEUTRAL",
-    "strategy_version": "v1.0",
+    "strategy_version": "v1",
     "alpaca_order_id": "137a9bc1-1994-4988-9d6b-aac77a252462",
     "recorded_at": "2026-05-20T03:28:25.348239+00:00"
   },
@@ -211,7 +211,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "NEUTRAL",
-    "strategy_version": "v1.0",
+    "strategy_version": "v1",
     "alpaca_order_id": "f836d6cd-169b-4979-b3ea-61d676e9b560",
     "recorded_at": "2026-05-20T03:28:25.349224+00:00"
   },
@@ -229,7 +229,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "NEUTRAL",
-    "strategy_version": "v1.0",
+    "strategy_version": "v1",
     "alpaca_order_id": "44663724-7044-49b2-9b9f-067deaaf5ea5",
     "recorded_at": "2026-05-20T03:28:25.349825+00:00"
   },
@@ -247,7 +247,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "NEUTRAL",
-    "strategy_version": "v1.0",
+    "strategy_version": "v1",
     "alpaca_order_id": "d5c6a641-6a10-41dc-bf34-777cf0d2b23a",
     "recorded_at": "2026-05-20T03:28:25.350599+00:00"
   },
@@ -265,7 +265,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "NEUTRAL",
-    "strategy_version": "v1.0",
+    "strategy_version": "v1",
     "alpaca_order_id": "602d27bf-9c56-4eb4-aa75-88be01092dc3",
     "recorded_at": "2026-05-20T03:28:25.351323+00:00"
   },
@@ -283,7 +283,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "BULL",
-    "strategy_version": "v1.0",
+    "strategy_version": "v1",
     "alpaca_order_id": "a0748c1f-d21e-4bda-9785-329781029b1d",
     "recorded_at": "2026-05-21T00:31:04.063155+00:00"
   },
@@ -301,7 +301,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "BULL",
-    "strategy_version": "v1.0",
+    "strategy_version": "v1",
     "alpaca_order_id": "51c008e7-b823-4caa-8d3c-7e453b3afb73",
     "recorded_at": "2026-05-21T00:31:04.064268+00:00"
   },
@@ -319,7 +319,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "BULL",
-    "strategy_version": "v1.0",
+    "strategy_version": "v1",
     "alpaca_order_id": "1a067fbc-7963-4dfe-944f-539cff169d28",
     "recorded_at": "2026-05-21T00:31:04.066569+00:00"
   },
@@ -337,7 +337,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "BULL",
-    "strategy_version": "v1.0",
+    "strategy_version": "v1",
     "alpaca_order_id": "f6ceb78e-0656-413e-81a9-9c097277cf72",
     "recorded_at": "2026-05-21T00:31:04.067250+00:00"
   },
@@ -355,7 +355,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "BULL",
-    "strategy_version": "v2.0",
+    "strategy_version": "v2",
     "alpaca_order_id": "310ac3cc-6f35-45ad-8186-f1389aa00e3e",
     "recorded_at": "2026-05-21T00:31:04.067795+00:00"
   },
@@ -373,7 +373,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "BULL",
-    "strategy_version": "v2.0",
+    "strategy_version": "v2",
     "alpaca_order_id": "ec99f25e-4846-442d-9d99-2aeec144d72e",
     "recorded_at": "2026-05-21T00:31:04.068250+00:00"
   },
@@ -391,7 +391,7 @@
     "rsi_at_entry": null,
     "vma20_at_entry": null,
     "market_regime": "BULL",
-    "strategy_version": "v2.0",
+    "strategy_version": "v2",
     "alpaca_order_id": "6da916d8-71ae-4f15-b0af-6b242c8e02e5",
     "recorded_at": "2026-05-21T00:31:04.068736+00:00"
   }
