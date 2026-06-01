@@ -133,13 +133,6 @@ def sync_order_fills():
 
 
 
-def run_daily_review():
-    """Generate end-of-day strategy review. 4:15 PM ET = UTC 20:15."""
-    from api.app import _run_strategy_review
-    print("[scheduler] Generating daily strategy review…")
-    _run_strategy_review()
-
-
 if __name__ == "__main__":
     print("📎 Personal Trading Agent")
     print("   API: http://localhost:8000  |  Docs: http://localhost:8000/docs\n")
@@ -161,7 +154,8 @@ if __name__ == "__main__":
     # 14:30 PM  扫描第4次 → cascade → Rex (buy signals)
     #  every 30 min  Holdings refresh → cascade → Rex (sell signals only)
     #  every 5  min  Fill sync (order status)
-    #  4:15 PM  Daily strategy review (Vera)
+    #  Vera 复盘：已移除自动定时（数据太少噪音大），改为手动 trigger
+    #            手动入口：POST /api/strategy/review（前端「复盘」Tab 按钮）
     # ──────────────────────────────────────────────────────────────────────────
 
     # Step 1: Market context
@@ -203,15 +197,13 @@ if __name__ == "__main__":
                       id="fill_sync", name="Order fill sync (every 5 min)",
                       misfire_grace_time=MGT)
 
-    # Daily strategy review: 4:15 PM ET Mon–Fri (after market close)
-    scheduler.add_job(run_daily_review, "cron", day_of_week="mon-fri", hour=16, minute=15,
-                      id="daily_review", name="Daily strategy review (4:15 PM ET)",
-                      misfire_grace_time=MGT)
+    # Vera 复盘已移除自动定时 — 改为手动 trigger（POST /api/strategy/review）
 
     scheduler.start()
     print("[scheduler] Started (single source of truth — APScheduler, US/Eastern)")
-    print("  8:45 AM Maya/Scout | 9:31/11:00/12:30/14:30 扫描→Rex | every 30min holdings→Rex | 4:15PM Vera")
-    print("  Rex买入: 仅扫描后触发 (4次/天)  |  Rex卖出: 持仓监控后触发 (每30分钟)\n")
+    print("  8:45 AM Maya/Scout | 9:31/11:00/12:30/14:30 扫描→Rex | every 30min holdings→Rex")
+    print("  Rex买入: 仅扫描后触发 (4次/天)  |  Rex卖出: 持仓监控后触发 (每30分钟)")
+    print("  Vera 复盘: 已移除自动定时，改手动 trigger (POST /api/strategy/review)\n")
 
     from api.app import app
     uvicorn.run(app, host="0.0.0.0", port=8000)
