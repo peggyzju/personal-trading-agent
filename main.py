@@ -146,56 +146,72 @@ if __name__ == "__main__":
 
     # All cron times are US/Eastern — explicit timezone avoids DST/UTC confusion
     ET = "America/New_York"
+    # misfire_grace_time=60: 重启后若错过触发时间 ≤60s 则补跑，超过则跳过（避免任务雪崩）
+    MGT = 60
+
     scheduler = BackgroundScheduler(timezone=ET)
 
     # ── Pipeline: 市场分析 → 选股 → 执行 ─────────────────────────────────────
     #
     #  8:00 AM  Market context (regime + goal progress + sector bias)
-    #  9:00 AM  Scout pre-market dynamic discovery
-    #  9:31 AM  Morning scan  → cascade → Rex (buy signals)
-    # 12:30 PM  Midday scan   → cascade → Rex (buy signals)
+    #  8:45 AM  Maya/Scout pre-market dynamic discovery
+    #  9:31 AM  扫描第1次 → cascade → Rex (buy signals)
+    # 11:00 AM  扫描第2次 → cascade → Rex (buy signals)
+    # 12:30 PM  扫描第3次 → cascade → Rex (buy signals)
+    # 14:30 PM  扫描第4次 → cascade → Rex (buy signals)
     #  every 30 min  Holdings refresh → cascade → Rex (sell signals only)
     #  every 5  min  Fill sync (order status)
     #  4:15 PM  Daily strategy review (Vera)
-    #
-    #  Rex买入: 仅在扫描完成后触发（2次/天）
-    #  Rex卖出: 每30分钟持仓监控完成后触发
     # ──────────────────────────────────────────────────────────────────────────
 
     # Step 1: Market context
     scheduler.add_job(run_market_context, "cron", day_of_week="mon-fri", hour=8, minute=0,
-                      id="market_context", name="Market context (8:00 AM ET)")
+                      id="market_context", name="Market context (8:00 AM ET)",
+                      misfire_grace_time=MGT)
 
-    # Step 0 (pre-market): Scout dynamic ticker discovery
-    scheduler.add_job(run_scout, "cron", day_of_week="mon-fri", hour=9, minute=0,
-                      id="scout", name="Scout pre-market discovery (9:00 AM ET)")
+    # Step 0 (pre-market): Maya/Scout dynamic ticker discovery
+    scheduler.add_job(run_scout, "cron", day_of_week="mon-fri", hour=8, minute=45,
+                      id="scout", name="Maya/Scout pre-market discovery (8:45 AM ET)",
+                      misfire_grace_time=MGT)
 
-    # Step 2: S&P 500 scan — cascade_agent=True → auto-triggers Rex on completion
+    # Step 2: S&P 500 scan × 4 — cascade_agent=True → auto-triggers Rex on completion
     scheduler.add_job(run_sp500_scan, "cron", day_of_week="mon-fri", hour=9, minute=31,
-                      id="scan_morning", name="Morning scan + Rex cascade (9:31 AM ET)")
+                      id="scan_0931", name="扫描第1次 + Rex cascade (9:31 AM ET)",
+                      misfire_grace_time=MGT)
+    scheduler.add_job(run_sp500_scan, "cron", day_of_week="mon-fri", hour=11, minute=0,
+                      id="scan_1100", name="扫描第2次 + Rex cascade (11:00 AM ET)",
+                      misfire_grace_time=MGT)
     scheduler.add_job(run_sp500_scan, "cron", day_of_week="mon-fri", hour=12, minute=30,
-                      id="scan_midday", name="Midday scan + Rex cascade (12:30 PM ET)")
+                      id="scan_1230", name="扫描第3次 + Rex cascade (12:30 PM ET)",
+                      misfire_grace_time=MGT)
+    scheduler.add_job(run_sp500_scan, "cron", day_of_week="mon-fri", hour=14, minute=30,
+                      id="scan_1430", name="扫描第4次 + Rex cascade (2:30 PM ET)",
+                      misfire_grace_time=MGT)
 
     # Step 3: Holdings refresh every 30 min → cascades to Rex for sell execution
     scheduler.add_job(run_holdings_refresh, "cron", day_of_week="mon-fri", hour="9-15", minute="*/30",
-                      id="holdings_refresh", name="Holdings refresh + Rex sell cascade (every 30 min)")
+                      id="holdings_refresh", name="Holdings refresh + Rex sell cascade (every 30 min)",
+                      misfire_grace_time=MGT)
 
     # Watchlist analysis cycle: every 30 min (independent of Rex)
     scheduler.add_job(run_analysis_cycle, "cron", day_of_week="mon-fri", hour="9-15", minute="*/30",
-                      id="analysis_cycle", name="Watchlist analysis cycle (every 30 min)")
+                      id="analysis_cycle", name="Watchlist analysis cycle (every 30 min)",
+                      misfire_grace_time=MGT)
 
     # Order fill sync: every 5 min during market hours
     scheduler.add_job(sync_order_fills, "cron", day_of_week="mon-fri", hour="9-16", minute="*/5",
-                      id="fill_sync", name="Order fill sync (every 5 min)")
+                      id="fill_sync", name="Order fill sync (every 5 min)",
+                      misfire_grace_time=MGT)
 
     # Daily strategy review: 4:15 PM ET Mon–Fri (after market close)
     scheduler.add_job(run_daily_review, "cron", day_of_week="mon-fri", hour=16, minute=15,
-                      id="daily_review", name="Daily strategy review (4:15 PM ET)")
+                      id="daily_review", name="Daily strategy review (4:15 PM ET)",
+                      misfire_grace_time=MGT)
 
     scheduler.start()
     print("[scheduler] Started (single source of truth — APScheduler, US/Eastern)")
-    print("  9:00 AM  Scout  |  9:31 AM scan→Rex  |  every 30 min holdings→Rex  |  12:30 PM scan→Rex  |  4:15 PM review")
-    print("  Rex买入: 仅扫描后触发 (2次/天)  |  Rex卖出: 持仓监控后触发 (每30分钟)\n")
+    print("  8:45 AM Maya/Scout | 9:31/11:00/12:30/14:30 扫描→Rex | every 30min holdings→Rex | 4:15PM Vera")
+    print("  Rex买入: 仅扫描后触发 (4次/天)  |  Rex卖出: 持仓监控后触发 (每30分钟)\n")
 
     from api.app import app
     uvicorn.run(app, host="0.0.0.0", port=8000)
