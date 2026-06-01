@@ -1138,33 +1138,20 @@ def _run_agent_internal():
     from src.trader.trade_agent import run_agent as _run_agent
     from src.analysis.market_context import load_market_context
 
-    # Auto-scan if missing or stale — never block Rex; kick off scan in background instead
+    # 扫描数据完全由定时任务负责（Scout 9:31/11:00/12:30/14:30 ET + 扫描→cascade）。
+    # Rex 只消费现有缓存，不再自起后台扫描 —— 避免后台扫描占用 _scan_running 顶掉
+    # 定时扫描（"重复触发竞争"根因）。两次定时扫描之间用最近一次的候选（同日，入场
+    # 门本就要求信号当日 + 价格漂移保护），下次定时扫描自动刷新。
     scan_data  = _scan_cache.get("sp500", {})
     scanned_at = scan_data.get("scanned_at")
-    scan_status = scan_data.get("status", "not_run")
-    needs_scan = True
-    age_hours  = 0
     if scanned_at:
         try:
-            age_hours  = (datetime.utcnow() - datetime.fromisoformat(scanned_at)).total_seconds() / 3600
-            needs_scan = age_hours > SCAN_MAX_AGE_HOURS
+            age_hours = (datetime.utcnow() - datetime.fromisoformat(scanned_at)).total_seconds() / 3600
+            print(f"[agent] Using cached scan (age={age_hours:.1f}h)")
         except Exception:
-            needs_scan = True
-
-    # Only scan during market hours (8:00–16:30 ET) — post-market data is garbage
-    from datetime import timezone as _tz, timedelta as _td
-    _et_now = datetime.now(_tz(_td(hours=-4)))
-    _in_scan_window = _et_now.weekday() < 5 and (8, 0) <= (_et_now.hour, _et_now.minute) <= (16, 30)
-
-    if scan_status == "running" or _scan_running:
-        print("[agent] Scan already in progress — running Rex with last cached results")
-    elif needs_scan and _in_scan_window:
-        print(f"[agent] Scan {'missing' if not scanned_at else f'stale ({age_hours:.1f}h)'} — launching background scan & continuing with cached data")
-        threading.Thread(target=_run_sp500_scan, kwargs={"cascade_agent": False}, daemon=True, name="bg-scan").start()
-    elif needs_scan:
-        print(f"[agent] Scan stale ({age_hours:.1f}h) but outside market hours — using cached data, will rescan at market open")
+            print("[agent] Using cached scan (age unknown)")
     else:
-        print(f"[agent] Using cached scan (age={age_hours:.1f}h)")
+        print("[agent] No scan cache yet — Rex 仅做持仓/卖出，待下次定时扫描")
 
     portfolio_value = 100_000.0
     try:
