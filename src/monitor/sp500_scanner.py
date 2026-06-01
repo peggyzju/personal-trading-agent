@@ -534,6 +534,7 @@ def quick_screen(
     top_n: int = 25,
     progress_cb=None,
     force_symbols: set[str] | None = None,
+    stats: dict | None = None,
 ) -> list[dict]:
     """
     Download 60d OHLCV per-ticker in parallel, compute technicals, return top_n.
@@ -557,6 +558,9 @@ def quick_screen(
     bars_by_sym = fetch_bars_batch(tickers, progress_cb=progress_cb)
     downloaded_ok = len(bars_by_sym)
     print(f"[scanner] Alpaca bars: {downloaded_ok}/{total} symbols got data")
+    if stats is not None:   # 供调用方判断「故障空」(取数大面积失败 vs 正常没票过筛)
+        stats["downloaded_ok"] = downloaded_ok
+        stats["total"] = total
 
     for sym in tickers:
         result = _fetch_raw(sym, bars_by_sym)

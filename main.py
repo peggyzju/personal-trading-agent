@@ -106,8 +106,14 @@ def run_sp500_scan():
     from api.agent_runs import record_agent_run
     print("[scheduler] Running daily S&P 500 scan (cascade→agent)…")
     try:
-        _run_sp500_scan(cascade_agent=True)
-        record_agent_run("scout", trigger="auto", result="success")
+        status = _run_sp500_scan(cascade_agent=True)
+        if status == "skipped":
+            print("[scheduler] scan 被跳过（已在运行）— 不记录运行历史，避免假成功")
+        elif status == "done":
+            record_agent_run("scout", trigger="auto", result="success")
+        else:   # data_fail（取数大面积失败）/ error
+            record_agent_run("scout", trigger="auto", result="fail", error=f"scan status={status}")
+            print(f"[scheduler] S&P 500 scan {status}")
     except Exception as e:
         record_agent_run("scout", trigger="auto", result="fail", error=str(e))
         print(f"[scheduler] S&P 500 scan error: {e}")
@@ -136,8 +142,14 @@ def run_holdings_refresh():
         from api.agent_runs import record_agent_run
         try:
             from api.app import _run_agent_internal
-            _run_agent_internal()
-            record_agent_run("rex", trigger="auto", result="success")
+            summary = _run_agent_internal()
+            st = (summary or {}).get("status")
+            if st == "already_running":
+                print("[scheduler] Rex cascade skipped (already running) — 不记录")
+            elif st == "error":
+                record_agent_run("rex", trigger="auto", result="fail", error=(summary or {}).get("error"))
+            else:
+                record_agent_run("rex", trigger="auto", result="success")
         except Exception as e:
             record_agent_run("rex", trigger="auto", result="fail", error=str(e))
             print(f"[scheduler] Rex cascade error: {e}")

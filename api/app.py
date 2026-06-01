@@ -367,7 +367,7 @@ def _run_sp500_scan(cascade_agent: bool = False):
     # Guard and flag-set BEFORE slow imports to minimize the race window
     if _scan_running:
         print("[scan] Already running — skipping duplicate trigger")
-        return
+        return "skipped"   # 让埋点区分「被跳过」与「真正完成」，避免假成功
     _scan_running = True
     _scan_cache["sp500"] = {"status": "running", "candidates": [], "scanned_at": None, "progress": "starting"}
 
@@ -407,6 +407,7 @@ def _run_sp500_scan(cascade_agent: bool = False):
         if isinstance(_scan_cache.get("sp500"), dict):
             _scan_cache["sp500"]["progress"] = step
 
+    _scan_status = "error"   # 结果状态：done / data_fail（取数大面积失败）/ error
     try:
         _set_progress("loading_market_context")
         ctx = load_market_context()
@@ -433,7 +434,9 @@ def _run_sp500_scan(cascade_agent: bool = False):
             _set_progress(f"downloading ({done}/{total} chunks)")
 
         watchlist_set = set(load_watchlist())
-        top_tech = quick_screen(tickers, top_n=25, progress_cb=_progress_cb, force_symbols=watchlist_set)
+        _scan_stats: dict = {}
+        top_tech = quick_screen(tickers, top_n=25, progress_cb=_progress_cb,
+                                force_symbols=watchlist_set, stats=_scan_stats)
 
         for c in top_tech:
             sym = c["symbol"]
@@ -516,15 +519,23 @@ def _run_sp500_scan(cascade_agent: bool = False):
             ))
 
         ai_scored = sum(1 for c in top_ai if c.get("ai_score") is not None)
+        _downloaded_ok = _scan_stats.get("downloaded_ok", len(tickers))
+        # 故障空：取数大面积失败（如数据源故障）→ 不算成功。
+        # 与「正常空」区分：正常空是都取到数据、只是没票过筛。
+        _data_fail = len(tickers) > 0 and (_downloaded_ok / len(tickers)) < 0.5
         _scan_cache["sp500"] = {
             "status":        "done",
             "progress":      "done",
             "candidates":    top_ai,
             "scanned_at":    datetime.utcnow().isoformat(),
             "total_screened": len(tickers),
+            "downloaded_ok": _downloaded_ok,
             "tech_passed":   len(top_tech),
             "ai_scored":     ai_scored,
         }
+        _scan_status = "data_fail" if _data_fail else "done"
+        if _data_fail:
+            print(f"[scan] 故障空：仅 {_downloaded_ok}/{len(tickers)} 取到数据 → 记为 data_fail")
 
         # ── Auto-record daily strategy snapshot ───────────────────────────────
         try:
@@ -563,13 +574,21 @@ def _run_sp500_scan(cascade_agent: bool = False):
             print("[scan] Cascading to trade agent…")
             from api.agent_runs import record_agent_run
             try:
-                _run_agent_internal()
-                record_agent_run("rex", trigger="auto", result="success")
+                _summary = _run_agent_internal()
+                _st = (_summary or {}).get("status")
+                if _st == "already_running":
+                    print("[scan] cascade Rex skipped (agent already running) — 不记录")
+                elif _st == "error":
+                    record_agent_run("rex", trigger="auto", result="fail", error=(_summary or {}).get("error"))
+                else:
+                    record_agent_run("rex", trigger="auto", result="success")
             except Exception as _e:
                 record_agent_run("rex", trigger="auto", result="fail", error=str(_e))
                 raise
         else:
             print(f"[scan] cascade skipped (last cascade {now - _last_cascade_at:.0f}s ago)")
+
+    return _scan_status   # "done" / "data_fail" / "error" / "skipped"(早返回) —— 供埋点准确记录
 
 
 @app.get("/api/scan/sp500")
@@ -664,8 +683,13 @@ def trigger_scan(background_tasks: BackgroundTasks):
     def _manual_scan():
         from api.agent_runs import record_agent_run
         try:
-            _run_sp500_scan(True)   # cascade_agent=True
-            record_agent_run("scout", trigger="manual", result="success")
+            status = _run_sp500_scan(True)   # cascade_agent=True
+            if status == "skipped":
+                print("[scan] manual scan 被跳过 — 不记录")
+            elif status == "done":
+                record_agent_run("scout", trigger="manual", result="success")
+            else:   # data_fail / error
+                record_agent_run("scout", trigger="manual", result="fail", error=f"scan status={status}")
         except Exception as e:
             record_agent_run("scout", trigger="manual", result="fail", error=str(e))
     background_tasks.add_task(_manual_scan)
@@ -1150,7 +1174,7 @@ def _run_agent_internal():
         pass
 
     ctx = load_market_context()
-    _run_agent(
+    _agent_summary = _run_agent(
         scan_cache=_scan_cache,
         holdings_cache=_holdings_cache,
         watchlist=load_watchlist(),
@@ -1161,6 +1185,7 @@ def _run_agent_internal():
         size_scale_override=ctx.get("size_scale"),
     )
     _refresh_holdings()
+    return _agent_summary   # 供埋点按 status 准确记录（already_running/error/ok）
 
 
 @app.post("/api/agent/run")
@@ -1169,8 +1194,14 @@ def run_agent(background_tasks: BackgroundTasks):
     def _manual_rex():
         from api.agent_runs import record_agent_run
         try:
-            _run_agent_internal()
-            record_agent_run("rex", trigger="manual", result="success")
+            _summary = _run_agent_internal()
+            _st = (_summary or {}).get("status")
+            if _st == "already_running":
+                print("[agent] manual Rex skipped (already running) — 不记录")
+            elif _st == "error":
+                record_agent_run("rex", trigger="manual", result="fail", error=(_summary or {}).get("error"))
+            else:
+                record_agent_run("rex", trigger="manual", result="success")
         except Exception as e:
             record_agent_run("rex", trigger="manual", result="fail", error=str(e))
     background_tasks.add_task(_manual_rex)
