@@ -75,8 +75,8 @@ def place_order(
             # Convert dollar notional → whole share qty using current price
             notional_val = kwargs.pop("notional")
             try:
-                import yfinance as yf
-                live_price = yf.Ticker(symbol).fast_info.last_price or 0
+                # 用 Alpaca 取价（替代 yfinance，避免被 Yahoo 限流导致取价失败）
+                live_price = float(api.get_latest_trade(symbol, feed="iex").price) or 0
             except Exception:
                 live_price = 0
             if live_price > 0:
@@ -90,7 +90,10 @@ def place_order(
                     stop_loss = None
                     take_profit = None
             else:
-                # Can't determine price — fall back to plain market order without bracket
+                # 取价失败：退化为普通 notional 市价单（无 bracket 止损），
+                # 必须恢复 notional —— 否则缺 qty/notional 会被 Alpaca 拒单（曾导致买入静默失败）
+                print(f"[alpaca] {symbol}: 无法取价，退化为普通 notional 单（无 bracket 止损，靠 holdings monitor 兜底）")
+                kwargs["notional"] = str(round(notional_val, 2))
                 stop_loss = None
                 take_profit = None
 
