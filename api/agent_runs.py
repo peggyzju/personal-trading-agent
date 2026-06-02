@@ -103,12 +103,10 @@ def _parse_iso(iso: str | None) -> datetime | None:
 def _last_run_from_source(agent: str) -> str | None:
     """从各 agent 的真实输出文件读取最近运行时间戳。"""
     if agent == "maya":
-        f = _ROOT / "data" / "market_context.json"
-        if f.exists():
-            try:
-                return json.loads(f.read_text()).get("generated_at")
-            except Exception:
-                return None
+        # Maya 的「运行时间」以 agent_runs 调度记录为准（run_market_context 8:00 写入）。
+        # 不再用 market_context.json 的 generated_at —— 该文件会被扫描/load 的按需重算
+        # 碰到（即使 save 已修，它也只是上下文产出时间，不是 Maya 调度运行的权威来源）。
+        return None
     elif agent == "scout":
         # Scout 有两类产出：盘前 Finviz 发现 + 日内 S&P500 扫描。取较新者。
         candidates: list[str] = []

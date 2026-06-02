@@ -947,7 +947,6 @@ function DashboardSummary({ goal, history, account }: { goal: GoalProgress | nul
   const barColor  = !goal ? "#818cf8" : goal.on_track ? "#22c55e" : goalPct != null && goalPct >= 0 ? "#f59e0b" : "#ef4444";
 
   const totalPL    = history?.total_pl ?? null;
-  const totalPct   = history?.total_return_pct ?? null;
   const totalColor = totalPL != null ? (totalPL >= 0 ? "#22c55e" : "#ef4444") : "var(--muted)";
 
   return (

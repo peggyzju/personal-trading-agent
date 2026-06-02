@@ -255,7 +255,7 @@ const BT_MONTHS = [
   { label: "6 个月", months: 6 },
 ];
 
-function BacktestPanel() {
+export function BacktestPanel() {
   const [months, setMonths]   = useState(3);
   const [running, setRunning] = useState(false);
   const [result, setResult]   = useState<StrategyBacktestResult | null>(null);
@@ -451,7 +451,7 @@ function TradeGroup({ title, trades, isWinner }: { title: string; trades: Postmo
   );
 }
 
-function TradeRow({ t, isWinner }: { t: PostmortemTrade; isWinner: boolean }) {
+function TradeRow({ t }: { t: PostmortemTrade; isWinner: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const pnlCls = (t.pnl_pct ?? 0) >= 0 ? "pos" : "neg";
   return (
