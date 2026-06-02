@@ -89,7 +89,7 @@ export function DecisionChain({ d, regime, aggression }: {
             {d.confidence != null && <span className="dchain-dim">置信度 {Math.round(d.confidence * 100)}%</span>}
           </div>
           <div className="dchain-metrics">
-            {d.price != null && <span>价格 <b>${d.price.toFixed(2)}</b></span>}
+            {d.price != null && <span>入场 <b>${d.price.toFixed(2)}</b></span>}
             {d.stop_loss != null && <span style={{ color: "#ef4444" }}>止损 <b>${d.stop_loss.toFixed(2)}</b></span>}
             {d.target_price != null && <span style={{ color: "#22c55e" }}>止盈 <b>${d.target_price.toFixed(2)}</b></span>}
           </div>
