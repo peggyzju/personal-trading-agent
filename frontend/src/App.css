@@ -3386,7 +3386,18 @@ body {
   grid-template-columns: 1fr 1fr;
   gap: 14px;
 }
-@media (max-width: 760px) { .pcc-main-cols { grid-template-columns: 1fr; } }
+/* 审批为空时：折叠成窄条，把空间让给持仓监控 */
+.pcc-main-cols.approval-collapsed { grid-template-columns: minmax(160px, 210px) 1fr; }
+@media (max-width: 760px) {
+  .pcc-main-cols,
+  .pcc-main-cols.approval-collapsed { grid-template-columns: 1fr; }
+}
+.pcc-manual-col.collapsed { padding: 12px 14px; gap: 8px; justify-content: flex-start; }
+.pcc-manual-collapsed-inner { display: flex; flex-direction: column; gap: 8px; }
+.pcc-manual-collapsed-msg {
+  display: flex; flex-direction: column; gap: 3px;
+  font-size: 12px; color: var(--text-dim);
+}
 
 /* Manual col (amber accent) */
 .pcc-manual-col {
@@ -3459,10 +3470,9 @@ body {
 /* ── Activity log 2-col ── */
 .pcc-activity-cols {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;   /* 仅剩「交易记录」→ 全宽 */
   gap: 14px;
 }
-@media (max-width: 760px) { .pcc-activity-cols { grid-template-columns: 1fr; } }
 
 .pcc-log-card {
   background: var(--surface);

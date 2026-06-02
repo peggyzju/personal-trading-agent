@@ -190,8 +190,6 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
     .filter(c => !pendingSymbols.has(c.symbol + "buy"))
     .sort((a, b) => (a.owned ? 1 : 0) - (b.owned ? 1 : 0));
 
-  // Agent log entries (most recent 5)
-  const agentLogEntries = (data.agent?.log ?? []).slice(0, 5);
 
   // Trade log — grouped by status
   const ALPACA_OPEN = new Set(["new", "held", "accepted", "pending_new", "accepted_for_bidding"]);
@@ -261,51 +259,51 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
       </div>
 
       {/* ── 2-col: Pending (manual) | Holdings (auto) ── */}
-      <div className="pcc-main-cols">
+      <div className={`pcc-main-cols${pendingTrades.length === 0 ? " approval-collapsed" : ""}`}>
 
-        {/* LEFT — Manual: pending approval */}
-        <div className="pcc-manual-col">
-          <div className="pcc-col-header">
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span className="pcc-section-title" style={{ margin: 0 }}>待你审批</span>
-              {pendingTrades.length > 0 && (
-                <span className="pcc-badge">{pendingTrades.length}</span>
-              )}
-            </div>
-            {pendingTrades.length > 0 && (
-              <div className="pcc-bulk-btns">
-                <button className="pcc-bulk-btn pcc-bulk-btn-approve"
-                  onClick={() => pendingTrades.forEach(t => handleApprove(t.id))}>
-                  ✓ 全部批准
-                </button>
-                <button className="pcc-bulk-btn pcc-bulk-btn-reject"
-                  onClick={() => pendingTrades.forEach(t => handleReject(t.id))}>
-                  ✕ 全部拒绝
-                </button>
-              </div>
-            )}
-          </div>
-
+        {/* LEFT — Manual: pending approval（空时折叠为窄条，把空间让给持仓监控） */}
+        <div className={`pcc-manual-col${pendingTrades.length === 0 ? " collapsed" : ""}`}>
           {pendingTrades.length === 0 ? (
-            <div className="pcc-manual-empty">
-              <div style={{ fontSize: 24, marginBottom: 8 }}>{autoApprove?.enabled ? "⚡" : "✓"}</div>
-              <div>{autoApprove?.enabled ? "自动执行已开启" : "暂无待审批交易"}</div>
-              <div style={{ marginTop: 4, fontSize: 11, color: "var(--muted)" }}>
-                {autoApprove?.enabled
-                  ? `置信度 ≥${Math.round(autoApprove.threshold * 100)}% 的信号将自动执行`
-                  : "Rex 生成信号后将出现在这里"}
+            <div className="pcc-manual-collapsed-inner">
+              <span className="pcc-section-title" style={{ margin: 0 }}>待你审批</span>
+              <div className="pcc-manual-collapsed-msg">
+                <span style={{ fontSize: 18 }}>{autoApprove?.enabled ? "⚡" : "✓"}</span>
+                <span style={{ fontWeight: 600 }}>{autoApprove?.enabled ? "自主模式运行中" : "暂无待审批"}</span>
+                <span style={{ fontSize: 10, color: "var(--muted)" }}>
+                  {autoApprove?.enabled
+                    ? `≥${Math.round(autoApprove.threshold * 100)}% 自动执行`
+                    : "Rex 生成信号后出现在这里"}
+                </span>
               </div>
             </div>
           ) : (
-            pendingTrades.map(t => (
-              <PendingCard
-                key={t.id}
-                trade={t}
-                budget={budget}
-                onApprove={() => handleApprove(t.id)}
-                onReject={() => handleReject(t.id)}
-              />
-            ))
+            <>
+              <div className="pcc-col-header">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="pcc-section-title" style={{ margin: 0 }}>待你审批</span>
+                  <span className="pcc-badge">{pendingTrades.length}</span>
+                </div>
+                <div className="pcc-bulk-btns">
+                  <button className="pcc-bulk-btn pcc-bulk-btn-approve"
+                    onClick={() => pendingTrades.forEach(t => handleApprove(t.id))}>
+                    ✓ 全部批准
+                  </button>
+                  <button className="pcc-bulk-btn pcc-bulk-btn-reject"
+                    onClick={() => pendingTrades.forEach(t => handleReject(t.id))}>
+                    ✕ 全部拒绝
+                  </button>
+                </div>
+              </div>
+              {pendingTrades.map(t => (
+                <PendingCard
+                  key={t.id}
+                  trade={t}
+                  budget={budget}
+                  onApprove={() => handleApprove(t.id)}
+                  onReject={() => handleReject(t.id)}
+                />
+              ))}
+            </>
           )}
         </div>
 
@@ -394,55 +392,6 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
 
       {/* ── Activity log 2-col ── */}
       <div className="pcc-activity-cols">
-
-        {/* Agent log */}
-        <div className="pcc-log-card">
-          <div className="pcc-log-header">
-            <span className="pcc-section-title" style={{ margin: 0 }}>Agent 执行记录</span>
-            <span className="pcc-log-tag pcc-log-tag-auto">⚡ 全自动</span>
-            <span style={{ fontSize: 10, color: "var(--muted)" }}>Maya · Scout · Rex · Vera</span>
-          </div>
-          <div className="pcc-log-list">
-            {agentLogEntries.length === 0 ? (
-              <div className="pcc-log-item dimmed">
-                <div className="pcc-log-icon pcc-log-icon-sys">—</div>
-                <div className="pcc-log-body">
-                  <span className="pcc-log-title" style={{ color: "var(--muted)" }}>暂无记录</span>
-                  <span className="pcc-log-sub">等待 Agent 首次运行</span>
-                </div>
-              </div>
-            ) : (
-              agentLogEntries.map((entry, i) => {
-                const sources = entry.sources?.join(" · ") ?? "";
-                const regimeInfo = entry.regime ? ` · ${entry.regime}` : "";
-                return (
-                  <div key={i} className="pcc-log-item">
-                    <div className={`pcc-log-icon ${entry.status === "error" ? "pcc-log-icon-sell" : "pcc-log-icon-agent"}`}>
-                      {entry.status === "error" ? "⚠" : "🧠"}
-                    </div>
-                    <div className="pcc-log-body">
-                      <span className="pcc-log-title">
-                        Rex · {entry.signals_found} 个信号{entry.trades_queued > 0 ? ` · ${entry.trades_queued} 待审` : ""}
-                      </span>
-                      <span className="pcc-log-sub">{sources}{regimeInfo}</span>
-                      <span className="pcc-log-time">{new Date(entry.run_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</span>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-            {data.pipeline?.review.status !== "done" && (
-              <div className="pcc-log-item dimmed">
-                <div className="pcc-log-icon pcc-log-icon-sys">📈</div>
-                <div className="pcc-log-body">
-                  <span className="pcc-log-title">Vera · 策略复盘</span>
-                  <span className="pcc-log-sub">等待今日收盘后生成</span>
-                  <span className="pcc-log-time">16:00 预计</span>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
 
         {/* Trade log — grouped */}
         <div className="pcc-log-card">
