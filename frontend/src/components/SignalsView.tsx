@@ -180,7 +180,7 @@ export function SignalsView({ backendOnline }: Props) {
     for (const c of nq) {
       const ex = map.get(c.symbol);
       if (ex) {
-        ex.sourceTags.push("NQ");
+        if (!ex.sourceTags.includes("NQ")) ex.sourceTags.push("NQ");   // 去重，避免 ["NQ","NQ"] → key 撞车
         if (c.ai_score > ex.ai_score) {
           map.set(c.symbol, { ...c, sourceTags: ex.sourceTags });
         }
