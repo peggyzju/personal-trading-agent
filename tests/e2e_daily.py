@@ -971,6 +971,28 @@ def test_scheduler_design():
     except Exception as e:
         fail("Vera only at close", str(e))
 
+    # 4. 回归：trade_agent.py 不应出现把 'symbol' 当自由变量的闭包
+    #    （旧版 run_agent 曾有裸 symbol 闭包 → "free variable 'symbol' referenced
+    #     before assignment" 导致整轮 agent 崩溃。已重构为 c["symbol"]，守住别再引入）
+    try:
+        import types as _types
+        _ta = Path(__file__).resolve().parent.parent / "src" / "trader" / "trade_agent.py"
+        _code = compile(_ta.read_text(), "trade_agent.py", "exec")
+        _bad = []
+        def _walk(co):
+            for k in co.co_consts:
+                if isinstance(k, _types.CodeType):
+                    if "symbol" in k.co_freevars:
+                        _bad.append(f"{k.co_name}@line{k.co_firstlineno}")
+                    _walk(k)
+        _walk(_code)
+        if not _bad:
+            ok("No symbol closure", "trade_agent 无 'symbol' 自由变量闭包 ✓")
+        else:
+            fail("No symbol closure", f"出现 'symbol' 自由变量闭包(易崩): {_bad}")
+    except Exception as e:
+        fail("No symbol closure", str(e))
+
     # 4. Scout 函数存在于 main.py
     try:
         import main as main_module
