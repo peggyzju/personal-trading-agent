@@ -115,8 +115,14 @@ def _get_sector_bias() -> dict[str, str]:
         return {s: "neutral" for s in SECTOR_ETFS}
 
 
-def generate_market_context() -> dict:
-    """Full market context — call this once before scan and agent."""
+def generate_market_context(save: bool = True) -> dict:
+    """Full market context — call this once before scan and agent.
+
+    save=True（默认）：写盘 market_context.json —— 仅供 Maya 8:00 定时任务用，
+                       generated_at 代表"Maya 真正运行"的时间。
+    save=False：只计算返回、不写盘 —— 供 load_market_context 在陈旧时按需重算，
+                避免扫描/测试触发的重算污染 Maya 的 generated_at / 运行显示。
+    """
     from src.monitor.market_regime import get_market_regime
 
     # 1. Market regime (already cached with TTL)
@@ -176,12 +182,13 @@ def generate_market_context() -> dict:
         context["min_ai_score"] = max(context["min_ai_score"], 8)
         context["size_scale"]   = min(context["size_scale"], 0.75)
 
-    # Persist for other agents to read
-    try:
-        _CONTEXT_FILE.parent.mkdir(exist_ok=True)
-        _CONTEXT_FILE.write_text(json.dumps(context, indent=2))
-    except Exception as e:
-        print(f"[market_context] save error: {e}")
+    # Persist for other agents to read（仅 Maya 定时任务 save=True 时写盘）
+    if save:
+        try:
+            _CONTEXT_FILE.parent.mkdir(exist_ok=True)
+            _CONTEXT_FILE.write_text(json.dumps(context, indent=2))
+        except Exception as e:
+            print(f"[market_context] save error: {e}")
 
     return context
 
@@ -197,5 +204,5 @@ def load_market_context() -> dict:
                 return ctx
     except Exception:
         pass
-    # Fallback: generate fresh
-    return generate_market_context()
+    # Fallback: 按需重算（不写盘，避免污染 Maya 的 generated_at）
+    return generate_market_context(save=False)
