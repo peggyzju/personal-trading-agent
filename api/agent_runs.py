@@ -45,7 +45,7 @@ AGENT_SCHEDULE: dict[str, dict] = {
 }
 
 
-_MAX_HISTORY = 20   # 每个 agent 最多保留最近 N 条运行记录
+_MAX_HISTORY = 60   # 每个 agent 最多保留最近 N 条（Rex 一个交易日 ~20 条，留几天余量）
 
 
 def record_agent_run(agent: str, trigger: str = "auto",
@@ -247,7 +247,7 @@ def get_agents_status() -> dict:
             "result": result,             # "success" | "fail" | None
             "status": status,             # 健康：ok/waiting/missed/idle/never
             "status_label": label,
-            "history": history[:8],       # 最近 8 条运行记录
+            "history": history,           # 全部（前端按「最近交易日 ET」过滤显示）
         })
 
     return {

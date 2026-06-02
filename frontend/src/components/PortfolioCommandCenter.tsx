@@ -1219,6 +1219,24 @@ function fmtEtTime(iso: string | null): string {
   }
 }
 
+// 取某时间戳的美东日期（YYYY-MM-DD）
+function etDateOf(iso: string | null): string | null {
+  if (!iso) return null;
+  const s = /[Z+]/.test(iso.slice(10)) ? iso : iso + "Z";
+  try {
+    return new Date(s).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  } catch {
+    return null;
+  }
+}
+
+// 只保留「最近一个交易日(ET)」的运行记录（history 最新在前）
+function latestDayHistory(history: AgentRunHistoryEntry[]): AgentRunHistoryEntry[] {
+  if (!history.length) return [];
+  const day = etDateOf(history[0].ran_at);
+  return day ? history.filter(h => etDateOf(h.ran_at) === day) : history;
+}
+
 function AgentRunsPanel({ status }: { status: AgentsStatus | null }) {
   if (!status) return null;
   return (
@@ -1257,27 +1275,37 @@ function AgentRunsPanel({ status }: { status: AgentsStatus | null }) {
               </span>
             </div>
             <div className="agent-run-history">
-              <div className="agent-run-history-title">运行历史</div>
-              {a.history.length === 0 ? (
-                <div className="agent-run-history-empty">暂无记录</div>
-              ) : (
-                a.history.map((h: AgentRunHistoryEntry, i: number) => (
-                  <div key={i} className="agent-run-history-row" title={h.error ?? undefined}>
-                    <span className="agent-run-history-time">{fmtEtTime(h.ran_at)}</span>
-                    <span className="agent-run-history-age">{h.age ?? "—"}</span>
-                    {h.trigger && (
-                      <span className={`agent-run-tag tag-${h.trigger}`}>
-                        {h.trigger === "manual" ? "👤 手动" : "🤖 自动"}
-                      </span>
+              {(() => {
+                const dayHist = latestDayHistory(a.history);
+                const dayLabel = dayHist.length ? (etDateOf(dayHist[0].ran_at) ?? "").slice(5) : "";
+                return (
+                  <>
+                    <div className="agent-run-history-title">
+                      运行历史{dayLabel ? ` · ${dayLabel}（最近交易日）` : ""}
+                    </div>
+                    {dayHist.length === 0 ? (
+                      <div className="agent-run-history-empty">暂无记录</div>
+                    ) : (
+                      dayHist.map((h: AgentRunHistoryEntry, i: number) => (
+                        <div key={i} className="agent-run-history-row" title={h.error ?? undefined}>
+                          <span className="agent-run-history-time">{fmtEtTime(h.ran_at)}</span>
+                          <span className="agent-run-history-age">{h.age ?? "—"}</span>
+                          {h.trigger && (
+                            <span className={`agent-run-tag tag-${h.trigger}`}>
+                              {h.trigger === "manual" ? "👤 手动" : "🤖 自动"}
+                            </span>
+                          )}
+                          {h.result && (
+                            <span className={`agent-run-tag result-${h.result}`}>
+                              {h.result === "success" ? "✓ 成功" : "✗ 失败"}
+                            </span>
+                          )}
+                        </div>
+                      ))
                     )}
-                    {h.result && (
-                      <span className={`agent-run-tag result-${h.result}`}>
-                        {h.result === "success" ? "✓ 成功" : "✗ 失败"}
-                      </span>
-                    )}
-                  </div>
-                ))
-              )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         ))}
