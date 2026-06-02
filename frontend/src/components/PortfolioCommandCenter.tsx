@@ -1206,6 +1206,19 @@ const RUN_STATUS_COLOR: Record<string, string> = {
   ok: "#22c55e", waiting: "#64748b", missed: "#ef4444", idle: "#475569", never: "#ef4444",
 };
 
+// 运行记录时间统一显示美东时间（系统内部存 UTC；朴素时间戳补 Z 按 UTC 解析）
+function fmtEtTime(iso: string | null): string {
+  if (!iso) return "—";
+  const s = /[Z+]/.test(iso.slice(10)) ? iso : iso + "Z";
+  try {
+    return new Date(s).toLocaleTimeString("en-US", {
+      timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false,
+    }) + " ET";
+  } catch {
+    return "—";
+  }
+}
+
 function AgentRunsPanel({ status }: { status: AgentsStatus | null }) {
   if (!status) return null;
   return (
@@ -1239,7 +1252,9 @@ function AgentRunsPanel({ status }: { status: AgentsStatus | null }) {
               <span className="agent-run-health" style={{ color: RUN_STATUS_COLOR[a.status] ?? "var(--text)" }}>
                 {a.status_label}
               </span>
-              <span className="agent-run-age">{a.age ?? "—"}</span>
+              <span className="agent-run-age">
+                {a.last_run_at ? `${fmtEtTime(a.last_run_at)} · ${a.age ?? ""}` : (a.age ?? "—")}
+              </span>
             </div>
             <div className="agent-run-history">
               <div className="agent-run-history-title">运行历史</div>
@@ -1248,6 +1263,7 @@ function AgentRunsPanel({ status }: { status: AgentsStatus | null }) {
               ) : (
                 a.history.map((h: AgentRunHistoryEntry, i: number) => (
                   <div key={i} className="agent-run-history-row" title={h.error ?? undefined}>
+                    <span className="agent-run-history-time">{fmtEtTime(h.ran_at)}</span>
                     <span className="agent-run-history-age">{h.age ?? "—"}</span>
                     {h.trigger && (
                       <span className={`agent-run-tag tag-${h.trigger}`}>
