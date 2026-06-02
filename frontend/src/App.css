@@ -4015,8 +4015,8 @@ body {
   height: 100%;
   border-radius: 7px;
   transition: width 0.5s ease;
-  box-shadow: 0 0 8px currentColor;
-  opacity: 0.9;
+  box-shadow: 0 0 5px currentColor;
+  opacity: 0.95;
 }
 
 .pcc-summary-mark {
@@ -4073,6 +4073,7 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 10px;
+  align-items: start;   /* 各卡按内容高度，避免矮卡被拉伸留大片空白 */
 }
 .agent-run-card {
   border: 1px solid var(--border);
@@ -4122,6 +4123,19 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  max-height: 208px;        /* Rex 一天 ~20 条时内部滚动，不撑长卡片 */
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.agent-run-history::-webkit-scrollbar { width: 6px; }
+.agent-run-history::-webkit-scrollbar-thumb {
+  background: var(--border); border-radius: 3px;
+}
+.agent-run-history-title {
+  position: sticky;         /* 滚动时标题（含日期）保持可见 */
+  top: 0;
+  background: var(--bg-elevated, #16181d);
+  padding-bottom: 2px;
 }
 .agent-run-history-title {
   font-size: 10px;
@@ -4365,6 +4379,16 @@ body {
   letter-spacing: 0.04em;
 }
 
+.pcc-heatmap-summary {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 600;
+  margin-right: auto;          /* 紧跟标题左侧，图例仍靠右 */
+  padding-left: 4px;
+}
+.pcc-heatmap-summary .up { color: #22c55e; }
+.pcc-heatmap-summary .down { color: #ef4444; }
+
 .pcc-heatmap-cells {
   display: flex;
   flex-wrap: wrap;
@@ -4372,9 +4396,9 @@ body {
 }
 
 .pcc-heatmap-cell {
-  width: 18px;
-  height: 18px;
-  border-radius: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
   cursor: pointer;
   transition: transform 0.1s;
   flex-shrink: 0;

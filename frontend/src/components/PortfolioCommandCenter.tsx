@@ -1160,6 +1160,12 @@ function CompactHeatmap({ days }: { days: PortfolioDay[] }) {
     <div className="pcc-compact-heatmap" ref={ref}>
       <div className="pcc-heatmap-header">
         <span className="pcc-heatmap-title">本月每日收益</span>
+        {(() => {
+          const n = monthDays.length;
+          const wins = monthDays.filter(d => d.daily_return_pct > 0).length;
+          const losses = monthDays.filter(d => d.daily_return_pct < 0).length;
+          return <span className="pcc-heatmap-summary">{n} 个交易日 · <span className="up">{wins} 盈</span> / <span className="down">{losses} 亏</span></span>;
+        })()}
         <div className="pcc-heatmap-legend">
           {([["<−1%","#dc2626"],["−1~0%","#fca5a5"],["≈0","#1e293b"],["0~1%","#4ade80"],[">1%","#16a34a"]] as const).map(([l,c]) => (
             <span key={l} className="pcc-legend-item">

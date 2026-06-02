@@ -207,6 +207,7 @@ export default function App() {
           );
         })()}
 
+        <div className="hdr-spacer" />
         <div className="hdr-sep" />
         <button
           className={`hdr-approve-btn${autoApprove.enabled ? " auto" : " manual"}`}
@@ -220,7 +221,6 @@ export default function App() {
             <div className="hdr-toggle-dot" />
           </div>
         </button>
-        <div className="hdr-spacer" />
       </header>
 
       {!backendOnline && (
