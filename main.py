@@ -136,8 +136,17 @@ def run_holdings_refresh():
         print(f"[scheduler] holdings error: {e}")
         return
 
-    # ── Cascade to Rex (sell-signal execution) ────────────────────────────────
-    if positions:
+    # ── Cascade to Rex (sell-signal execution) — 仅开盘后（≥9:31 ET）──────────────
+    # 盘前（如 9:00）价格不实时，AI 卖出会基于陈旧价误判 + 开盘跳空成交；主止损由
+    # Alpaca 服务端 bracket 兜底，不依赖盘前轮询。开盘后首次卖出检查由 9:31 扫描
+    # cascade 覆盖，不会断档。持仓缓存刷新（上方）保留，UI 盘前仍可看持仓。
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo as _ZI
+    _et = _dt.now(_ZI("America/New_York"))
+    _after_open = _et.weekday() < 5 and (_et.hour, _et.minute) >= (9, 31)
+    if positions and not _after_open:
+        print(f"[scheduler] Holdings 缓存已刷新（{_et:%H:%M} ET 盘前/非交易时段，暂不 cascade 卖出）")
+    elif positions:
         print("[scheduler] Holdings refresh done → cascading to Rex (sell signals)…")
         from api.agent_runs import record_agent_run
         try:
