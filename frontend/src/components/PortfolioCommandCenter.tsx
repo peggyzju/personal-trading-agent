@@ -237,32 +237,11 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
         <AgentRunsPanel status={data.agentsStatus} />
       </div>
 
-      {/* ── Zone labels ── */}
-      <div className="pcc-zone-row">
-        <div className="pcc-zone-label">
-          {autoApprove?.enabled ? (
-            <>
-              <span className="zone-chip zone-chip-auto">⚡ 自动执行中</span>
-              <span className="zone-desc">置信度 ≥{Math.round((autoApprove.threshold) * 100)}% 自动执行，低于阈值仍需确认</span>
-            </>
-          ) : (
-            <>
-              <span className="zone-chip zone-chip-manual">👤 需要你决策</span>
-              <span className="zone-desc">Rex 已分析，等待人工确认</span>
-            </>
-          )}
-        </div>
-        <div className="pcc-zone-label">
-          <span className="zone-chip zone-chip-auto">⚡ 自动化管理</span>
-          <span className="zone-desc">Agent 实时监控，无需干预</span>
-        </div>
-      </div>
+      {/* ── 方案A 两栏：持仓监控(主) + 侧栏(审批 + 交易记录)，用 grid-areas 定位 ── */}
+      <div className="pcc-redesign">
 
-      {/* ── 2-col: Pending (manual) | Holdings (auto) ── */}
-      <div className={`pcc-main-cols${pendingTrades.length === 0 ? " approval-collapsed" : ""}`}>
-
-        {/* LEFT — Manual: pending approval（空时折叠为窄条，把空间让给持仓监控） */}
-        <div className={`pcc-manual-col${pendingTrades.length === 0 ? " collapsed" : ""}`}>
+        {/* 待审批（侧栏上；空时折一行） */}
+        <section className={`pcc-rd-approve${pendingTrades.length === 0 ? " empty" : ""}`}>
           {pendingTrades.length === 0 ? (
             <div className="pcc-manual-collapsed-inner">
               <span className="pcc-section-title" style={{ margin: 0 }}>待你审批</span>
@@ -305,37 +284,35 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
               ))}
             </>
           )}
-        </div>
+        </section>
 
-        {/* RIGHT — Auto: holdings + sell signals */}
-        <div className="pcc-auto-col">
-          <div className="pcc-col-header">
-            <span className="pcc-section-title" style={{ margin: 0 }}>持仓监控</span>
-            <span className="pcc-auto-tag">⚡ Rex 持续监控中</span>
-          </div>
-
-          {/* Allocation bar */}
-          <div className="pcc-alloc-bar-wrap">
-            {allocationMap.map((h, i) => (
-              <div key={h.symbol} className="pcc-alloc-segment"
-                style={{ width: `${h.pct}%`, background: `hsl(${220 + i * 35}, 65%, 55%)` }}
-                title={`${h.symbol} ${h.pct}%`} />
-            ))}
+        {/* 持仓监控（主，表格化） */}
+        <section className="pcc-rd-holdings">
+          <div className="pcc-rd-head">
+            <span className="pcc-rd-title">📊 持仓监控</span>
             {budget && (
-              <div className="pcc-alloc-segment"
-                style={{ width: `${budget.cash_pct}%`, background: "#1e293b" }}
-                title={`现金 ${budget.cash_pct}%`} />
+              <div className="pcc-rd-summary">
+                <span>已投 <b>{budget.invested_pct}%</b></span>
+                <span className="pcc-rd-allocbar">
+                  {allocationMap.map((h, i) => (
+                    <i key={h.symbol} style={{ width: `${h.pct}%`, background: `hsl(${220 + i * 30}, 60%, 55%)` }} />
+                  ))}
+                  <i style={{ width: `${budget.cash_pct}%`, background: "#222733" }} />
+                </span>
+                <span>现金 <b>{budget.cash_pct}%</b></span>
+                <span className="pcc-rd-pill">空位 {allocationMap.length}/{allocationMap.length + budget.slots_remaining}</span>
+                <span className="pcc-rd-pill">风险 {budget.risk_per_trade_pct}%/单</span>
+              </div>
             )}
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--muted)", marginTop: -4 }}>
-            <span>已投 {budget?.invested_pct ?? 0}%</span>
-            <span>现金 {budget?.cash_pct ?? 0}%</span>
           </div>
 
           {alpacaPositions.length === 0 ? (
-            <p style={{ color: "var(--muted)", fontSize: 12 }}>暂无持仓</p>
+            <p className="pcc-rd-empty">暂无持仓</p>
           ) : (
-            <div className="pcc-holdings-list">
+            <div className="pcc-rd-table">
+              <div className="pcc-rd-thead">
+                <span>代码</span><span>现价</span><span>今日</span><span>市值</span><span>仓位</span><span>盈亏</span><span>信号</span>
+              </div>
               {mergedPositions.map(p => {
                 const allocPct = allocationMap.find(a => a.symbol === p.symbol)?.pct ?? 0;
                 return (
@@ -353,50 +330,12 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
               })}
             </div>
           )}
+        </section>
 
-          {budget && (
-            <div className="pcc-slots">
-              {allocationMap.map((h, i) => (
-                <div key={h.symbol} className="pcc-slot-pill pcc-slot-filled"
-                  style={{ borderColor: `hsl(${220 + i * 35}, 65%, 55%)40` }}>
-                  <span>{h.symbol}</span>
-                  <span className="pcc-slot-pct">{h.pct}%</span>
-                </div>
-              ))}
-              {Array.from({ length: budget.slots_remaining }).map((_, i) => (
-                <div key={i} className="pcc-slot-pill pcc-slot-empty">空</div>
-              ))}
-            </div>
-          )}
-
-          {budget && (
-            <div style={{ display: "flex", gap: 14, paddingTop: 8, borderTop: "1px solid var(--border)" }}>
-              <div className="pcc-stat">
-                <span className="holding-label">可用现金</span>
-                <span className="pcc-stat-val">${budget.cash.toLocaleString()}</span>
-              </div>
-              <div className="pcc-stat">
-                <span className="holding-label">建议投入</span>
-                <span className="pcc-stat-val up">
-                  ${(data.budget?.suggested_buys ?? []).reduce((s, b) => s + b.cost, 0).toLocaleString()}
-                </span>
-              </div>
-              <div className="pcc-stat">
-                <span className="holding-label">每笔风险</span>
-                <span className="pcc-stat-val">{budget.risk_per_trade_pct}%</span>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Activity log 2-col ── */}
-      <div className="pcc-activity-cols">
-
-        {/* Trade log — grouped */}
-        <div className="pcc-log-card">
-          <div className="pcc-log-header">
-            <span className="pcc-section-title" style={{ margin: 0 }}>交易记录</span>
+        {/* 交易记录（侧栏下） */}
+        <section className="pcc-rd-log">
+          <div className="pcc-rd-log-head">
+            <span className="pcc-rd-sectitle plain">交易记录</span>
           </div>
 
           {/* Group filter tabs */}
@@ -482,8 +421,7 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
               })
             )}
           </div>
-        </div>
-
+        </section>
       </div>
     </div>
   );
@@ -518,55 +456,38 @@ function HoldingRow({ position: p, quote, allocPct, onRefresh, hasOpenSell, isCa
     finally { setLoading(false); setConfirming(false); }
   }
 
+  const sigColor = signalColor[sig] ?? "#64748b";
   return (
-    <div className="pcc-holding-row">
-      {/* Row 1: symbol + signal + today's change + close button */}
-      <div className="pcc-holding-main">
-        <span className="symbol" style={{ fontSize: 14 }}>{p.symbol}</span>
+    <div className="pcc-rd-row">
+      <span className="pcc-rd-c-sym">
+        <span className="sym">{p.symbol}</span>
+        {isCancelling ? <span className="pcc-rd-tag">撤单中</span>
+          : hasOpenSell ? <span className="pcc-rd-tag">挂单</span>
+          : hasSellError ? <span className="pcc-rd-tag warn">⚠</span> : null}
+      </span>
+      <span>${p.current_price?.toFixed(2)}</span>
+      <span style={{ color: todayColor, fontWeight: 600 }}>
+        {todayPct != null ? `${todayPct >= 0 ? "+" : ""}${todayPct.toFixed(1)}%` : "—"}
+      </span>
+      <span>${p.market_value?.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
+      <span className="pcc-rd-c-alloc">
+        {allocPct.toFixed(1)}%
+        <i className="pcc-rd-allocmini"><b style={{ width: `${Math.min(100, allocPct / 8 * 100)}%` }} /></i>
+      </span>
+      <span className={pl >= 0 ? "up" : "down"} style={{ whiteSpace: "nowrap" }}>
+        {pl >= 0 ? "+" : "−"}${Math.abs(pl).toFixed(0)}{" "}
+        <span style={{ color: "var(--muted)", fontWeight: 400 }}>{plPct >= 0 ? "+" : ""}{plPct.toFixed(1)}%</span>
+      </span>
+      <span className="pcc-rd-c-sig">
+        <span className="pcc-rd-sigbadge" style={{ color: sigColor, background: sigColor + "22" }}>{sig}</span>
         {sig !== "HOLD" && (
-          <span className="signal-badge" style={{ background: signalColor[sig] ?? "#64748b", fontSize: 11, padding: "1px 6px" }}>{sig}</span>
+          <button className={`trade-btn ${confirming ? "sell-btn-confirm" : "sell-btn"}`}
+            onClick={closePos} disabled={loading} style={{ fontSize: 10, padding: "1px 6px" }}>
+            {loading ? "…" : confirming ? "确认" : "平仓"}
+          </button>
         )}
-        {isCancelling ? (
-          <span style={{ fontSize: 10, color: "#64748b", background: "#1e293b", border: "1px solid #334155", borderRadius: 4, padding: "1px 5px" }}>撤单中</span>
-        ) : hasOpenSell ? (
-          <span style={{ fontSize: 10, color: "#94a3b8", background: "#1e293b", border: "1px solid #334155", borderRadius: 4, padding: "1px 5px" }}>挂单中</span>
-        ) : hasSellError ? (
-          <span style={{ fontSize: 10, color: "#f97316", background: "#1e293b", border: "1px solid #f9731640", borderRadius: 4, padding: "1px 5px" }}>⚠ 提交失败</span>
-        ) : null}
-        {todayPct != null && (
-          <span style={{ color: todayColor, fontSize: 12, fontWeight: 600 }}>
-            {todayPct >= 0 ? "+" : ""}{todayPct.toFixed(2)}% 今日
-          </span>
-        )}
-        {sig !== "HOLD" && (
-          <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
-            <button
-              className={`trade-btn ${confirming ? "sell-btn-confirm" : "sell-btn"}`}
-              onClick={closePos}
-              disabled={loading}
-            >
-              {loading ? "…" : confirming ? "确认平仓" : "平仓"}
-            </button>
-            {confirming && !loading && (
-              <button className="cancel-small-btn" onClick={() => setConfirming(false)}>✕</button>
-            )}
-          </div>
-        )}
-      </div>
-      {/* Row 2: price · qty · market value · alloc% · total P&L */}
-      <div className="pcc-holding-detail">
-        <span>${p.current_price?.toFixed(2)}</span>
-        <span className="pcc-holding-dot">·</span>
-        <span>{typeof p.qty === "number" ? (Number.isInteger(p.qty) ? p.qty.toLocaleString("en-US") : p.qty.toLocaleString("en-US", { maximumFractionDigits: 2 })) : p.qty} 股</span>
-        <span className="pcc-holding-dot">·</span>
-        <span>${p.market_value?.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
-        <span className="pcc-holding-dot">·</span>
-        <span style={{ color: "#93c5fd" }}>{allocPct.toFixed(1)}% 仓位</span>
-        <span className="pcc-holding-dot">·</span>
-        <span className={pl >= 0 ? "up" : "down"}>
-          {pl >= 0 ? "+" : ""}${pl.toFixed(0)} ({plPct >= 0 ? "+" : ""}{plPct.toFixed(1)}%)
-        </span>
-      </div>
+        {confirming && !loading && <button className="cancel-small-btn" onClick={() => setConfirming(false)}>✕</button>}
+      </span>
     </div>
   );
 }
