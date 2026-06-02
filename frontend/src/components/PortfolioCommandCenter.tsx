@@ -7,6 +7,8 @@ import type {
   AgentsStatus, AgentRunStatus, AgentRunHistoryEntry,
 } from "../api/client";
 import { TradeModal } from "./TradeModal";
+import { CandleChart } from "./CandleChart";
+import { DecisionChain, type DecisionInput } from "./DecisionChain";
 import type { PortfolioHistory } from "../api/client";
 
 interface Props {
@@ -38,6 +40,7 @@ interface PCC {
 export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, autoApprove }: Props) {
   const [data, setData] = useState<PCC>({ budget: null, holdings: null, positions: [], scan: null, agent: null, history: null, pipeline: null, agentsStatus: null, goal: null, account: null, quotes: {}, openSellSymbols: new Set(), cancellingSymbols: new Set(), errorSellSymbols: new Set(), allOrders: [] });
   const [tradeLogTab, setTradeLogTab] = useState<"open" | "filled" | "failed" | "cancelled">("open");
+  const [detail, setDetail] = useState<DecisionInput | null>(null);   // K线+决策卡详情模态
 
   const load = useCallback(async () => {
     if (!backendOnline) return;
@@ -325,6 +328,24 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
                     hasOpenSell={data.openSellSymbols.has(p.symbol)}
                     isCancelling={data.cancellingSymbols.has(p.symbol)}
                     hasSellError={data.errorSellSymbols.has(p.symbol)}
+                    onOpenDetail={() => {
+                      const buy = (data.agent?.trades ?? [])
+                        .filter(t => t.symbol === p.symbol && t.side === "buy")
+                        .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
+                      const entry = buy?.fill_price ?? buy?.price ?? p.avg_entry_price ?? null;
+                      setDetail({
+                        symbol: p.symbol,
+                        signal: buy?.signal ?? null,
+                        confidence: buy?.confidence ?? null,
+                        screen_track: buy?.screen_track ?? null,
+                        rsi: buy?.rsi ?? null,
+                        volume_ratio: buy?.volume_ratio ?? null,
+                        reason: buy?.reason ?? null,
+                        stop_loss: buy?.stop_loss ?? null,
+                        target_price: buy?.target_price ?? null,
+                        price: entry,
+                      });
+                    }}
                   />
                 );
               })}
@@ -423,6 +444,29 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
           </div>
         </section>
       </div>
+
+      {/* 详情模态：K 线 + 决策卡 */}
+      {detail && (
+        <div className="pcc-modal-backdrop" onClick={() => setDetail(null)}>
+          <div className="pcc-modal" onClick={e => e.stopPropagation()}>
+            <div className="pcc-modal-head">
+              <span className="pcc-modal-title">{detail.symbol} · K 线 + 决策</span>
+              <button className="pcc-modal-close" onClick={() => setDetail(null)}>✕</button>
+            </div>
+            <CandleChart
+              symbol={detail.symbol}
+              entryPrice={detail.price}
+              stopLoss={detail.stop_loss}
+              targetPrice={detail.target_price}
+            />
+            <DecisionChain
+              d={detail}
+              regime={data.pipeline?.market_context?.regime ?? null}
+              aggression={data.pipeline?.market_context?.aggression ?? null}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -430,7 +474,7 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 
-function HoldingRow({ position: p, quote, allocPct, onRefresh, hasOpenSell, isCancelling, hasSellError }: {
+function HoldingRow({ position: p, quote, allocPct, onRefresh, hasOpenSell, isCancelling, hasSellError, onOpenDetail }: {
   position: HoldingPosition;
   quote: Quote | null;
   allocPct: number;
@@ -438,6 +482,7 @@ function HoldingRow({ position: p, quote, allocPct, onRefresh, hasOpenSell, isCa
   hasOpenSell?: boolean;
   isCancelling?: boolean;
   hasSellError?: boolean;
+  onOpenDetail?: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -460,7 +505,7 @@ function HoldingRow({ position: p, quote, allocPct, onRefresh, hasOpenSell, isCa
   return (
     <div className="pcc-rd-row">
       <span className="pcc-rd-c-sym">
-        <span className="sym">{p.symbol}</span>
+        <span className="sym pcc-rd-symlink" onClick={onOpenDetail} title="查看 K 线 + 决策">{p.symbol}</span>
         {isCancelling ? <span className="pcc-rd-tag">撤单中</span>
           : hasOpenSell ? <span className="pcc-rd-tag">挂单</span>
           : hasSellError ? <span className="pcc-rd-tag warn">⚠</span> : null}

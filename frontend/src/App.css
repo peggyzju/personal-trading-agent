@@ -3472,6 +3472,55 @@ body {
 /* 侧栏：交易记录 */
 .pcc-rd-log-head { padding: 12px 15px 0; }
 
+/* 可点 symbol */
+.pcc-rd-symlink { cursor: pointer; }
+.pcc-rd-symlink:hover { color: #60a5fa; text-decoration: underline; }
+
+/* ════ 详情模态：K 线 + 决策卡 ════ */
+.pcc-modal-backdrop {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(0,0,0,.55); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.pcc-modal {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  width: 100%; max-width: 720px; max-height: 88vh; overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0,0,0,.5);
+}
+.pcc-modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border-bottom: 1px solid var(--border); position: sticky; top: 0;
+  background: var(--surface); z-index: 1;
+}
+.pcc-modal-title { font-size: 15px; font-weight: 700; }
+.pcc-modal-close {
+  background: var(--bg-elevated, #1e293b); border: 1px solid var(--border); color: var(--text-dim);
+  border-radius: 7px; width: 26px; height: 26px; cursor: pointer; font-size: 13px;
+}
+.pcc-modal-close:hover { color: var(--text); }
+
+/* K 线 */
+.candle-wrap { position: relative; padding: 12px 16px 4px; }
+.candle-legend { display: flex; gap: 12px; font-size: 10px; color: var(--text-dim); margin-bottom: 6px; }
+.candle-chart { width: 100%; height: 320px; }
+.candle-status { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; }
+
+/* 决策链 */
+.dchain { padding: 6px 18px 18px; display: flex; flex-direction: column; gap: 0; }
+.dchain-step { display: flex; gap: 12px; padding: 10px 0; position: relative; }
+.dchain-step:not(:last-child)::after {
+  content: ""; position: absolute; left: 13px; top: 38px; bottom: -2px; width: 2px; background: var(--border);
+}
+.dchain-icon { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; flex: 0 0 auto; z-index: 1; }
+.dchain-body { flex: 1; min-width: 0; }
+.dchain-head { font-size: 12px; font-weight: 700; margin-bottom: 5px; }
+.dchain-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 5px; }
+.dchain-badge { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 6px; }
+.dchain-dim { font-size: 11px; color: var(--muted); }
+.dchain-metrics { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--text-dim); }
+.dchain-metrics b { color: var(--text); font-variant-numeric: tabular-nums; }
+.dchain-reason { font-size: 11px; color: var(--text-dim); margin-top: 5px; line-height: 1.45; }
+
 /* Manual col (amber accent) */
 .pcc-manual-col {
   background: var(--surface);

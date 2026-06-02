@@ -984,6 +984,32 @@ def get_positions():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/ohlcv/{symbol}")
+def get_ohlcv_endpoint(symbol: str, days: int = 130):
+    """单票日线 OHLCV（Alpaca，避开 yfinance 限流）— 供前端 K 线图。
+    days = 日历天回看（130 ≈ 90 个交易日）。"""
+    from src.monitor.sp500_scanner import fetch_bars_batch
+    sym = symbol.upper()
+    try:
+        bars = fetch_bars_batch([sym], days=days)
+        df = bars.get(sym)
+        if df is None or len(df) == 0:
+            return {"symbol": sym, "bars": []}
+        out = []
+        for ts, row in df.iterrows():
+            out.append({
+                "t": ts.strftime("%Y-%m-%d"),
+                "o": round(float(row["Open"]), 2),
+                "h": round(float(row["High"]), 2),
+                "l": round(float(row["Low"]), 2),
+                "c": round(float(row["Close"]), 2),
+                "v": int(row["Volume"]),
+            })
+        return {"symbol": sym, "bars": out}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/orders")
 def get_orders():
     from src.trader.alpaca_trader import get_client
