@@ -1167,7 +1167,8 @@ def run_agent(
                     continue   # only act on trades queued this run
                 if trade["status"] != "pending":
                     continue
-                if trade["confidence"] >= auto_threshold:
+                eff_threshold = _effective_auto_threshold(trade, auto_threshold)
+                if trade["confidence"] >= eff_threshold:
                     # Guard: ensure we still have enough spendable cash after prior approvals
                     if trade["side"] == "buy":
                         notional = trade.get("notional") or 0
@@ -1182,7 +1183,7 @@ def run_agent(
                             committed_this_run += trade.get("notional") or 0
                         auto_approved += 1
                         print(f"[agent] Auto-approved {trade['side'].upper()} {trade['symbol']} "
-                              f"(conf={trade['confidence']:.2f} ≥ {auto_threshold}, "
+                              f"(conf={trade['confidence']:.2f} ≥ {eff_threshold}, src={trade.get('source')}, "
                               f"committed=${committed_this_run:.0f}/{spendable_cash:.0f})")
                     except Exception as e:
                         print(f"[agent] Auto-approve failed for {trade['id']}: {e}")
@@ -1207,6 +1208,24 @@ def run_agent(
 # ── Auto-approve config ───────────────────────────────────────────────────────
 
 _AUTO_APPROVE_FILE = Path(__file__).parent.parent.parent / "data" / "auto_approve.json"
+
+# 保护性卖出比买入更易自动放行（减风险要果断、加仓要谨慎）：
+SELL_AUTO_THRESHOLD = 0.5   # AI 减仓/软清仓卖出的自动执行门槛（买入维持 _get_auto_approve_threshold）
+
+
+def _effective_auto_threshold(trade: dict, base: float) -> float:
+    """按 side+source 计算单笔的有效自动执行门槛。
+    - 机械止损（hard_stop / trail_stop）：0.0，始终自动执行；
+    - AI 减仓/软清仓（source=holdings 等卖出）：min(base, SELL_AUTO_THRESHOLD)，比买入低；
+    - 买入：维持 base（谨慎）。
+    背景：REDUCE 信号固定 conf≈0.6，旧逻辑用买入的 0.7 一刀切 → 永远不自动执行、挂到过期。
+    """
+    if trade.get("side") == "sell":
+        if trade.get("source") in ("hard_stop", "trail_stop"):
+            return 0.0
+        return min(base, SELL_AUTO_THRESHOLD)
+    return base
+
 
 def _get_auto_approve_threshold() -> Optional[float]:
     """

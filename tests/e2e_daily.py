@@ -310,6 +310,25 @@ def test_autonomous_mode():
             ok("Default config", "无配置文件，默认自主模式")
         else:
             ok("Config file", f"enabled={cfg['enabled']}, threshold={cfg['threshold']}")
+
+        # 买卖分级门槛（方案A）：保护性卖出比买入更易自动放行
+        from src.trader.trade_agent import _effective_auto_threshold, SELL_AUTO_THRESHOLD
+        base = 0.7
+        reduce_eff = _effective_auto_threshold({"side": "sell", "source": "holdings"}, base)
+        stop_eff   = _effective_auto_threshold({"side": "sell", "source": "trail_stop"}, base)
+        buy_eff    = _effective_auto_threshold({"side": "buy",  "source": "scanner"}, base)
+        if reduce_eff == min(base, SELL_AUTO_THRESHOLD) and reduce_eff <= 0.5:
+            ok("Sell tier — REDUCE", f"AI 减仓门槛={reduce_eff}（conf0.6 可自动执行）✓")
+        else:
+            fail("Sell tier — REDUCE", f"期望 ≤0.5，实际 {reduce_eff}")
+        if stop_eff == 0.0:
+            ok("Sell tier — stop", "机械止损门槛=0 始终执行 ✓")
+        else:
+            fail("Sell tier — stop", f"期望 0.0，实际 {stop_eff}")
+        if buy_eff == base:
+            ok("Buy tier", f"买入门槛维持 {buy_eff}（谨慎）✓")
+        else:
+            fail("Buy tier", f"期望 {base}，实际 {buy_eff}")
     except Exception as e:
         fail("Auto-execute", str(e))
 
