@@ -785,12 +785,26 @@ def get_pipeline_status():
     # Review
     review_cache_val = _review_cache.get("latest") or {}
 
+    # Live regime: market_context.json 的 regime/min_ai_score 是 Maya 8:00 的快照，
+    # 盘中不更新；而买入路径用的是 get_market_regime() 的实时值（带 TTL 持续刷新）。
+    # UI 必须显示实时 regime，否则会出现「显示 BULL 但实际盘中已 CAUTION」的误导。
+    # aggression/generated_at 仍取早盘快照（本就是早盘的目标决策）。
+    live_regime = ctx_data.get("regime")
+    live_min_ai = ctx_data.get("min_ai_score")
+    try:
+        from src.monitor.market_regime import get_market_regime
+        _lr = get_market_regime()
+        live_regime = _lr.get("regime", live_regime)
+        live_min_ai = _lr.get("min_ai_score", live_min_ai)
+    except Exception:
+        pass
+
     return {
         "market_context": {
             "status": "done" if ctx_data else "not_run",
-            "regime": ctx_data.get("regime"),
+            "regime": live_regime,
             "aggression": ctx_data.get("aggression"),
-            "min_ai_score": ctx_data.get("min_ai_score"),
+            "min_ai_score": live_min_ai,
             "generated_at": ctx_data.get("generated_at"),
             "age": _age_str(ctx_data.get("generated_at")),
         },
