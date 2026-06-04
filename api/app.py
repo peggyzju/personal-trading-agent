@@ -990,6 +990,11 @@ def get_positions():
                 "market_value": float(p.market_value),
                 "unrealized_pl": float(p.unrealized_pl),
                 "unrealized_plpc": float(p.unrealized_plpc) * 100,
+                # 今日涨跌：Alpaca 自带 change_today(小数)/ lastday_price(昨收)，
+                # 与 current_price 同源（Alpaca），取代前端原先按 symbol 单查 yfinance
+                # 的「今日」列——yfinance 开盘易限流/陈旧，会出现 AVGO 等显示错（含正负号反）。
+                "today_pct": (float(p.change_today) * 100) if getattr(p, "change_today", None) is not None else None,
+                "lastday_price": float(p.lastday_price) if getattr(p, "lastday_price", None) is not None else None,
                 "side": p.side,
             }
             for p in positions

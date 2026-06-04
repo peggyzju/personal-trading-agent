@@ -54,6 +54,8 @@ export interface Position {
   market_value: number;
   unrealized_pl: number;
   unrealized_plpc: number;
+  today_pct?: number | null;
+  lastday_price?: number | null;
   side: string;
 }
 
@@ -143,6 +145,8 @@ export interface HoldingPosition {
   market_value: number;
   unrealized_pl: number;
   unrealized_plpc: number;
+  today_pct?: number | null;
+  lastday_price?: number | null;
   side: string;
   sell_signal?: "SELL" | "REDUCE" | "HOLD" | "ADD";
   urgency?: "HIGH" | "MEDIUM" | "LOW";

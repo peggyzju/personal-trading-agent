@@ -3,7 +3,7 @@ import { api } from "../api/client";
 import type {
   BudgetAllocation, HoldingsResult, ScanResult,
   AgentState, PendingTrade, HoldingPosition, ScanCandidate, Position,
-  PipelineStatus, GoalProgress, Quote, PortfolioDay, Account,
+  PipelineStatus, GoalProgress, PortfolioDay, Account,
   AgentsStatus, AgentRunStatus, AgentRunHistoryEntry,
 } from "../api/client";
 import { TradeModal } from "./TradeModal";
@@ -30,7 +30,6 @@ interface PCC {
   agentsStatus: AgentsStatus | null;
   goal: GoalProgress | null;
   account: Account | null;
-  quotes: Record<string, Quote>;
   openSellSymbols: Set<string>;
   cancellingSymbols: Set<string>;
   errorSellSymbols: Set<string>;
@@ -38,7 +37,7 @@ interface PCC {
 }
 
 export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, autoApprove }: Props) {
-  const [data, setData] = useState<PCC>({ budget: null, holdings: null, positions: [], scan: null, agent: null, history: null, pipeline: null, agentsStatus: null, goal: null, account: null, quotes: {}, openSellSymbols: new Set(), cancellingSymbols: new Set(), errorSellSymbols: new Set(), allOrders: [] });
+  const [data, setData] = useState<PCC>({ budget: null, holdings: null, positions: [], scan: null, agent: null, history: null, pipeline: null, agentsStatus: null, goal: null, account: null, openSellSymbols: new Set(), cancellingSymbols: new Set(), errorSellSymbols: new Set(), allOrders: [] });
   const [tradeLogTab, setTradeLogTab] = useState<"open" | "filled" | "failed" | "cancelled">("open");
   const [detail, setDetail] = useState<DecisionInput | null>(null);   // K线+决策卡详情模态
 
@@ -101,21 +100,10 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
       cancellingSymbols,
       errorSellSymbols,
       allOrders,
-      quotes: {},
     };
     setData(newData);
 
-    // Fetch quotes in background — don't block the main data render
-    const positionSymbols = newData.positions.map(p => p.symbol);
-    if (positionSymbols.length > 0) {
-      Promise.allSettled(positionSymbols.map(sym => api.getQuoteSingle(sym))).then(results => {
-        const quotes: Record<string, Quote> = {};
-        results.forEach((r, i) => {
-          if (r.status === "fulfilled") quotes[positionSymbols[i]] = r.value;
-        });
-        setData(prev => ({ ...prev, quotes }));
-      });
-    }
+    // 「今日」涨跌已随 /api/positions(Alpaca change_today)返回，无需再单查 yfinance 报价
     if (onPendingCountChange && newData.agent) {
       onPendingCountChange(newData.agent.trades.filter(t => t.status === "pending").length);
     }
@@ -322,7 +310,6 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
                   <HoldingRow
                     key={p.symbol}
                     position={p}
-                    quote={data.quotes[p.symbol] ?? null}
                     allocPct={allocPct}
                     onRefresh={load}
                     hasOpenSell={data.openSellSymbols.has(p.symbol)}
@@ -474,9 +461,8 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 
-function HoldingRow({ position: p, quote, allocPct, onRefresh, hasOpenSell, isCancelling, hasSellError, onOpenDetail }: {
+function HoldingRow({ position: p, allocPct, onRefresh, hasOpenSell, isCancelling, hasSellError, onOpenDetail }: {
   position: HoldingPosition;
-  quote: Quote | null;
   allocPct: number;
   onRefresh: () => void;
   hasOpenSell?: boolean;
@@ -490,7 +476,7 @@ function HoldingRow({ position: p, quote, allocPct, onRefresh, hasOpenSell, isCa
   const plPct = p.unrealized_plpc ?? 0;
   const signalColor: Record<string, string> = { SELL: "#ef4444", REDUCE: "#f97316", HOLD: "#22c55e", ADD: "#6366f1" };
   const sig = p.sell_signal ?? "HOLD";
-  const todayPct = quote?.change_pct ?? null;
+  const todayPct = p.today_pct ?? null;
   const todayColor = todayPct != null ? (todayPct >= 0 ? "#22c55e" : "#ef4444") : "var(--muted)";
 
   async function closePos() {
