@@ -79,10 +79,58 @@ risk 2%/单 · 单仓上限 8% · TRAIL 10%/5% · 漂移 1.5% · 板块共振阈
 
 ---
 
-## ✅ 已上线基线（2026-06-01~02）
-扫描限流根治（yfinance→Alpaca 批量）· place_order 取价修复 · Scout/Rex 假成功埋点 · 重复触发竞争 · 版本归因单一事实源 · Maya 运行显示 · 盘前卖出时间门 · 买卖分级门槛 · **P0-1 K 线图** · **P0-2 决策卡阶段1** · 今日页重设计 · 生产构建修复
+# Part 3 · 待办 Backlog（策略迭代 + 运营/数据）
+
+> 本节合并原 memory `trading_next_week_todos.md`，作为唯一权威待办来源。
+> 注意：产品路线（Part 2）与策略/运营 backlog（Part 3）是两条线。动手任一项前先出设计稿/计划等确认（`CLAUDE.md`「先出计划」）。
+
+## 🔝 当前优先级（2026-06-09 重排）
+
+今天最大发现：**实盘 PF 0.74 vs v6 回测 PF 1.33** 的落差（57 笔/胜率 35%）。主因是逆风市况 + **操作损耗**（电脑睡眠致止损滞后、额度静默耗尽）。因此把"能直接缩小落差"的运营修复提到最前：
+
+| 顺序 | 事项 | 为什么 |
+|---|---|---|
+| 🥇 | **搬云 + 额度告警** | 直接消除"止损滞后 / AI 停摆"两个正在压低实盘绩效的损耗源 |
+| 🥈 | **候选 A + SNPS→v8** | 信号层最高频误判 + 卖出执行链断裂，真亏损根因 |
+| 🥉 | 产品 P1-4 风险体检 / P0-2 阶段2 | 提升"看得懂、敢否决"，但不直接改绩效 |
+
+## A. 策略迭代
+
+- 🔴 **候选 A（最高频误判源）**：高 vol_ratio 在 NEUTRAL/无趋势下降权或要额外趋势确认（区分分发 vs 积累）
+  - 回归靶子：**MRVL**（RSI 71 / vol_ratio 2.21 / vs_ma20 +13.4% 仍在门内 / AI 7→HOLD），验收 `vol_ratio≥2 且 vs_ma20>10%` 时应被拦
+  - 对照组（勿误伤）：AVGO/NVDA/AMAT（RSI 51–65 / vs_ma20≈0 / vol<1.1 / AI 8–9 → BUY）
+  - ⚠️ 阈值需基于 **IEX volume 重新校准**（免费 feed 是 IEX-only，vol_ratio 偏低）
+- 🔴 **SNPS → v8（计划已就绪）**：REDUCE 减仓「成交后」给剩余仓位补挂独立 stop 单
+  - 根因：`approve_trade`（trade_agent.py:367）REDUCE 走普通市价卖单不附 stop + line 1072 守卫使有 open sell 单时 REDUCE 被跳过 → 剩余股裸奔，只靠 30 分钟 HARD_STOP_PCT=-8% 兜底
+  - 方案：① 入队存 `remnant_stop_price`；② `sync_order_status` 检测 REDUCE filled 后读真实剩余股数 `place_order(stop)`，打标防重复；③ 无需改 app.py/main.py
+- 🟠 **候选 B**：入场加相对强度门（vs SPY / 同行业 ETF）
+- 🔧 **CAT 追高保护**：Track1 `vs_ma20≤15%` 太松（CAT -2.7%）→ `vs_ma20>10%` 时要求止损放宽或 R:R 提高（trade_agent.py Gate B 附近）
+- 🟡 **中概股 / 新兴市场风险框架**（VIPS -3.3%）：低 PE 是结构性折价非机会；低 beta + 52周低点 = 有限下行是误判
+- 🟡 **item 6 追踪止盈 −5% 对高波动票偏紧**：按 ATR%/波动率动态调回撤阈（高波动 7-8%，低波动 5%）（trade_agent.py TRAIL_PCT，line 966 附近）
+- 🟢 **候选 C/D**：C = REDUCE 带后续退出触发（减到多少/何时全退）；D = rsi/mom/vol 全 None 时自动降级 confidence
+- 📊 **item 1 Track1/2 真实胜率分析**（screen_track 埋点已上线，攒够数据后评估调参）
+- 📝 **item 1b 复盘 Tab 加"实盘门控"说明**（v7 类改动机械回测体现不出，加标注）
+
+## B. 运营 / 数据
+
+- 🆕 🔝 **搬云**：runbook 已就绪 `docs/CLOUD_MIGRATION.md`（AWS Lightsail $7/月，us-east-1）。根治笔记本睡眠致调度静默漏跑（06-05 整天 0 运行实证）
+- 🟡 **item 8 Anthropic 额度耗尽静默失败 → 告警**（06-04 踩到）：扫描 `ai_scored=0` 或 holdings AI 调用 400 时打醒目日志/推送。挂 `_run_sp500_scan` + holdings auto-refresh except 分支
+- 🟡 **item 7 size_scale 跨时间超配护栏**（+10% 有界）：trade_agent.py:469 乘前，live regime ∈ {CAUTION,BEAR,NEUTRAL} 时 `size_scale_override=min(_,1.0)`
+- 🟢 **item 5 清理** `src/analysis/pead_backtest.py`（未提交未引用）
+- ⏳ **versions.json 版本号统一**：卖出执行类改动（买卖分级门槛 + SNPS REDUCE 补挂）下次复盘统一编号
+
+## C. 已了结的历史复盘（保留索引）
+
+- **2026-06-01 三笔亏损复盘**（STEP/SNPS/VIPS）：主线 = NEUTRAL 下"基本面叙事盖过价格结构" → v7 门控已硬修；高 vol_ratio 无条件看涨 = 当前最高频误判（→候选 A）
+- **2026-06-01 扫描运营问题**：① yfinance 限流空扫描 ✅根治(PR#2) ② 假成功埋点 ✅(PR#4) ③ 重复触发竞争 ✅(8ef972a)
+
+---
+
+## ✅ 已上线基线
+**2026-06-01~02**：扫描限流根治（yfinance→Alpaca 批量）· place_order 取价修复 · Scout/Rex 假成功埋点 · 重复触发竞争 · 版本归因单一事实源 · Maya 运行显示 · 盘前卖出时间门 · 买卖分级门槛 · **P0-1 K 线图** · **P0-2 决策卡阶段1** · 今日页重设计 · 生产构建修复
+**2026-06-03~09**：run 记录显示 ET 时间 · UI regime 改 live（非 8:00 冻结快照）· 持仓「今日」列改 Alpaca change_today（弃 yfinance）· **trade_history 自动同步（绩效死数据根治，16:10 ET 收盘后）** · 云迁移 runbook
 
 ## 维护约定
-- **策略/参数迭代**待办 → memory `trading_next_week_todos.md`
+- **策略 + 运营待办** → 本文件 Part 3（唯一权威，原 memory `trading_next_week_todos.md` 已并入）
 - 动手任一项前先出设计稿/计划等确认（交易逻辑相关尤其遵守 `CLAUDE.md`「先出计划」）
 - 卖出执行类改动的 **versions.json 版本号** 待下次策略复盘统一整理
