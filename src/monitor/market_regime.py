@@ -109,14 +109,15 @@ def get_market_regime(force_refresh: bool = False) -> dict:
             max_positions = 0     # no new positions; manage existing stops only
             reason = f"SPY {vs_ma50:.1f}% below MA50 — crash mode, all buys blocked"
 
-        elif vs_ma20 < 0:
-            # Below MA20 — trend broken, stop opening new positions
+        elif vs_ma20 < 0 and vs_ma50 < 0:
+            # Below BOTH MA20 and MA50 — mid-term trend genuinely broken, stop new buys.
+            # (A1) 只破 MA20、MA50 仍在 = 上升趋势里的回调，不算熊 → 落到下面 CAUTION（减档但不封锁）。
             regime        = "BEAR"
             block_buys    = True
             size_factor   = 0.0
             min_ai_score  = 10
             max_positions = 3     # keep existing positions for stop management
-            reason = f"SPY {vs_ma20:.1f}% below MA20 — new buys blocked, manage stops only"
+            reason = f"SPY {vs_ma20:.1f}% below MA20 & {vs_ma50:.1f}% below MA50 — new buys blocked, manage stops only"
 
         elif vs_ma5 < 0 or spy_change_pct < -1.5:
             # Below 5-day MA or sharp intraday drop — yellow alert
