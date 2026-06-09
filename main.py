@@ -172,6 +172,18 @@ def sync_order_fills():
         print(f"[scheduler] Fill sync: {len(changed)} order(s) updated")
 
 
+def sync_trade_history():
+    """每个交易日收盘后从 Alpaca 回填已平仓交易到 trade_history.json（幂等，无交易副作用）。
+    绩效统计(胜率/盈亏比)的数据源就是它——不挂这个定时任务，平仓数据会一直是死数据。"""
+    try:
+        from src.analysis.strategy_versions import sync_closed_trades_from_alpaca
+        from src.trader.alpaca_trader import get_client
+        added = sync_closed_trades_from_alpaca(get_client(), days=30)
+        print(f"[scheduler] Trade history sync: {added} closed trade(s) recorded")
+    except Exception as e:
+        print(f"[scheduler] Trade history sync error: {e}")
+
+
 
 if __name__ == "__main__":
     print("📎 Personal Trading Agent")
@@ -236,6 +248,11 @@ if __name__ == "__main__":
     scheduler.add_job(sync_order_fills, "cron", day_of_week="mon-fri", hour="9-16", minute="*/5",
                       id="fill_sync", name="Order fill sync (every 5 min)",
                       misfire_grace_time=MGT)
+
+    # Trade history sync: 每个交易日收盘后回填平仓单 → 绩效统计不再变死数据
+    scheduler.add_job(sync_trade_history, "cron", day_of_week="mon-fri", hour=16, minute=10,
+                      id="trade_history_sync", name="Trade history sync (4:10 PM ET, 收盘后)",
+                      misfire_grace_time=300)
 
     # Vera 复盘已移除自动定时 — 改为手动 trigger（POST /api/strategy/review）
 

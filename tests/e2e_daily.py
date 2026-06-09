@@ -990,6 +990,21 @@ def test_scheduler_design():
     except Exception as e:
         fail("Vera only at close", str(e))
 
+    # 4b. 回归：trade_history 自动同步必须挂在调度器上
+    #     （绩效统计数据源 = trade_history.json，若无定时同步会从某次手动触发后冻成死数据）
+    try:
+        import main as main_module
+        src = inspect.getsource(main_module)
+        has_fn  = hasattr(main_module, "sync_trade_history")
+        has_job = "sync_trade_history," in src and 'id="trade_history_sync"' in src
+        if has_fn and has_job:
+            ok("Trade history sync scheduled", "sync_trade_history 已挂收盘后定时任务 ✓")
+        else:
+            fail("Trade history sync scheduled",
+                 f"缺失: fn={has_fn} job={has_job} — 平仓数据会变死数据")
+    except Exception as e:
+        fail("Trade history sync scheduled", str(e))
+
     # 4. 回归：trade_agent.py 不应出现把 'symbol' 当自由变量的闭包
     #    （旧版 run_agent 曾有裸 symbol 闭包 → "free variable 'symbol' referenced
     #     before assignment" 导致整轮 agent 崩溃。已重构为 c["symbol"]，守住别再引入）
