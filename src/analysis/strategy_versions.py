@@ -53,6 +53,41 @@ def _lookup_screen_track(alpaca_order_id: Optional[str], symbol: str) -> Optiona
     return sym_buys[0]["screen_track"] if sym_buys else None
 
 
+def _lookup_exit_reason(alpaca_sell_order_id: Optional[str], symbol: str) -> str:
+    """Find the TRUE exit reason for a closed trade by matching the SELL order
+    in trades.json (mirror of _lookup_screen_track, for the exit side).
+
+    真实原因写在 trades.json 卖出记录的 source/signal 上，Alpaca 同步本身不知道。
+    归一化为：hard_stop / trail_stop / ai_reduce / ai_sell。
+
+    Primary match: executed_order_id == alpaca_sell_order_id (exact).
+    Fallback: most recent sell for the same symbol that carries a source.
+    Returns "alpaca_sync" if no local sell record found (e.g. rolled out of trades.json).
+    """
+    def _normalize(t: dict) -> str:
+        src = t.get("source")
+        if src == "holdings":   # AI 软清仓 → 按信号细分
+            return "ai_reduce" if t.get("signal") == "REDUCE" else "ai_sell"
+        return src or "alpaca_sync"   # hard_stop / trail_stop 原样
+
+    try:
+        trades = json.loads(_TRADES_PATH.read_text())
+    except Exception:
+        return "alpaca_sync"
+    rows = trades.values() if isinstance(trades, dict) else trades
+    sells = [t for t in rows if isinstance(t, dict) and t.get("side") == "sell"]
+    if alpaca_sell_order_id:
+        for t in sells:
+            if t.get("executed_order_id") == alpaca_sell_order_id and t.get("source"):
+                return _normalize(t)
+    # Fallback: latest sell for this symbol with a source label
+    sym_sells = sorted(
+        (t for t in sells if t.get("symbol") == symbol and t.get("source")),
+        key=lambda t: t.get("created_at", ""), reverse=True,
+    )
+    return _normalize(sym_sells[0]) if sym_sells else "alpaca_sync"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Version store
 # ─────────────────────────────────────────────────────────────────────────────
@@ -429,7 +464,7 @@ def sync_closed_trades_from_alpaca(alpaca_api, days: int = 30) -> int:
                 entry_price=entry_price,
                 exit_price=exit_price,
                 pnl_pct=round(pnl_pct, 2),
-                exit_reason="alpaca_sync",
+                exit_reason=_lookup_exit_reason(sell.id, sym),
                 days_held=days_held,
                 notional=notional,
                 market_regime=current_regime,
