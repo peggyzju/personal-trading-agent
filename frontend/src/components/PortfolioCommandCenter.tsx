@@ -934,8 +934,16 @@ function DashboardSummary({ goal, history, account }: { goal: GoalProgress | nul
   const ret30 = startEq30 && startEq30 > 0 ? (pl30 / startEq30) * 100 : null;
   const wins30 = win30.filter(d => d.daily_return_pct > 0).length;
   const losses30 = win30.filter(d => d.daily_return_pct < 0).length;
-  const ret30Color = ret30 == null ? "var(--muted)" : ret30 >= 0 ? "#22c55e" : "#ef4444";
-  const bar30 = ret30 == null ? 0 : Math.min(100, (Math.abs(ret30) / 10) * 100); // ±10% 满格
+  // 进度条：最近30天收益 相对「月度目标」填充（目标上限=满格，下限处放标记）
+  const targetHi = goal?.target_pct_high ?? null;
+  const targetLo = goal?.target_pct_low ?? null;
+  const bar30 = (ret30 != null && targetHi && targetHi > 0)
+    ? Math.min(100, Math.max(0, (ret30 / targetHi) * 100)) : 0;
+  const loMark30 = (targetHi && targetLo) ? Math.round((targetLo / targetHi) * 100) : null;
+  const ret30Color = ret30 == null ? "var(--muted)"
+    : ret30 < 0 ? "#ef4444"
+    : (targetLo != null && ret30 >= targetLo) ? "#22c55e"  // 达到最低目标
+    : "#f59e0b";                                            // 为正但未达标
 
   return (
     <div className="pcc-summary">
@@ -966,6 +974,9 @@ function DashboardSummary({ goal, history, account }: { goal: GoalProgress | nul
         </div>
         <div className="pcc-summary-track">
           <div className="pcc-summary-fill" style={{ width: `${bar30}%`, background: ret30Color }} />
+          {loMark30 != null && (
+            <div className="pcc-summary-mark" style={{ left: `${loMark30}%` }} title={`最低目标 ${targetLo}%`} />
+          )}
         </div>
         <div className="pcc-summary-goal-bottom">
           <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
@@ -975,6 +986,11 @@ function DashboardSummary({ goal, history, account }: { goal: GoalProgress | nul
             <span style={{ color: ret30Color, fontSize: 11, fontWeight: 600 }}>
               {pl30 >= 0 ? "+" : "−"}${Math.abs(pl30).toLocaleString("en-US", { maximumFractionDigits: 0 })}
             </span>
+            {targetHi != null && (
+              <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 11 }}>
+                · 目标 {targetLo}–{targetHi}%
+              </span>
+            )}
           </span>
           <span style={{ fontSize: 11, fontWeight: 600 }}>
             <span className="up">{wins30} 盈</span> / <span className="down">{losses30} 亏</span>
