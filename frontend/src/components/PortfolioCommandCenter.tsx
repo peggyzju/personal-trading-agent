@@ -926,14 +926,16 @@ function DashboardSummary({ goal, history, account }: { goal: GoalProgress | nul
   const todayPct = todayDay?.daily_return_pct ?? null;
   const isToday  = todayDay?.date === todayStr;
 
-  const goalPct   = goal?.current_return_pct ?? null;
-  const fillPct   = goal ? Math.min(100, Math.max(0, goal.current_return_pct / goal.target_pct_high * 100)) : 0;
-  const timePct   = goal ? Math.round(goal.days_elapsed / goal.total_days * 100) : 0;
-  const loMark    = goal ? Math.round(goal.target_pct_low / goal.target_pct_high * 100) : 67;
-  const barColor  = !goal ? "#818cf8" : goal.on_track ? "#22c55e" : goalPct != null && goalPct >= 0 ? "#f59e0b" : "#ef4444";
-
-  const totalPL    = history?.total_pl ?? null;
-  const totalColor = totalPL != null ? (totalPL >= 0 ? "#22c55e" : "#ef4444") : "var(--muted)";
+  // 滚动「最近 30 天」收益（替代固定目标冲刺；与下方热力图同窗口）
+  const cutoff30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const win30 = days.filter(d => d.date >= cutoff30);
+  const pl30 = win30.reduce((s, d) => s + d.daily_pl, 0);
+  const startEq30 = win30.length ? win30[win30.length - 1].equity - pl30 : null;
+  const ret30 = startEq30 && startEq30 > 0 ? (pl30 / startEq30) * 100 : null;
+  const wins30 = win30.filter(d => d.daily_return_pct > 0).length;
+  const losses30 = win30.filter(d => d.daily_return_pct < 0).length;
+  const ret30Color = ret30 == null ? "var(--muted)" : ret30 >= 0 ? "#22c55e" : "#ef4444";
+  const bar30 = ret30 == null ? 0 : Math.min(100, (Math.abs(ret30) / 10) * 100); // ±10% 满格
 
   return (
     <div className="pcc-summary">
@@ -954,41 +956,29 @@ function DashboardSummary({ goal, history, account }: { goal: GoalProgress | nul
         </div>
       </div>
 
-      {/* center: goal progress */}
+      {/* center: 最近 30 天收益（滚动窗口，与热力图一致） */}
       <div className="pcc-summary-goal">
         <div className="pcc-summary-goal-top">
-          <span className="pcc-summary-label">目标期收益</span>
+          <span className="pcc-summary-label">最近 30 天收益</span>
           <span className="pcc-summary-label" style={{ color: "var(--muted)" }}>
-            {goal ? `第 ${goal.days_elapsed}/${goal.total_days} 天` : ""}
+            {win30.length} 个交易日
           </span>
         </div>
         <div className="pcc-summary-track">
-          <div className="pcc-summary-time-ghost" style={{ width: `${timePct}%` }} />
-          <div className="pcc-summary-fill" style={{ width: `${fillPct}%`, background: barColor }} />
-          <div className="pcc-summary-mark" style={{ left: `${loMark}%` }} title={`最低目标 ${goal?.target_pct_low}%`} />
+          <div className="pcc-summary-fill" style={{ width: `${bar30}%`, background: ret30Color }} />
         </div>
         <div className="pcc-summary-goal-bottom">
           <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-            <span style={{ color: barColor, fontSize: 13, fontWeight: 700 }}>
-              {goalPct != null ? `${goalPct >= 0 ? "+" : ""}${goalPct.toFixed(2)}%` : "—"}
+            <span style={{ color: ret30Color, fontSize: 13, fontWeight: 700 }}>
+              {ret30 != null ? `${ret30 >= 0 ? "+" : ""}${ret30.toFixed(2)}%` : "—"}
             </span>
-            {totalPL != null && (
-              <span style={{ color: totalColor, fontSize: 11, fontWeight: 600 }}>
-                {totalPL >= 0 ? "+" : "−"}${Math.abs(totalPL).toLocaleString("en-US", { maximumFractionDigits: 0 })}
-              </span>
-            )}
-            {goal && (
-              <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 11 }}>
-                · 目标 {goal.target_pct_low}–{goal.target_pct_high}%
-              </span>
-            )}
+            <span style={{ color: ret30Color, fontSize: 11, fontWeight: 600 }}>
+              {pl30 >= 0 ? "+" : "−"}${Math.abs(pl30).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+            </span>
           </span>
-          {goal && !goal.on_track && (
-            <span style={{ color: "#f59e0b", fontSize: 11, fontWeight: 600 }}>⚠ 需 +{goal.daily_return_needed.toFixed(2)}%/天</span>
-          )}
-          {goal && goal.on_track && (
-            <span style={{ color: "#22c55e", fontSize: 11, fontWeight: 600 }}>✓ 达标轨道</span>
-          )}
+          <span style={{ fontSize: 11, fontWeight: 600 }}>
+            <span className="up">{wins30} 盈</span> / <span className="down">{losses30} 亏</span>
+          </span>
         </div>
       </div>
 
@@ -1051,15 +1041,14 @@ function cellColor(pct: number): string {
 function CompactHeatmap({ days }: { days: PortfolioDay[] }) {
   const [tooltip, setTooltip] = useState<{ day: PortfolioDay; x: number; y: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
-  const now = new Date();
-  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const monthDays = days.filter(d => d.date.startsWith(monthKey));
+  const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const monthDays = days.filter(d => d.date >= cutoff);
   if (monthDays.length === 0) return null;
 
   return (
     <div className="pcc-compact-heatmap" ref={ref}>
       <div className="pcc-heatmap-header">
-        <span className="pcc-heatmap-title">本月每日收益</span>
+        <span className="pcc-heatmap-title">最近 30 天每日收益</span>
         {(() => {
           const n = monthDays.length;
           const wins = monthDays.filter(d => d.daily_return_pct > 0).length;
