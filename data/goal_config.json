@@ -1,7 +1,7 @@
 {
   "start_date": "2026-05-13",
   "start_equity": 100000.0,
-  "target_pct_low": 10.0,
-  "target_pct_high": 15.0,
+  "target_pct_low": 6.0,
+  "target_pct_high": 6.0,
   "total_days": 30
 }
