@@ -926,24 +926,10 @@ function DashboardSummary({ goal, history, account }: { goal: GoalProgress | nul
   const todayPct = todayDay?.daily_return_pct ?? null;
   const isToday  = todayDay?.date === todayStr;
 
-  // 滚动「最近 30 天」收益（替代固定目标冲刺；与下方热力图同窗口）
-  const cutoff30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-  const win30 = days.filter(d => d.date >= cutoff30);
-  const pl30 = win30.reduce((s, d) => s + d.daily_pl, 0);
-  const startEq30 = win30.length ? win30[win30.length - 1].equity - pl30 : null;
-  const ret30 = startEq30 && startEq30 > 0 ? (pl30 / startEq30) * 100 : null;
-  const wins30 = win30.filter(d => d.daily_return_pct > 0).length;
-  const losses30 = win30.filter(d => d.daily_return_pct < 0).length;
-  // 进度条：最近30天收益 相对「月度目标」填充（目标上限=满格，下限处放标记）
-  const targetHi = goal?.target_pct_high ?? null;
-  const targetLo = goal?.target_pct_low ?? null;
-  const bar30 = (ret30 != null && targetHi && targetHi > 0)
-    ? Math.min(100, Math.max(0, (ret30 / targetHi) * 100)) : 0;
-  const loMark30 = (targetHi && targetLo && targetLo !== targetHi) ? Math.round((targetLo / targetHi) * 100) : null;
-  const ret30Color = ret30 == null ? "var(--muted)"
-    : ret30 < 0 ? "#ef4444"
-    : (targetLo != null && ret30 >= targetLo) ? "#22c55e"  // 达到最低目标
-    : "#f59e0b";                                            // 为正但未达标
+  // 总收益（自开户以来累计）
+  const totalPL    = history?.total_pl ?? null;
+  const totalPct   = history?.total_return_pct ?? null;
+  const totalColor = totalPL != null ? (totalPL >= 0 ? "up" : "down") : "";
 
   return (
     <div className="pcc-summary">
@@ -964,37 +950,20 @@ function DashboardSummary({ goal, history, account }: { goal: GoalProgress | nul
         </div>
       </div>
 
-      {/* center: 最近 30 天收益（滚动窗口，与热力图一致） */}
-      <div className="pcc-summary-goal">
-        <div className="pcc-summary-goal-top">
-          <span className="pcc-summary-label">最近 30 天收益</span>
-          <span className="pcc-summary-label" style={{ color: "var(--muted)" }}>
-            {win30.length} 个交易日
-          </span>
-        </div>
-        <div className="pcc-summary-track">
-          <div className="pcc-summary-fill" style={{ width: `${bar30}%`, background: ret30Color }} />
-          {loMark30 != null && (
-            <div className="pcc-summary-mark" style={{ left: `${loMark30}%` }} title={`最低目标 ${targetLo}%`} />
+      {/* center: 总收益（累计） */}
+      <div className="pcc-summary-today">
+        <div className="pcc-summary-label">总收益</div>
+        <div className="pcc-summary-big">
+          {totalPL != null ? (
+            <span className={totalColor}>
+              {totalPL >= 0 ? "+" : "−"}${Math.abs(totalPL).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+            </span>
+          ) : <span style={{ color: "var(--muted)" }}>—</span>}
+          {totalPct != null && (
+            <span className={`pcc-summary-pct ${totalColor}`}>
+              {totalPct >= 0 ? "+" : ""}{totalPct.toFixed(2)}%
+            </span>
           )}
-        </div>
-        <div className="pcc-summary-goal-bottom">
-          <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-            <span style={{ color: ret30Color, fontSize: 13, fontWeight: 700 }}>
-              {ret30 != null ? `${ret30 >= 0 ? "+" : ""}${ret30.toFixed(2)}%` : "—"}
-            </span>
-            <span style={{ color: ret30Color, fontSize: 11, fontWeight: 600 }}>
-              {pl30 >= 0 ? "+" : "−"}${Math.abs(pl30).toLocaleString("en-US", { maximumFractionDigits: 0 })}
-            </span>
-            {targetHi != null && (
-              <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 11 }}>
-                · 目标 {targetLo === targetHi ? `${targetHi}` : `${targetLo}–${targetHi}`}%
-              </span>
-            )}
-          </span>
-          <span style={{ fontSize: 11, fontWeight: 600 }}>
-            <span className="up">{wins30} 盈</span> / <span className="down">{losses30} 亏</span>
-          </span>
         </div>
       </div>
 
