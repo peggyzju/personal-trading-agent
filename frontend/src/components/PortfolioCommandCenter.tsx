@@ -939,7 +939,7 @@ function DashboardSummary({ goal, history, account }: { goal: GoalProgress | nul
   const targetLo = goal?.target_pct_low ?? null;
   const bar30 = (ret30 != null && targetHi && targetHi > 0)
     ? Math.min(100, Math.max(0, (ret30 / targetHi) * 100)) : 0;
-  const loMark30 = (targetHi && targetLo) ? Math.round((targetLo / targetHi) * 100) : null;
+  const loMark30 = (targetHi && targetLo && targetLo !== targetHi) ? Math.round((targetLo / targetHi) * 100) : null;
   const ret30Color = ret30 == null ? "var(--muted)"
     : ret30 < 0 ? "#ef4444"
     : (targetLo != null && ret30 >= targetLo) ? "#22c55e"  // 达到最低目标
@@ -988,7 +988,7 @@ function DashboardSummary({ goal, history, account }: { goal: GoalProgress | nul
             </span>
             {targetHi != null && (
               <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 11 }}>
-                · 目标 {targetLo}–{targetHi}%
+                · 目标 {targetLo === targetHi ? `${targetHi}` : `${targetLo}–${targetHi}`}%
               </span>
             )}
           </span>
@@ -1002,7 +1002,9 @@ function DashboardSummary({ goal, history, account }: { goal: GoalProgress | nul
       <div className="pcc-summary-target">
         <div className="pcc-summary-label">{goal ? `${goal.total_days}天目标` : "目标"}</div>
         <div className="pcc-summary-big" style={{ fontSize: 18 }}>
-          {goal ? `${goal.target_pct_low.toFixed(0)}–${goal.target_pct_high.toFixed(0)}%` : "—"}
+          {goal ? (goal.target_pct_low === goal.target_pct_high
+            ? `${goal.target_pct_high.toFixed(0)}%`
+            : `${goal.target_pct_low.toFixed(0)}–${goal.target_pct_high.toFixed(0)}%`) : "—"}
         </div>
         {goal && (
           <div className="pcc-summary-label" style={{ color: "var(--muted)" }}>
