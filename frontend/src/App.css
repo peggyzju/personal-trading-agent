@@ -4060,7 +4060,7 @@ body {
 /* ── Dashboard Summary (today + goal merged) ── */
 .pcc-summary {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: repeat(4, 1fr);
   gap: 0;
   align-items: center;
   padding: 14px 20px;
@@ -4071,9 +4071,11 @@ body {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding-right: 20px;
+  padding: 0 20px;
   border-right: 1px solid var(--border);
 }
+.pcc-summary-today:first-child { padding-left: 0; }
+.pcc-summary-today:last-child { padding-right: 0; border-right: none; }
 
 .pcc-summary-goal {
   display: flex;

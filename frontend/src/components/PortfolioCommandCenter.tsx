@@ -918,7 +918,7 @@ function _BuySignalRow({ rank, candidate: c, budget, backendOnline }: { rank: nu
 
 // ── Dashboard Top Components ──────────────────────────────────────────────────
 
-function DashboardSummary({ goal, history, account }: { goal: GoalProgress | null; history: PortfolioHistory | null; account: Account | null }) {
+function DashboardSummary({ history, account }: { goal: GoalProgress | null; history: PortfolioHistory | null; account: Account | null }) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const days = history?.days ?? [];
   const todayDay = days.find(d => d.date === todayStr) ?? (days.length > 0 ? days[days.length - 1] : null);
@@ -926,92 +926,56 @@ function DashboardSummary({ goal, history, account }: { goal: GoalProgress | nul
   const todayPct = todayDay?.daily_return_pct ?? null;
   const isToday  = todayDay?.date === todayStr;
 
-  // 总收益（自开户以来累计）
-  const totalPL    = history?.total_pl ?? null;
-  const totalPct   = history?.total_return_pct ?? null;
-  const totalColor = totalPL != null ? (totalPL >= 0 ? "up" : "down") : "";
+  // 最近30天（滚动窗口，与下方热力图一致）
+  const cutoff30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const win30 = days.filter(d => d.date >= cutoff30);
+  const pl30 = win30.reduce((s, d) => s + d.daily_pl, 0);
+  const startEq30 = win30.length ? win30[win30.length - 1].equity - pl30 : null;
+  const ret30 = startEq30 && startEq30 > 0 ? (pl30 / startEq30) * 100 : null;
+  // 总收益（自开户累计）
+  const totalPL  = history?.total_pl ?? null;
+  const totalPct = history?.total_return_pct ?? null;
+  // 现金
+  const cash    = account?.cash ?? null;
+  const pv      = account?.portfolio_value ?? null;
+  const cashPct = (cash != null && pv) ? (cash / pv) * 100 : null;
+  const cashOk  = (cash != null && pv) ? cash >= pv * 0.05 : true;
+
+  const fmtDollar = (v: number) => `${v >= 0 ? "+" : "−"}$${Math.abs(v).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  const fmtPct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
+
+  // 一个收益 KPI 卡（$ 主 + % 副）
+  const ReturnKpi = ({ label, pl, pct }: { label: string; pl: number | null; pct: number | null }) => (
+    <div className="pcc-summary-today">
+      <div className="pcc-summary-label">{label}</div>
+      <div className="pcc-summary-big">
+        {pl != null ? <span className={pl >= 0 ? "up" : "down"}>{fmtDollar(pl)}</span>
+                    : <span style={{ color: "var(--muted)" }}>—</span>}
+        {pct != null && <span className={`pcc-summary-pct ${(pl ?? 0) >= 0 ? "up" : "down"}`}>{fmtPct(pct)}</span>}
+      </div>
+    </div>
+  );
 
   return (
     <div className="pcc-summary">
-      {/* left: today */}
+      <ReturnKpi label={isToday ? "今日收益" : todayDay ? `${todayDay.date.slice(5)} 收益（休市）` : "今日收益"} pl={todayPL} pct={todayPct} />
+      <ReturnKpi label="最近 30 天" pl={win30.length ? pl30 : null} pct={ret30} />
+      <ReturnKpi label="总收益" pl={totalPL} pct={totalPct} />
+
+      {/* 现金 */}
       <div className="pcc-summary-today">
-        <div className="pcc-summary-label">{isToday ? "今日收益" : todayDay ? `${todayDay.date.slice(5)} 收益（休市）` : "今日收益"}</div>
+        <div className="pcc-summary-label">现金</div>
         <div className="pcc-summary-big">
-          {todayPL != null ? (
-            <span className={todayPL >= 0 ? "up" : "down"}>
-              {todayPL >= 0 ? "+" : "−"}${Math.abs(todayPL).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+          {cash != null ? (
+            <span style={{ color: cashOk ? "var(--text)" : "#ef4444" }}>
+              ${Math.abs(cash).toLocaleString("en-US", { maximumFractionDigits: 0 })}
             </span>
           ) : <span style={{ color: "var(--muted)" }}>—</span>}
-          {todayPct != null && (
-            <span className={`pcc-summary-pct ${todayPL != null && todayPL >= 0 ? "up" : "down"}`}>
-              {todayPct >= 0 ? "+" : ""}{todayPct.toFixed(2)}%
-            </span>
+          {cashPct != null && (
+            <span className="pcc-summary-pct" style={{ color: "var(--muted)" }}>{cashPct.toFixed(0)}%</span>
           )}
         </div>
-      </div>
-
-      {/* center: 总收益（累计） */}
-      <div className="pcc-summary-today">
-        <div className="pcc-summary-label">总收益</div>
-        <div className="pcc-summary-big">
-          {totalPL != null ? (
-            <span className={totalColor}>
-              {totalPL >= 0 ? "+" : "−"}${Math.abs(totalPL).toLocaleString("en-US", { maximumFractionDigits: 0 })}
-            </span>
-          ) : <span style={{ color: "var(--muted)" }}>—</span>}
-          {totalPct != null && (
-            <span className={`pcc-summary-pct ${totalColor}`}>
-              {totalPct >= 0 ? "+" : ""}{totalPct.toFixed(2)}%
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* right: target + cash */}
-      <div className="pcc-summary-target">
-        <div className="pcc-summary-label">{goal ? `${goal.total_days}天目标` : "目标"}</div>
-        <div className="pcc-summary-big" style={{ fontSize: 18 }}>
-          {goal ? (goal.target_pct_low === goal.target_pct_high
-            ? `${goal.target_pct_high.toFixed(0)}%`
-            : `${goal.target_pct_low.toFixed(0)}–${goal.target_pct_high.toFixed(0)}%`) : "—"}
-        </div>
-        {goal && (
-          <div className="pcc-summary-label" style={{ color: "var(--muted)" }}>
-            剩 {goal.days_remaining} 天
-          </div>
-        )}
-        {account != null && (() => {
-          const cash = account.cash;
-          const reserve = account.portfolio_value * 0.05;
-          const cashOk = cash >= reserve;
-          const rows = [
-            {
-              label: "现金",
-              value: `${cash >= 0 ? "" : "−"}$${Math.abs(cash).toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-              color: cashOk ? "var(--text)" : "#ef4444",
-              badge: cashOk ? null : "⚠ 低于储备",
-              badgeColor: "#ef4444",
-            },
-            {
-              label: "日内次数",
-              value: `${account.daytrade_count} 次`,
-              color: "var(--text)",
-              badge: null,
-              badgeColor: "",
-            },
-          ];
-          return (
-            <div className="pcc-account-rows">
-              {rows.map(r => (
-                <div key={r.label} className="pcc-account-row">
-                  <span className="pcc-summary-label">{r.label}</span>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: r.color }}>{r.value}</span>
-                  {r.badge && <span style={{ fontSize: 10, color: r.badgeColor }}>{r.badge}</span>}
-                </div>
-              ))}
-            </div>
-          );
-        })()}
+        {!cashOk && <div className="pcc-summary-label" style={{ color: "#ef4444" }}>⚠ 低于储备</div>}
       </div>
     </div>
   );
