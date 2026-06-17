@@ -184,6 +184,17 @@ def sync_trade_history():
         print(f"[scheduler] Trade history sync error: {e}")
 
 
+def fill_score_forward_returns():
+    """每交易日收盘后回填 score_log 候选的前向收益(5/10/20 交易日)。
+    AI-edge 分析的数据源；只填已到期的,无 look-ahead。"""
+    try:
+        from src.analysis.score_logger import fill_forward_returns
+        n = fill_forward_returns()
+        if n:
+            print(f"[scheduler] Score-log forward fill: {n} field(s) filled")
+    except Exception as e:
+        print(f"[scheduler] Score-log forward fill error: {e}")
+
 
 if __name__ == "__main__":
     print("📎 Personal Trading Agent")
@@ -252,6 +263,11 @@ if __name__ == "__main__":
     # Trade history sync: 每个交易日收盘后回填平仓单 → 绩效统计不再变死数据
     scheduler.add_job(sync_trade_history, "cron", day_of_week="mon-fri", hour=16, minute=10,
                       id="trade_history_sync", name="Trade history sync (4:10 PM ET, 收盘后)",
+                      misfire_grace_time=300)
+
+    # Score-log 前向收益回填: 收盘后(trade_history 同步之后) → AI-edge 分析数据源
+    scheduler.add_job(fill_score_forward_returns, "cron", day_of_week="mon-fri", hour=16, minute=20,
+                      id="score_fwd_fill", name="Score-log forward-return fill (4:20 PM ET, 收盘后)",
                       misfire_grace_time=300)
 
     # Vera 复盘已移除自动定时 — 改为手动 trigger（POST /api/strategy/review）
