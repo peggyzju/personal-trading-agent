@@ -203,8 +203,10 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
         acc.filled.push(t);
       } else if (alpacaOrder?.status === "filled") {
         acc.filled.push(t);
-      } else if (alpacaOrder?.status === "canceled" || alpacaOrder?.status === "cancelled" || alpacaOrder?.status === "expired") {
-        // Order was cancelled in Alpaca — show under 已撤销 even if local status says "executed"
+      } else if (t.fill_status === "canceled" || t.fill_status === "cancelled" || t.fill_status === "expired"
+                 || alpacaOrder?.status === "canceled" || alpacaOrder?.status === "cancelled" || alpacaOrder?.status === "expired") {
+        // 本地 fill_status 或 Alpaca 订单已撤销/过期 → 归「已撤销」，即便本地 status 还是 "executed"
+        // （修僵尸：撤单后 status 未同步成 canceled，否则会误掉进「挂单中」）
         acc.cancelled.push(t);
       } else if (alpacaOrder && ALPACA_OPEN.has(alpacaOrder.status)) {
         acc.open.push(t);
