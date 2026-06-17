@@ -519,6 +519,17 @@ def _run_sp500_scan(cascade_agent: bool = False):
             ))
 
         ai_scored = sum(1 for c in top_ai if c.get("ai_score") is not None)
+
+        # AI-edge 埋点：记录本次每个打分候选(前向收益 Phase 2 回填)。非致命。
+        try:
+            from src.analysis.score_logger import record_scored_candidates
+            _logged = record_scored_candidates(
+                top_ai, regime=ctx.get("regime"), min_ai_score=ctx.get("min_ai_score"))
+            if _logged:
+                print(f"[scan] score_log: 记录 {_logged} 个打分候选")
+        except Exception as _se:
+            print(f"[scan] score_logger error (non-fatal): {_se}")
+
         _downloaded_ok = _scan_stats.get("downloaded_ok", len(tickers))
         # 故障空：取数大面积失败（如数据源故障）→ 不算成功。
         # 与「正常空」区分：正常空是都取到数据、只是没票过筛。
