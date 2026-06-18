@@ -232,6 +232,8 @@ def _simulate_symbol(
     rr_min: float = 0.0,             # Gate B: skip entry if R:R < rr_min (Track2 / legacy)
     max_stop_t1: float | None = None, # Gate B v6: max stop distance for Track1 (e.g. 0.08)
     spy_df: "pd.DataFrame | None" = None,  # SPY Close + ma20 indexed by date
+    stale_days: int | None = None,   # 死钱止损：持有≥N交易日
+    stale_max_gain: float | None = None,  # 且收益<X(如0.03)→退出
 ) -> list[dict]:
     """Walk-forward simulation for one symbol. Returns list of trade dicts."""
     spy_close = spy_df["Close"] if spy_df is not None else None
@@ -349,6 +351,10 @@ def _simulate_symbol(
                 elif trailing_active and low <= high_water * (1 - trail_pct):
                     exit_price = high_water * (1 - trail_pct) * (1 - slippage_pct)
                     exit_reason = "trail_stop"
+                elif (stale_days is not None and days_held >= stale_days
+                      and (close - entry_price) / entry_price < (stale_max_gain or 0)):
+                    exit_price = close * (1 - slippage_pct)
+                    exit_reason = "stale_exit"
                 elif days_held >= hold_days * 2:  # double time limit for trailing
                     exit_price = close * (1 - slippage_pct)
                     exit_reason = "time_exit"
@@ -359,6 +365,10 @@ def _simulate_symbol(
                 elif high >= target:
                     exit_price = target * (1 - slippage_pct)
                     exit_reason = "target_hit"
+                elif (stale_days is not None and days_held >= stale_days
+                      and (close - entry_price) / entry_price < (stale_max_gain or 0)):
+                    exit_price = close * (1 - slippage_pct)
+                    exit_reason = "stale_exit"
                 elif days_held >= hold_days:
                     exit_price = close * (1 - slippage_pct)
                     exit_reason = "time_exit"

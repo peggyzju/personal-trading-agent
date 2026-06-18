@@ -122,6 +122,7 @@ risk 2%/单 · 单仓上限 8% · TRAIL 10%/5% · 漂移 1.5% · 板块共振阈
   - 互补：只在 收益<3% 触发 → 永不碰趋势过滤(≥5%)的赢家；补"不死不活占位"这段空白
   - 参数起点 N=10/X=3%,回测扫 N∈{8,10,12}×X∈{0,3,5}(引擎 hold_days 近似 N;条件版 X 需给 _simulate_symbol 加条件 time-exit)
   - caveat：换手率↑(滑点);是清理不是核心解药(腾位只有新票更好才赚→依赖 AI edge)。升 v8
+  - 🔬 **回测结论(2026-06-18，2023/24/25 × N{8,10,12}×X{0,3,5%})：不支持现在实施**。PF 跨年不一致(±0.05、年份依赖)、avgW 被砍(8→5-6)、换手率↑。引擎单票模拟**测不了轮动收益**(组合级);"提前砍死钱"本身不改善 per-trade。**等 AI-edge 验证后,有 edge 再配组合回测做**。backtester 已加可选 `stale_days/stale_max_gain`(默认关)备用
 - 🔴 **SNPS → v8（计划已就绪）**：REDUCE 减仓「成交后」给剩余仓位补挂独立 stop 单
   - 根因：`approve_trade`（trade_agent.py:367）REDUCE 走普通市价卖单不附 stop + line 1072 守卫使有 open sell 单时 REDUCE 被跳过 → 剩余股裸奔，只靠 30 分钟 HARD_STOP_PCT=-8% 兜底
   - 方案：① 入队存 `remnant_stop_price`；② `sync_order_status` 检测 REDUCE filled 后读真实剩余股数 `place_order(stop)`，打标防重复；③ 无需改 app.py/main.py
