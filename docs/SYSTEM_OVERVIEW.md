@@ -116,6 +116,12 @@ risk 2%/单 · 单仓上限 8% · TRAIL 10%/5% · 漂移 1.5% · 板块共振阈
   - 回归靶子：**MRVL**（RSI 71 / vol_ratio 2.21 / vs_ma20 +13.4% 仍在门内 / AI 7→HOLD），验收 `vol_ratio≥2 且 vs_ma20>10%` 时应被拦
   - 对照组（勿误伤）：AVGO/NVDA/AMAT（RSI 51–65 / vs_ma20≈0 / vol<1.1 / AI 8–9 → BUY）
   - ⚠️ 阈值需基于 **IEX volume 重新校准**（免费 feed 是 IEX-only，vol_ratio 偏低）
+- 🔴 **死钱止损 stale_exit（设计已就绪，2026-06-18）**：持仓占位但不涨不跌、没有轮动 → 死钱长期占槽,新机会进不来
+  - 规则：**持有 ≥10 交易日 且 收益 < +3% → SELL**（source=`stale_exit`，conf 0.7 自动落地）
+  - 落点：`holdings_monitor.analyze_sell_signals` 机械预检（硬止损同级，AI 之前）；days_held 查 trades.json 最近 buy 的 created_at 算交易日,取不到则跳过(不误杀)
+  - 互补：只在 收益<3% 触发 → 永不碰趋势过滤(≥5%)的赢家；补"不死不活占位"这段空白
+  - 参数起点 N=10/X=3%,回测扫 N∈{8,10,12}×X∈{0,3,5}(引擎 hold_days 近似 N;条件版 X 需给 _simulate_symbol 加条件 time-exit)
+  - caveat：换手率↑(滑点);是清理不是核心解药(腾位只有新票更好才赚→依赖 AI edge)。升 v8
 - 🔴 **SNPS → v8（计划已就绪）**：REDUCE 减仓「成交后」给剩余仓位补挂独立 stop 单
   - 根因：`approve_trade`（trade_agent.py:367）REDUCE 走普通市价卖单不附 stop + line 1072 守卫使有 open sell 单时 REDUCE 被跳过 → 剩余股裸奔，只靠 30 分钟 HARD_STOP_PCT=-8% 兜底
   - 方案：① 入队存 `remnant_stop_price`；② `sync_order_status` 检测 REDUCE filled 后读真实剩余股数 `place_order(stop)`，打标防重复；③ 无需改 app.py/main.py
