@@ -6,7 +6,7 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "cwd": "/Users/tingaling97/personal-trading-agent/frontend",
-      "port": 5173,
+      "port": 5174,
       "autoPort": false
     },
     {
