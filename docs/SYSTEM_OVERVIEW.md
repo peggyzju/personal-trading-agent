@@ -116,6 +116,7 @@ risk 2%/单 · 单仓上限 8% · TRAIL 10%/5% · 漂移 1.5% · 板块共振阈
   - 回归靶子：**MRVL**（RSI 71 / vol_ratio 2.21 / vs_ma20 +13.4% 仍在门内 / AI 7→HOLD），验收 `vol_ratio≥2 且 vs_ma20>10%` 时应被拦
   - 对照组（勿误伤）：AVGO/NVDA/AMAT（RSI 51–65 / vs_ma20≈0 / vol<1.1 / AI 8–9 → BUY）
   - ⚠️ 阈值需基于 **IEX volume 重新校准**（免费 feed 是 IEX-only，vol_ratio 偏低）
+- 🔬 **收紧止损 — 已回测否决（2026-06-18）**：用户"亏损占坑该快砍"直觉 → 测 stop -8%(atr) vs -5% vs -3%,跨 2023/24/25。**稳健有害**：-3% 三年全最差(0.91/0.66/0.81 vs 基线 0.98/0.85/1.13)、-5% 净负;机制 = 收紧→avgL 变小但 win% 崩(47→24%)+ 换手暴增→whipsaw 震出赢家。**现 -8% ATR 反而最优,不动**。三次退出类回测(B1/stale/止损)全否决 → 杠杆在买(edge)不在卖
 - 🔴 **死钱止损 stale_exit（设计已就绪，2026-06-18）**：持仓占位但不涨不跌、没有轮动 → 死钱长期占槽,新机会进不来
   - 规则：**持有 ≥10 交易日 且 收益 < +3% → SELL**（source=`stale_exit`，conf 0.7 自动落地）
   - 落点：`holdings_monitor.analyze_sell_signals` 机械预检（硬止损同级，AI 之前）；days_held 查 trades.json 最近 buy 的 created_at 算交易日,取不到则跳过(不误杀)
