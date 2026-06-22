@@ -293,7 +293,7 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
                   <i style={{ width: `${budget.cash_pct}%`, background: "#222733" }} />
                 </span>
                 <span>现金 <b>{budget.cash_pct}%</b></span>
-                <span className="pcc-rd-pill">空位 {allocationMap.length}/{allocationMap.length + budget.slots_remaining}</span>
+                <span className="pcc-rd-pill">持仓 {allocationMap.length}/{allocationMap.length + budget.slots_remaining}{budget.slots_remaining > 0 ? `（空${budget.slots_remaining}）` : "（满）"}</span>
                 <span className="pcc-rd-pill">风险 {budget.risk_per_trade_pct}%/单</span>
               </div>
             )}
