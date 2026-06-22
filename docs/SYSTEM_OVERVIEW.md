@@ -152,6 +152,12 @@ risk 2%/单 · 单仓上限 8% · TRAIL 10%/5% · 漂移 1.5% · 板块共振阈
 ## ✅ 已上线基线
 **2026-06-01~02**：扫描限流根治（yfinance→Alpaca 批量）· place_order 取价修复 · Scout/Rex 假成功埋点 · 重复触发竞争 · 版本归因单一事实源 · Maya 运行显示 · 盘前卖出时间门 · 买卖分级门槛 · **P0-1 K 线图** · **P0-2 决策卡阶段1** · 今日页重设计 · 生产构建修复
 **2026-06-03~09**：run 记录显示 ET 时间 · UI regime 改 live（非 8:00 冻结快照）· 持仓「今日」列改 Alpaca change_today（弃 yfinance）· **trade_history 自动同步（绩效死数据根治，16:10 ET 收盘后）** · **平仓归因（exit_reason 记真实机制，非 alpaca_sync）** · **A1 BEAR 定义收紧（破 MA20+MA50 才算熊）** · 云迁移 runbook
+**2026-06-16~22**：仪表盘 summary 重设计（4 KPI：今日/最近30天/总收益/现金，删过期目标）+ 热力图改最近30天 · dev 端口 5173→5174（避 desktop-companion 冲突）· **AI-edge 测量三阶段全上线**（Phase1 评分埋点 `score_log.jsonl` / Phase2 前向收益回填 16:20 ET / Phase3 分桶+IC 分析 `ai_edge_report`）· **每周六自动跑 AI-edge 分析 + 提醒结论**（scheduled task `ai-edge-weekly-check`）· **盘前补跑看门狗**（9:00 ET，Maya/Scout 没跑就补，长 misfire 容差应对睡眠）
+
+## 核心结论（2026-06-22）
+- **三次退出/止损类回测全被否决**：B1 放宽追踪（年份依赖）· stale 死钱止损（不稳健 + 测不了轮动）· 收紧止损（稳健有害，whipsaw）。→ **退出机制已近最优,别动**。
+- **唯一指向核心的工作 = AI-edge 验证**：实盘 PF 0.74、机械层无稳定 edge → 系统赚不赚钱全压在"AI 选股有没有 edge"。埋点已就位,**约 06-25 起有前向数据,~2 周首读,~1-2 月定论**。结论：分桶单调↑+IC>0=有 edge(修执行)；平坦=没 edge(选股重做)。
+- **在 edge 验证前,任何卖出/参数/轮动微调都是徒劳**（三次回测已实证）。
 
 ## 维护约定
 - **策略 + 运营待办** → 本文件 Part 3（唯一权威，原 memory `trading_next_week_todos.md` 已并入）
