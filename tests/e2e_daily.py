@@ -1005,6 +1005,21 @@ def test_scheduler_design():
     except Exception as e:
         fail("Trade history sync scheduled", str(e))
 
+    # 4c. 回归：盘前补跑看门狗必须挂在调度器上(应对睡眠漏跑 Maya/Scout)
+    try:
+        import main as main_module
+        src = inspect.getsource(main_module)
+        has_fn  = hasattr(main_module, "catch_up_premarket")
+        has_job = "catch_up_premarket," in src and 'id="premarket_catchup"' in src
+        long_misfire = "misfire_grace_time=5400" in src
+        if has_fn and has_job and long_misfire:
+            ok("Premarket catchup scheduled", "盘前补跑看门狗已挂(9:00 ET, 长 misfire) ✓")
+        else:
+            fail("Premarket catchup scheduled",
+                 f"缺失: fn={has_fn} job={has_job} long_misfire={long_misfire}")
+    except Exception as e:
+        fail("Premarket catchup scheduled", str(e))
+
     # 4. 回归：trade_agent.py 不应出现把 'symbol' 当自由变量的闭包
     #    （旧版 run_agent 曾有裸 symbol 闭包 → "free variable 'symbol' referenced
     #     before assignment" 导致整轮 agent 崩溃。已重构为 c["symbol"]，守住别再引入）

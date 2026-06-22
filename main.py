@@ -196,6 +196,23 @@ def fill_score_forward_returns():
         print(f"[scheduler] Score-log forward fill error: {e}")
 
 
+def catch_up_premarket():
+    """盘前补跑看门狗(9:00 ET)：若 Maya/Scout 今天还没成功跑过 → 手动补跑。
+    应对睡眠漏跑：本任务给长 misfire 容差(90 分钟),机器睡到 9 点后才醒也能补
+    (普通任务 misfire=60s 错过即跳过,补不了)。幂等:已跑过则跳过。"""
+    from api.agent_runs import ran_today_et
+    if not ran_today_et("maya"):
+        print("[scheduler] 盘前补跑看门狗: Maya 今天未跑 → 补跑 8:00 Maya")
+        run_market_context()
+    else:
+        print("[scheduler] 盘前补跑看门狗: Maya 今天已跑,跳过")
+    if not ran_today_et("scout"):
+        print("[scheduler] 盘前补跑看门狗: Scout 今天未跑 → 补跑 8:45 Scout")
+        run_scout()
+    else:
+        print("[scheduler] 盘前补跑看门狗: Scout 今天已跑,跳过")
+
+
 if __name__ == "__main__":
     print("📎 Personal Trading Agent")
     print("   API: http://localhost:8000  |  Docs: http://localhost:8000/docs\n")
@@ -269,6 +286,12 @@ if __name__ == "__main__":
     scheduler.add_job(fill_score_forward_returns, "cron", day_of_week="mon-fri", hour=16, minute=20,
                       id="score_fwd_fill", name="Score-log forward-return fill (4:20 PM ET, 收盘后)",
                       misfire_grace_time=300)
+
+    # 盘前补跑看门狗: 9:00 ET 检查 Maya/Scout 今天跑没跑,没跑就补。
+    # 长 misfire(90分钟)→ 机器睡到 ~10:30 前醒来都能补上(应对睡眠漏跑)
+    scheduler.add_job(catch_up_premarket, "cron", day_of_week="mon-fri", hour=9, minute=0,
+                      id="premarket_catchup", name="盘前补跑看门狗 (9:00 ET, Maya/Scout)",
+                      misfire_grace_time=5400)
 
     # Vera 复盘已移除自动定时 — 改为手动 trigger（POST /api/strategy/review）
 

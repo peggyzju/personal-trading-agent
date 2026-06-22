@@ -100,6 +100,25 @@ def _parse_iso(iso: str | None) -> datetime | None:
         return None
 
 
+def ran_today_et(agent: str) -> bool:
+    """该 agent 今天(ET)有没有「成功」跑过(按 agent_runs 记录)。
+    失败的运行不算 → 让盘前补跑看门狗会重试失败的。"""
+    try:
+        from zoneinfo import ZoneInfo
+        et = ZoneInfo("America/New_York")
+    except Exception:
+        return False
+    hist = _load().get(agent.lower())
+    if not isinstance(hist, list) or not hist:
+        return False
+    today = datetime.now(et).date()
+    for rec in reversed(hist):
+        dt = _parse_iso(rec.get("ran_at"))
+        if dt and dt.astimezone(et).date() == today and rec.get("result") == "success":
+            return True
+    return False
+
+
 def _last_run_from_source(agent: str) -> str | None:
     """从各 agent 的真实输出文件读取最近运行时间戳。"""
     if agent == "maya":
