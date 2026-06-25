@@ -139,7 +139,8 @@ risk 2%/单 · 单仓上限 8% · TRAIL 10%/5% · 漂移 1.5% · 板块共振阈
 
 ## B. 运营 / 数据
 
-- 🆕 🔝 **搬云**：runbook 已就绪 `docs/CLOUD_MIGRATION.md`（AWS Lightsail $7/月，us-east-1）。根治笔记本睡眠致调度静默漏跑（06-05 整天 0 运行实证）
+- ✅ **调度器韧性加固（2026-06-25，commit 0542eb6）**：06-24 实证「进程活、HTTP 通，但 APScheduler 整天零执行」=调度器**冻结**（疑似无超时调用占满线程池），非睡眠。三层修复：① `socket.setdefaulttimeout(90)` + `get_anthropic_client(timeout=60)` 防冻结；② `job_defaults max_instances=1+coalesce` 防堆叠；③ 心跳 `data/scheduler_heartbeat.json` + 独立 LaunchAgent `com.trading-agent.watchdog`（每 5 分钟，市场时段心跳 >35 分钟未更新→自动重启+告警+桌面通知，15 分钟冷却）。验证 smoke18/full82 + 看门狗三路径单测。
+- 🟡 **搬云**：runbook 已就绪 `docs/CLOUD_MIGRATION.md`（AWS Lightsail $7/月，us-east-1）。**定位修正**：搬云解决的是「睡眠漏跑」，**冻结已由上面的看门狗+超时覆盖**；7×24 不睡仍是锦上添花，但不再是唯一防线、优先级下调
 - 🟡 **item 8 Anthropic 额度耗尽静默失败 → 告警**（06-04 踩到）：扫描 `ai_scored=0` 或 holdings AI 调用 400 时打醒目日志/推送。挂 `_run_sp500_scan` + holdings auto-refresh except 分支
 - 🟡 **item 7 size_scale 跨时间超配护栏**（+10% 有界）：trade_agent.py:469 乘前，live regime ∈ {CAUTION,BEAR,NEUTRAL} 时 `size_scale_override=min(_,1.0)`
 - 🟢 **item 5 清理** `src/analysis/pead_backtest.py`（未提交未引用）
