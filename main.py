@@ -6,11 +6,36 @@ Run: python3 main.py
 """
 from __future__ import annotations
 import os
+import json
+import socket
+from datetime import datetime
+from pathlib import Path
 import uvicorn
 from dotenv import load_dotenv
 from apscheduler.schedulers.background import BackgroundScheduler
 
 load_dotenv()
+
+# 全网络读硬超时:任何 Alpaca / Anthropic / yfinance 调用最多挂 90 秒。
+# 杜绝"无超时调用挂死 → 占满 APScheduler 线程池 → 整个调度器冻结"
+# (2026-06-24 实证:进程活、HTTP 通,但调度器整天零执行)。
+socket.setdefaulttimeout(90)
+
+
+_HEARTBEAT_FILE = Path(__file__).parent / "data" / "scheduler_heartbeat.json"
+
+
+def _write_heartbeat(job_id: str, status: str) -> None:
+    """每个调度任务执行后写心跳 — 独立看门狗(scheduler_watchdog.py)据此
+    判断调度器是否冻结。调度器一旦卡死,心跳就停更 → 看门狗重启后端。"""
+    try:
+        _HEARTBEAT_FILE.write_text(json.dumps({
+            "last_job": job_id,
+            "status": status,
+            "ts_utc": datetime.utcnow().isoformat(),
+        }))
+    except Exception:
+        pass
 
 WATCHLIST_DEFAULT = ["AAPL", "NVDA", "MSFT", "TSLA"]
 
@@ -222,7 +247,19 @@ if __name__ == "__main__":
     # misfire_grace_time=60: 重启后若错过触发时间 ≤60s 则补跑，超过则跳过（避免任务雪崩）
     MGT = 60
 
-    scheduler = BackgroundScheduler(timezone=ET)
+    # job_defaults: max_instances=1 防同一任务堆叠多个冻结实例;coalesce 合并错过的触发
+    scheduler = BackgroundScheduler(
+        timezone=ET,
+        job_defaults={"max_instances": 1, "coalesce": True},
+    )
+
+    # 心跳:任意任务执行完(成功或异常)都更新 scheduler_heartbeat.json。
+    # 独立看门狗据此检测调度器冻结(市场时段内心跳停更 >35 分钟 → 自动重启)。
+    from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
+    scheduler.add_listener(
+        lambda ev: _write_heartbeat(ev.job_id, "error" if ev.exception else "ok"),
+        EVENT_JOB_EXECUTED | EVENT_JOB_ERROR,
+    )
 
     # ── Pipeline: 市场分析 → 选股 → 执行 ─────────────────────────────────────
     #
@@ -296,6 +333,7 @@ if __name__ == "__main__":
     # Vera 复盘已移除自动定时 — 改为手动 trigger（POST /api/strategy/review）
 
     scheduler.start()
+    _write_heartbeat("startup", "ok")
     print("[scheduler] Started (single source of truth — APScheduler, US/Eastern)")
     print("  8:45 AM Maya/Scout | 9:31/11:00/12:30/14:30 扫描→Rex | every 30min holdings→Rex")
     print("  Rex买入: 仅扫描后触发 (4次/天)  |  Rex卖出: 持仓监控后触发 (每30分钟)")

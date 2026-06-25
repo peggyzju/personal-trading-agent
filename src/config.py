@@ -19,6 +19,15 @@ def get_anthropic_key() -> str:
     return key
 
 
+def get_anthropic_client(timeout: float = 60.0, max_retries: int = 2):
+    """Anthropic 客户端 — 显式超时 + 有界重试。
+    调度任务绝不能在一个卡住的 API 调用上无限挂起:那会占住一个调度器线程,
+    ×线程池大小后整个调度器冻结(2026-06-24 实证)。"""
+    import anthropic
+    return anthropic.Anthropic(api_key=get_anthropic_key(),
+                               timeout=timeout, max_retries=max_retries)
+
+
 def get_alpaca_creds() -> tuple[str, str, str]:
     env = _load()
     api_key    = os.environ.get("ALPACA_API_KEY")    or env.get("ALPACA_API_KEY", "")

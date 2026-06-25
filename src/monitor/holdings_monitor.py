@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import anthropic
-from src.config import get_anthropic_key
+from src.config import get_anthropic_key, get_anthropic_client
 
 # ── Per-position signal cache (avoids re-calling Claude when price barely moved) ─
 _signal_cache: dict[str, dict] = {}   # symbol → {signal, urgency, reason, price, ts}
@@ -227,7 +227,7 @@ def analyze_sell_signals(positions: list[dict]) -> list[dict]:
     if not to_analyze:
         return cached_results  # All served from cache
 
-    client = anthropic.Anthropic(api_key=get_anthropic_key())
+    client = get_anthropic_client()
 
     # Enrich with technicals first
     enriched = _enrich_with_technicals(to_analyze)

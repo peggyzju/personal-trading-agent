@@ -497,5 +497,1040 @@
     "quality_gate_removed": 0,
     "ai_scored": 15,
     "market_regime": "BULL"
+  },
+  {
+    "date": "2026-06-01",
+    "recorded_at": "2026-06-01T15:03:28.506420+00:00",
+    "scan_quality": {
+      "total_candidates": 23,
+      "rsi_mean": 56.9,
+      "rsi_dist": {
+        "rsi_below40": 3,
+        "rsi_40_55": 9,
+        "rsi_55_60": 2,
+        "rsi_60_65": 3,
+        "rsi_above65": 6
+      },
+      "vma20_mean": 7.4,
+      "vma20_dist": {
+        "vma20_neg": 3,
+        "vma20_0_3": 3,
+        "vma20_3_5": 5,
+        "vma20_5_8": 3,
+        "vma20_above8": 9
+      },
+      "signal_counts": {
+        "STRONG_BUY": 3,
+        "BUY": 4,
+        "HOLD": 15,
+        "SELL": 1
+      },
+      "ai_score_mean": 6.3,
+      "quality_score": 45.2
+    },
+    "portfolio": {
+      "equity": 101646.0,
+      "cash": 30904.0,
+      "invested": 70742.0,
+      "alloc_pct": 69.6,
+      "float_pnl": 3523.0,
+      "float_pct": 3.47,
+      "positions": 9
+    },
+    "trades_today": {
+      "closed_trades_today": 4,
+      "symbols_closed": [
+        "GOOGL",
+        "CAT",
+        "GOOG",
+        "TSLA"
+      ]
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 23,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "BULL"
+  },
+  {
+    "date": "2026-06-02",
+    "recorded_at": "2026-06-02T15:03:16.413795+00:00",
+    "scan_quality": {
+      "total_candidates": 20,
+      "rsi_mean": 59.3,
+      "rsi_dist": {
+        "rsi_below40": 3,
+        "rsi_40_55": 5,
+        "rsi_55_60": 2,
+        "rsi_60_65": 3,
+        "rsi_above65": 7
+      },
+      "vma20_mean": 8.0,
+      "vma20_dist": {
+        "vma20_neg": 6,
+        "vma20_0_3": 2,
+        "vma20_3_5": 1,
+        "vma20_5_8": 0,
+        "vma20_above8": 10
+      },
+      "signal_counts": {
+        "BUY": 2,
+        "HOLD": 14,
+        "SELL": 4
+      },
+      "ai_score_mean": 5.0,
+      "quality_score": 30.3
+    },
+    "portfolio": {
+      "equity": 103883.0,
+      "cash": 22715.0,
+      "invested": 81168.0,
+      "alloc_pct": 78.1,
+      "float_pnl": 5760.0,
+      "float_pct": 5.54,
+      "positions": 10
+    },
+    "trades_today": {
+      "closed_trades_today": 0
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 20,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "BULL"
+  },
+  {
+    "date": "2026-06-03",
+    "recorded_at": "2026-06-03T15:01:52.633807+00:00",
+    "scan_quality": {
+      "total_candidates": 13,
+      "rsi_mean": 52.1,
+      "rsi_dist": {
+        "rsi_below40": 2,
+        "rsi_40_55": 7,
+        "rsi_55_60": 1,
+        "rsi_60_65": 1,
+        "rsi_above65": 2
+      },
+      "vma20_mean": 4.9,
+      "vma20_dist": {
+        "vma20_neg": 2,
+        "vma20_0_3": 4,
+        "vma20_3_5": 2,
+        "vma20_5_8": 1,
+        "vma20_above8": 4
+      },
+      "signal_counts": {
+        "STRONG_BUY": 1,
+        "BUY": 1,
+        "HOLD": 6,
+        "SELL": 5
+      },
+      "ai_score_mean": 4.2,
+      "quality_score": 60.0
+    },
+    "portfolio": {
+      "equity": 103002.0,
+      "cash": 44438.0,
+      "invested": 58564.0,
+      "alloc_pct": 56.9,
+      "float_pnl": 3127.0,
+      "float_pct": 3.04,
+      "positions": 7
+    },
+    "trades_today": {
+      "closed_trades_today": 3,
+      "symbols_closed": [
+        "ORCL",
+        "MQ",
+        "IOT"
+      ]
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 13,
+    "quality_gate_removed": 0,
+    "ai_scored": 13,
+    "market_regime": "BULL"
+  },
+  {
+    "date": "2026-06-04",
+    "recorded_at": "2026-06-04T15:02:01.989856+00:00",
+    "scan_quality": {
+      "total_candidates": 18,
+      "rsi_mean": 55.0,
+      "rsi_dist": {
+        "rsi_below40": 4,
+        "rsi_40_55": 5,
+        "rsi_55_60": 1,
+        "rsi_60_65": 1,
+        "rsi_above65": 7
+      },
+      "vma20_mean": 7.0,
+      "vma20_dist": {
+        "vma20_neg": 5,
+        "vma20_0_3": 2,
+        "vma20_3_5": 1,
+        "vma20_5_8": 2,
+        "vma20_above8": 8
+      },
+      "signal_counts": {
+        "STRONG_BUY": 2,
+        "BUY": 2,
+        "HOLD": 12,
+        "SELL": 2
+      },
+      "ai_score_mean": 5.3,
+      "quality_score": 26.7
+    },
+    "portfolio": {
+      "equity": 100601.0,
+      "cash": 59337.0,
+      "invested": 41265.0,
+      "alloc_pct": 41.0,
+      "float_pnl": 1446.0,
+      "float_pct": 1.44,
+      "positions": 5
+    },
+    "trades_today": {
+      "closed_trades_today": 1,
+      "symbols_closed": [
+        "AVGO"
+      ]
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 18,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "CAUTION"
+  },
+  {
+    "date": "2026-06-05",
+    "recorded_at": "2026-06-05T02:24:34.841267+00:00",
+    "scan_quality": {
+      "total_candidates": 16,
+      "rsi_mean": 55.6,
+      "rsi_dist": {
+        "rsi_below40": 3,
+        "rsi_40_55": 5,
+        "rsi_55_60": 2,
+        "rsi_60_65": 0,
+        "rsi_above65": 6
+      },
+      "vma20_mean": 9.7,
+      "vma20_dist": {
+        "vma20_neg": 4,
+        "vma20_0_3": 2,
+        "vma20_3_5": 0,
+        "vma20_5_8": 0,
+        "vma20_above8": 9
+      },
+      "signal_counts": {
+        "BUY": 2,
+        "HOLD": 13,
+        "SELL": 1
+      },
+      "ai_score_mean": 4.5,
+      "quality_score": 31.6
+    },
+    "portfolio": {
+      "equity": 100381.0,
+      "cash": 59336.0,
+      "invested": 41044.0,
+      "alloc_pct": 40.9,
+      "float_pnl": 1226.0,
+      "float_pct": 1.22,
+      "positions": 5
+    },
+    "trades_today": {
+      "closed_trades_today": 0
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 16,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "CAUTION"
+  },
+  {
+    "date": "2026-06-06",
+    "recorded_at": "2026-06-05T16:05:46.032173+00:00",
+    "scan_quality": {
+      "total_candidates": 11,
+      "rsi_mean": 53.7,
+      "rsi_dist": {
+        "rsi_below40": 3,
+        "rsi_40_55": 2,
+        "rsi_55_60": 2,
+        "rsi_60_65": 0,
+        "rsi_above65": 4
+      },
+      "vma20_mean": 1.6,
+      "vma20_dist": {
+        "vma20_neg": 5,
+        "vma20_0_3": 2,
+        "vma20_3_5": 1,
+        "vma20_5_8": 2,
+        "vma20_above8": 1
+      },
+      "signal_counts": {
+        "BUY": 1,
+        "HOLD": 9,
+        "SELL": 1
+      },
+      "ai_score_mean": 5.5,
+      "quality_score": 32.7
+    },
+    "portfolio": {
+      "equity": 99083.0,
+      "cash": 59337.0,
+      "invested": 39746.0,
+      "alloc_pct": 40.1,
+      "float_pnl": -73.0,
+      "float_pct": -0.07,
+      "positions": 5
+    },
+    "trades_today": {
+      "closed_trades_today": 0
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 11,
+    "quality_gate_removed": 0,
+    "ai_scored": 11,
+    "market_regime": "BEAR"
+  },
+  {
+    "date": "2026-06-08",
+    "recorded_at": "2026-06-08T15:03:38.445384+00:00",
+    "scan_quality": {
+      "total_candidates": 18,
+      "rsi_mean": 61.6,
+      "rsi_dist": {
+        "rsi_below40": 1,
+        "rsi_40_55": 4,
+        "rsi_55_60": 1,
+        "rsi_60_65": 3,
+        "rsi_above65": 9
+      },
+      "vma20_mean": 6.2,
+      "vma20_dist": {
+        "vma20_neg": 3,
+        "vma20_0_3": 2,
+        "vma20_3_5": 4,
+        "vma20_5_8": 3,
+        "vma20_above8": 5
+      },
+      "signal_counts": {
+        "BUY": 6,
+        "HOLD": 12
+      },
+      "ai_score_mean": 6.0,
+      "quality_score": 34.1
+    },
+    "portfolio": {
+      "equity": 98984.0,
+      "cash": 91090.0,
+      "invested": 7894.0,
+      "alloc_pct": 8.0,
+      "float_pnl": -296.0,
+      "float_pct": -0.3,
+      "positions": 1
+    },
+    "trades_today": {
+      "closed_trades_today": 1,
+      "symbols_closed": [
+        "NVDA"
+      ]
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 18,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "BEAR"
+  },
+  {
+    "date": "2026-06-09",
+    "recorded_at": "2026-06-09T15:01:54.055038+00:00",
+    "scan_quality": {
+      "total_candidates": 8,
+      "rsi_mean": 54.8,
+      "rsi_dist": {
+        "rsi_below40": 2,
+        "rsi_40_55": 1,
+        "rsi_55_60": 1,
+        "rsi_60_65": 1,
+        "rsi_above65": 3
+      },
+      "vma20_mean": 4.0,
+      "vma20_dist": {
+        "vma20_neg": 3,
+        "vma20_0_3": 1,
+        "vma20_3_5": 1,
+        "vma20_5_8": 0,
+        "vma20_above8": 3
+      },
+      "signal_counts": {
+        "BUY": 2,
+        "HOLD": 4,
+        "SELL": 2
+      },
+      "ai_score_mean": 5.4,
+      "quality_score": 25.0
+    },
+    "portfolio": {
+      "equity": 98700.0,
+      "cash": 94778.0,
+      "invested": 3922.0,
+      "alloc_pct": 4.0,
+      "float_pnl": -173.0,
+      "float_pct": -0.17,
+      "positions": 1
+    },
+    "trades_today": {
+      "closed_trades_today": 2,
+      "symbols_closed": [
+        "NVDA"
+      ]
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 8,
+    "quality_gate_removed": 0,
+    "ai_scored": 8,
+    "market_regime": "NEUTRAL"
+  },
+  {
+    "date": "2026-06-10",
+    "recorded_at": "2026-06-10T13:43:02.492760+00:00",
+    "scan_quality": {
+      "total_candidates": 25,
+      "rsi_mean": 55.4,
+      "rsi_dist": {
+        "rsi_below40": 4,
+        "rsi_40_55": 7,
+        "rsi_55_60": 1,
+        "rsi_60_65": 7,
+        "rsi_above65": 6
+      },
+      "vma20_mean": 1.4,
+      "vma20_dist": {
+        "vma20_neg": 10,
+        "vma20_0_3": 4,
+        "vma20_3_5": 5,
+        "vma20_5_8": 2,
+        "vma20_above8": 3
+      },
+      "signal_counts": {
+        "BUY": 2,
+        "HOLD": 22,
+        "SELL": 1
+      },
+      "ai_score_mean": 5.9,
+      "quality_score": 43.8
+    },
+    "portfolio": {
+      "equity": 98640.0,
+      "cash": 94616.0,
+      "invested": 4024.0,
+      "alloc_pct": 4.1,
+      "float_pnl": 117.0,
+      "float_pct": 0.12,
+      "positions": 1
+    },
+    "trades_today": {
+      "closed_trades_today": 0
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 25,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "CAUTION"
+  },
+  {
+    "date": "2026-06-11",
+    "recorded_at": "2026-06-10T18:32:54.535767+00:00",
+    "scan_quality": {
+      "total_candidates": 14,
+      "rsi_mean": 55.1,
+      "rsi_dist": {
+        "rsi_below40": 0,
+        "rsi_40_55": 8,
+        "rsi_55_60": 1,
+        "rsi_60_65": 1,
+        "rsi_above65": 4
+      },
+      "vma20_mean": 1.8,
+      "vma20_dist": {
+        "vma20_neg": 5,
+        "vma20_0_3": 1,
+        "vma20_3_5": 4,
+        "vma20_5_8": 2,
+        "vma20_above8": 1
+      },
+      "signal_counts": {
+        "STRONG_BUY": 1,
+        "BUY": 3,
+        "HOLD": 8,
+        "SELL": 2
+      },
+      "ai_score_mean": 5.9,
+      "quality_score": 54.0
+    },
+    "portfolio": {
+      "equity": 98710.0,
+      "cash": 94616.0,
+      "invested": 4094.0,
+      "alloc_pct": 4.1,
+      "float_pnl": 188.0,
+      "float_pct": 0.19,
+      "positions": 1
+    },
+    "trades_today": {
+      "closed_trades_today": 0
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 14,
+    "quality_gate_removed": 0,
+    "ai_scored": 14,
+    "market_regime": "CAUTION"
+  },
+  {
+    "date": "2026-06-12",
+    "recorded_at": "2026-06-12T15:02:39.315707+00:00",
+    "scan_quality": {
+      "total_candidates": 21,
+      "rsi_mean": 53.4,
+      "rsi_dist": {
+        "rsi_below40": 4,
+        "rsi_40_55": 7,
+        "rsi_55_60": 3,
+        "rsi_60_65": 2,
+        "rsi_above65": 5
+      },
+      "vma20_mean": 3.0,
+      "vma20_dist": {
+        "vma20_neg": 9,
+        "vma20_0_3": 3,
+        "vma20_3_5": 2,
+        "vma20_5_8": 2,
+        "vma20_above8": 5
+      },
+      "signal_counts": {
+        "STRONG_BUY": 2,
+        "BUY": 4,
+        "HOLD": 13,
+        "SELL": 2
+      },
+      "ai_score_mean": 5.6,
+      "quality_score": 43.8
+    },
+    "portfolio": {
+      "equity": 99135.0,
+      "cash": 79166.0,
+      "invested": 19968.0,
+      "alloc_pct": 20.1,
+      "float_pnl": 612.0,
+      "float_pct": 0.62,
+      "positions": 5
+    },
+    "trades_today": {
+      "closed_trades_today": 0
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 21,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "CAUTION"
+  },
+  {
+    "date": "2026-06-13",
+    "recorded_at": "2026-06-12T18:32:13.391714+00:00",
+    "scan_quality": {
+      "total_candidates": 18,
+      "rsi_mean": 55.5,
+      "rsi_dist": {
+        "rsi_below40": 1,
+        "rsi_40_55": 8,
+        "rsi_55_60": 3,
+        "rsi_60_65": 1,
+        "rsi_above65": 5
+      },
+      "vma20_mean": 3.8,
+      "vma20_dist": {
+        "vma20_neg": 7,
+        "vma20_0_3": 3,
+        "vma20_3_5": 2,
+        "vma20_5_8": 2,
+        "vma20_above8": 4
+      },
+      "signal_counts": {
+        "STRONG_BUY": 2,
+        "BUY": 4,
+        "HOLD": 12
+      },
+      "ai_score_mean": 6.1,
+      "quality_score": 51.1
+    },
+    "portfolio": {
+      "error": "HTTPSConnectionPool(host='paper-api.alpaca.markets', port=443): Max retries exceeded with url: /v2/account (Caused by SSLError(SSLEOFError(8, 'EOF occurred in violation of protocol (_ssl.c:1129)')))"
+    },
+    "trades_today": {
+      "closed_trades_today": 0
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 18,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "NEUTRAL"
+  },
+  {
+    "date": "2026-06-15",
+    "recorded_at": "2026-06-15T15:02:51.702352+00:00",
+    "scan_quality": {
+      "total_candidates": 25,
+      "rsi_mean": 49.9,
+      "rsi_dist": {
+        "rsi_below40": 3,
+        "rsi_40_55": 18,
+        "rsi_55_60": 3,
+        "rsi_60_65": 1,
+        "rsi_above65": 0
+      },
+      "vma20_mean": 1.7,
+      "vma20_dist": {
+        "vma20_neg": 13,
+        "vma20_0_3": 6,
+        "vma20_3_5": 1,
+        "vma20_5_8": 2,
+        "vma20_above8": 3
+      },
+      "signal_counts": {
+        "BUY": 3,
+        "HOLD": 20,
+        "SELL": 2
+      },
+      "ai_score_mean": 5.7,
+      "quality_score": 64.0
+    },
+    "portfolio": {
+      "equity": 99841.0,
+      "cash": 49939.0,
+      "invested": 49901.0,
+      "alloc_pct": 50.0,
+      "float_pnl": 1317.0,
+      "float_pct": 1.32,
+      "positions": 10
+    },
+    "trades_today": {
+      "closed_trades_today": 0
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 25,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "NEUTRAL"
+  },
+  {
+    "date": "2026-06-16",
+    "recorded_at": "2026-06-16T15:01:42.864387+00:00",
+    "scan_quality": {
+      "total_candidates": 20,
+      "rsi_mean": 53.6,
+      "rsi_dist": {
+        "rsi_below40": 3,
+        "rsi_40_55": 9,
+        "rsi_55_60": 2,
+        "rsi_60_65": 3,
+        "rsi_above65": 3
+      },
+      "vma20_mean": 4.2,
+      "vma20_dist": {
+        "vma20_neg": 6,
+        "vma20_0_3": 6,
+        "vma20_3_5": 2,
+        "vma20_5_8": 2,
+        "vma20_above8": 4
+      },
+      "signal_counts": {
+        "BUY": 1,
+        "HOLD": 15,
+        "SELL": 4
+      },
+      "ai_score_mean": 5.4,
+      "quality_score": 52.0
+    },
+    "portfolio": {
+      "equity": 99901.0,
+      "cash": 49939.0,
+      "invested": 49962.0,
+      "alloc_pct": 50.0,
+      "float_pnl": 1378.0,
+      "float_pct": 1.38,
+      "positions": 10
+    },
+    "trades_today": {
+      "closed_trades_today": 0
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 20,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "NEUTRAL"
+  },
+  {
+    "date": "2026-06-17",
+    "recorded_at": "2026-06-17T15:03:36.795038+00:00",
+    "scan_quality": {
+      "total_candidates": 25,
+      "rsi_mean": 51.8,
+      "rsi_dist": {
+        "rsi_below40": 1,
+        "rsi_40_55": 17,
+        "rsi_55_60": 2,
+        "rsi_60_65": 3,
+        "rsi_above65": 2
+      },
+      "vma20_mean": 2.5,
+      "vma20_dist": {
+        "vma20_neg": 7,
+        "vma20_0_3": 9,
+        "vma20_3_5": 5,
+        "vma20_5_8": 2,
+        "vma20_above8": 2
+      },
+      "signal_counts": {
+        "BUY": 7,
+        "HOLD": 18
+      },
+      "ai_score_mean": 5.7,
+      "quality_score": 72.8
+    },
+    "portfolio": {
+      "equity": 99940.0,
+      "cash": 49939.0,
+      "invested": 50001.0,
+      "alloc_pct": 50.0,
+      "float_pnl": 1417.0,
+      "float_pct": 1.42,
+      "positions": 10
+    },
+    "trades_today": {
+      "closed_trades_today": 0
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 25,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "NEUTRAL"
+  },
+  {
+    "date": "2026-06-18",
+    "recorded_at": "2026-06-18T15:02:45.009840+00:00",
+    "scan_quality": {
+      "total_candidates": 23,
+      "rsi_mean": 49.5,
+      "rsi_dist": {
+        "rsi_below40": 3,
+        "rsi_40_55": 15,
+        "rsi_55_60": 1,
+        "rsi_60_65": 0,
+        "rsi_above65": 4
+      },
+      "vma20_mean": 3.6,
+      "vma20_dist": {
+        "vma20_neg": 11,
+        "vma20_0_3": 2,
+        "vma20_3_5": 3,
+        "vma20_5_8": 2,
+        "vma20_above8": 5
+      },
+      "signal_counts": {
+        "STRONG_BUY": 2,
+        "BUY": 2,
+        "HOLD": 18,
+        "SELL": 1
+      },
+      "ai_score_mean": 5.9,
+      "quality_score": 50.4
+    },
+    "portfolio": {
+      "equity": 99344.0,
+      "cash": 56071.0,
+      "invested": 43273.0,
+      "alloc_pct": 43.6,
+      "float_pnl": 572.0,
+      "float_pct": 0.58,
+      "positions": 9
+    },
+    "trades_today": {
+      "closed_trades_today": 0
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 23,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "CAUTION"
+  },
+  {
+    "date": "2026-06-19",
+    "recorded_at": "2026-06-18T18:32:51.270162+00:00",
+    "scan_quality": {
+      "total_candidates": 24,
+      "rsi_mean": 47.2,
+      "rsi_dist": {
+        "rsi_below40": 4,
+        "rsi_40_55": 16,
+        "rsi_55_60": 2,
+        "rsi_60_65": 1,
+        "rsi_above65": 1
+      },
+      "vma20_mean": 1.9,
+      "vma20_dist": {
+        "vma20_neg": 12,
+        "vma20_0_3": 5,
+        "vma20_3_5": 3,
+        "vma20_5_8": 2,
+        "vma20_above8": 2
+      },
+      "signal_counts": {
+        "STRONG_BUY": 1,
+        "BUY": 9,
+        "HOLD": 12,
+        "SELL": 2
+      },
+      "ai_score_mean": 5.8,
+      "quality_score": 58.3
+    },
+    "portfolio": {
+      "equity": 99235.0,
+      "cash": 51459.0,
+      "invested": 47776.0,
+      "alloc_pct": 48.1,
+      "float_pnl": 529.0,
+      "float_pct": 0.53,
+      "positions": 10
+    },
+    "trades_today": {
+      "closed_trades_today": 1,
+      "symbols_closed": [
+        "SPGI"
+      ]
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 24,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "CAUTION"
+  },
+  {
+    "date": "2026-06-20",
+    "recorded_at": "2026-06-19T18:33:23.965252+00:00",
+    "scan_quality": {
+      "total_candidates": 25,
+      "rsi_mean": 47.2,
+      "rsi_dist": {
+        "rsi_below40": 4,
+        "rsi_40_55": 17,
+        "rsi_55_60": 2,
+        "rsi_60_65": 1,
+        "rsi_above65": 1
+      },
+      "vma20_mean": 1.9,
+      "vma20_dist": {
+        "vma20_neg": 11,
+        "vma20_0_3": 6,
+        "vma20_3_5": 3,
+        "vma20_5_8": 3,
+        "vma20_above8": 2
+      },
+      "signal_counts": {
+        "BUY": 8,
+        "HOLD": 17
+      },
+      "ai_score_mean": 5.9,
+      "quality_score": 60.0
+    },
+    "portfolio": {
+      "equity": 99235.0,
+      "cash": 51459.0,
+      "invested": 47776.0,
+      "alloc_pct": 48.1,
+      "float_pnl": 529.0,
+      "float_pct": 0.53,
+      "positions": 10
+    },
+    "trades_today": {
+      "closed_trades_today": 0
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 25,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "CAUTION"
+  },
+  {
+    "date": "2026-06-22",
+    "recorded_at": "2026-06-22T15:03:36.562411+00:00",
+    "scan_quality": {
+      "total_candidates": 22,
+      "rsi_mean": 44.8,
+      "rsi_dist": {
+        "rsi_below40": 7,
+        "rsi_40_55": 12,
+        "rsi_55_60": 1,
+        "rsi_60_65": 0,
+        "rsi_above65": 2
+      },
+      "vma20_mean": 0.2,
+      "vma20_dist": {
+        "vma20_neg": 9,
+        "vma20_0_3": 8,
+        "vma20_3_5": 2,
+        "vma20_5_8": 2,
+        "vma20_above8": 1
+      },
+      "signal_counts": {
+        "STRONG_BUY": 1,
+        "BUY": 3,
+        "HOLD": 17,
+        "SELL": 1
+      },
+      "ai_score_mean": 5.7,
+      "quality_score": 53.6
+    },
+    "portfolio": {
+      "equity": 98696.0,
+      "cash": 38039.0,
+      "invested": 60658.0,
+      "alloc_pct": 61.5,
+      "float_pnl": -177.0,
+      "float_pct": -0.18,
+      "positions": 11
+    },
+    "trades_today": {
+      "closed_trades_today": 0
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 22,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "BULL"
+  },
+  {
+    "date": "2026-06-23",
+    "recorded_at": "2026-06-23T15:05:37.987673+00:00",
+    "scan_quality": {
+      "total_candidates": 25,
+      "rsi_mean": 46.9,
+      "rsi_dist": {
+        "rsi_below40": 7,
+        "rsi_40_55": 10,
+        "rsi_55_60": 3,
+        "rsi_60_65": 4,
+        "rsi_above65": 1
+      },
+      "vma20_mean": 0.2,
+      "vma20_dist": {
+        "vma20_neg": 10,
+        "vma20_0_3": 7,
+        "vma20_3_5": 2,
+        "vma20_5_8": 4,
+        "vma20_above8": 2
+      },
+      "signal_counts": {
+        "STRONG_BUY": 1,
+        "BUY": 2,
+        "HOLD": 19,
+        "SELL": 3
+      },
+      "ai_score_mean": 4.9,
+      "quality_score": 50.4
+    },
+    "portfolio": {
+      "equity": 97910.0,
+      "cash": 58318.0,
+      "invested": 39592.0,
+      "alloc_pct": 40.4,
+      "float_pnl": 53.0,
+      "float_pct": 0.05,
+      "positions": 8
+    },
+    "trades_today": {
+      "closed_trades_today": 2,
+      "symbols_closed": [
+        "AMD",
+        "NVDA"
+      ]
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 25,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "CAUTION"
+  },
+  {
+    "date": "2026-06-24",
+    "recorded_at": "2026-06-24T14:24:45.342692+00:00",
+    "scan_quality": {
+      "total_candidates": 17,
+      "rsi_mean": 50.9,
+      "rsi_dist": {
+        "rsi_below40": 4,
+        "rsi_40_55": 5,
+        "rsi_55_60": 3,
+        "rsi_60_65": 3,
+        "rsi_above65": 2
+      },
+      "vma20_mean": 1.1,
+      "vma20_dist": {
+        "vma20_neg": 6,
+        "vma20_0_3": 5,
+        "vma20_3_5": 2,
+        "vma20_5_8": 1,
+        "vma20_above8": 3
+      },
+      "signal_counts": {
+        "BUY": 5,
+        "HOLD": 9,
+        "SELL": 3
+      },
+      "ai_score_mean": 5.8,
+      "quality_score": 44.7
+    },
+    "portfolio": {
+      "equity": 98109.0,
+      "cash": 58318.0,
+      "invested": 39791.0,
+      "alloc_pct": 40.6,
+      "float_pnl": 253.0,
+      "float_pct": 0.26,
+      "positions": 8
+    },
+    "trades_today": {
+      "closed_trades_today": 0
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 17,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "CAUTION"
   }
 ]

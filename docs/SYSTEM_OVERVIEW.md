@@ -127,6 +127,9 @@ risk 2%/单 · 单仓上限 8% · TRAIL 10%/5% · 漂移 1.5% · 板块共振阈
 - 🔴 **SNPS → v8（计划已就绪）**：REDUCE 减仓「成交后」给剩余仓位补挂独立 stop 单
   - 根因：`approve_trade`（trade_agent.py:367）REDUCE 走普通市价卖单不附 stop + line 1072 守卫使有 open sell 单时 REDUCE 被跳过 → 剩余股裸奔，只靠 30 分钟 HARD_STOP_PCT=-8% 兜底
   - 方案：① 入队存 `remnant_stop_price`；② `sync_order_status` 检测 REDUCE filled 后读真实剩余股数 `place_order(stop)`，打标防重复；③ 无需改 app.py/main.py
+- 🟡 **资金利用率仅 ~60%（提高仓位 — 必须等 edge 验证后）**：BULL 满 10 仓时仅部署约 62%，结构性闲置约 38% 现金。根因 = 两条独立上限叠加：`max_positions=10`（market_regime.py:140 硬编码）× 每仓「2%风险÷止损距离、8%封顶」→ 平均每仓约 5.6% → 10×5.6%≈62%。"满仓"是数量满,不是钱花完。
+  - ⚠️ **现在严禁动**：实盘 PF 0.74（负期望）下,那 38% 闲置现金是保护垫;在亏钱的策略上加仓 = 放大亏损。**先用周六 AI-edge 报告证明 AI 高分能跑赢,证明了再谈提高 max_positions 或放大每仓**
+  - 杠杆候选（验证后）：提高 BULL max_positions、或提高 max_pos_pct、或对高 AI-score 票加仓 —— 都依赖 edge 为正
 - 🔧 **CAT 追高保护**：Track1 `vs_ma20≤15%` 太松（CAT -2.7%）→ `vs_ma20>10%` 时要求止损放宽或 R:R 提高（trade_agent.py Gate B 附近）
 - 🟡 **中概股 / 新兴市场风险框架**（VIPS -3.3%）：低 PE 是结构性折价非机会；低 beta + 52周低点 = 有限下行是误判
 - 🟡 **item 6 追踪止盈 −5% 对高波动票偏紧**：按 ATR%/波动率动态调回撤阈（高波动 7-8%，低波动 5%）（trade_agent.py TRAIL_PCT，line 966 附近）
