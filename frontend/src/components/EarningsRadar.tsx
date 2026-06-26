@@ -25,16 +25,27 @@ function AnalysisCard({ a }: { a: EarningsAnalysisItem }) {
         <span style={{ marginLeft: "auto", fontSize: 14, fontWeight: 500, color: gapColor }}>{gap >= 0 ? "+" : ""}{gap}%</span>
       </div>
       <div style={{ fontSize: 11, color: "var(--muted)", display: "flex", gap: 10, marginBottom: 3 }}>
-        {a.surprise_pct != null && <span>EPS超 {a.surprise_pct}%</span>}
+        {a.surprise_pct != null && <span>本次EPS {a.surprise_pct >= 0 ? "超" : "差"}{Math.abs(a.surprise_pct)}%</span>}
         {a.vol_ratio != null && <span>量比 {a.vol_ratio}x</span>}
-        {a.history?.filter(h => h.reaction_pct != null).length > 0 && (
-          <span>历史后:{a.history.filter(h => h.reaction_pct != null).map((h, i) => (
-            <span key={h.date} style={{ color: (h.reaction_pct ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>
-              {i > 0 ? " " : " "}{(h.reaction_pct ?? 0) >= 0 ? "+" : ""}{h.reaction_pct}%
-            </span>
-          ))}</span>
-        )}
       </div>
+      {a.history?.filter(h => h.reaction_pct != null).length > 0 && (
+        <div style={{ fontSize: 10, color: "var(--muted)", marginBottom: 3 }}>
+          历次 财报→股价：
+          {a.history.filter(h => h.reaction_pct != null).map(h => (
+            <span key={h.date} title={h.date} style={{ marginRight: 8 }}>
+              {h.surprise_pct != null && (
+                <span style={{ color: h.surprise_pct >= 0 ? "var(--green)" : "var(--red)" }}>
+                  {h.surprise_pct >= 0 ? "超" : "差"}{Math.abs(Math.round(h.surprise_pct))}%
+                </span>
+              )}
+              <span style={{ color: "var(--muted)" }}>→</span>
+              <span style={{ color: (h.reaction_pct ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>
+                {(h.reaction_pct ?? 0) >= 0 ? "+" : ""}{Math.round(h.reaction_pct ?? 0)}%
+              </span>
+            </span>
+          ))}
+        </div>
+      )}
       {an.summary && <p style={{ fontSize: 11, lineHeight: 1.5, margin: 0, color: "var(--text)" }}>{an.summary}</p>}
       {an.reason && <p style={{ fontSize: 10, color: "var(--muted)", margin: "3px 0 0", lineHeight: 1.45 }}>{an.reason}</p>}
     </div>
