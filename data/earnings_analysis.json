@@ -1,0 +1,38 @@
+[
+  {
+    "symbol": "MU",
+    "held": false,
+    "gap_pct": 15.7,
+    "vol_ratio": 1.4,
+    "surprise_pct": 19.3,
+    "history": [
+      {
+        "date": "2025-06-25",
+        "surprise_pct": 19.3,
+        "reaction_pct": -1.0
+      },
+      {
+        "date": "2025-03-20",
+        "surprise_pct": 9.6,
+        "reaction_pct": -8.0
+      },
+      {
+        "date": "2024-12-18",
+        "surprise_pct": 2.1,
+        "reaction_pct": -16.2
+      },
+      {
+        "date": "2024-09-25",
+        "surprise_pct": 3.7,
+        "reaction_pct": 14.7
+      }
+    ],
+    "analysis": {
+      "summary": "EPS超预期19.3%创历史新高,但盘后大涨15.7%已充分定价,历史数据显示超预期后多为回调",
+      "verdict": "观望",
+      "confidence": 7,
+      "reason": "1.财报质地优异但追高风险大-盘后跳空15.7%+历史3次超预期中2次出现-8%~-16%回调;2.量比仅1.4偏弱,缺乏跟风盘支撑;3.建议等待开盘回落至跳空缺口(支撑位预计在135-137区间)或确认量能放大后再考虑介入,避免追高被套"
+    },
+    "analyzed_at": "2026-06-26T02:48:11.419523+00:00"
+  }
+]
