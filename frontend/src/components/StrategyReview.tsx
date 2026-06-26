@@ -25,7 +25,7 @@ function PerformanceSummary() {
   }, []);
 
   return (
-    <div className="pcc-dashboard-top" style={{ marginBottom: 16 }}>
+    <div className="pcc-dashboard-top perf-compact" style={{ marginBottom: 16 }}>
       <DashboardSummary goal={goal} history={history} account={account} />
       {(history?.days.length ?? 0) > 10 && <CompactHeatmap days={history!.days} />}
     </div>
