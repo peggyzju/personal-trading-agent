@@ -30,9 +30,10 @@ function AnalysisCard({ a }: { a: EarningsAnalysisItem }) {
       </div>
       {a.history?.filter(h => h.reaction_pct != null).length > 0 && (
         <div style={{ fontSize: 10, color: "var(--muted)", marginBottom: 3 }}>
-          历次 财报→股价：
+          历次 财报(日期 超预期→股价)：
           {a.history.filter(h => h.reaction_pct != null).map(h => (
-            <span key={h.date} title={h.date} style={{ marginRight: 8 }}>
+            <span key={h.date} title={h.date} style={{ marginRight: 8, whiteSpace: "nowrap" }}>
+              <span style={{ color: "var(--muted)" }}>{h.date.slice(2, 7)} </span>
               {h.surprise_pct != null && (
                 <span style={{ color: h.surprise_pct >= 0 ? "var(--green)" : "var(--red)" }}>
                   {h.surprise_pct >= 0 ? "超" : "差"}{Math.abs(Math.round(h.surprise_pct))}%
@@ -55,7 +56,7 @@ function AnalysisCard({ a }: { a: EarningsAnalysisItem }) {
 function dayLabel(d: number): string {
   if (d <= 0) return "今天";
   if (d === 1) return "明天";
-  return `${d}天`;
+  return `${d}天后`;
 }
 
 export default function EarningsRadar() {
@@ -106,7 +107,9 @@ export default function EarningsRadar() {
               ...(r.in_portfolio ? { background: "rgba(239,68,68,0.07)" } : {}),
             }}>
               <span style={{ fontFamily: "monospace", fontWeight: 500, color: r.in_portfolio ? "var(--red)" : "var(--text)" }}>{r.symbol}</span>
-              <span style={{ color: "var(--muted)" }}>{dayLabel(r.days_until)}</span>
+              <span style={{ color: "var(--text)" }}>{r.date.slice(5)}</span>
+              {r.session !== "?" && <span style={{ color: "var(--muted)", fontSize: 10 }}>{r.session === "BMO" ? "盘前" : "盘后"}</span>}
+              <span style={{ color: "var(--muted)", fontSize: 10 }}>{dayLabel(r.days_until)}</span>
             </span>
           ))}
         </div>
