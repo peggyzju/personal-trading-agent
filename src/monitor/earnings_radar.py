@@ -11,11 +11,28 @@
 from __future__ import annotations
 
 import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import urllib.parse
+import urllib.request
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-import yfinance as yf
+_FINNHUB_BASE = "https://finnhub.io/api/v1"
+
+
+def _finnhub_get(path: str, **params) -> dict | list | None:
+    """调 Finnhub API。失败返回 None。数据源:财报日历 / 历史 EPS 超预期(当前、含本年)。"""
+    from src.config import get_finnhub_key
+    key = get_finnhub_key()
+    if not key:
+        return None
+    params["token"] = key
+    url = f"{_FINNHUB_BASE}{path}?{urllib.parse.urlencode(params)}"
+    try:
+        with urllib.request.urlopen(url, timeout=20) as r:
+            return json.loads(r.read())
+    except Exception:
+        return None
+
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
 _UNIVERSE_FILE = _ROOT / "data" / "sp500_constituents.txt"
@@ -51,59 +68,39 @@ def _watchlist_symbols() -> set[str]:
     return set()
 
 
-def _next_earnings_date(symbol: str) -> tuple[date, str] | None:
-    """返回 (下次财报日, 'AMC'/'BMO'/'?')。yfinance .calendar。失败返回 None。"""
-    try:
-        cal = yf.Ticker(symbol).calendar
-        ed = None
-        if isinstance(cal, dict):
-            ed = cal.get("Earnings Date") or cal.get("earningsDate")
-        if isinstance(ed, list) and ed:
-            today = date.today()
-            upcoming = [d for d in ed if isinstance(d, date) and d >= today]
-            ed = min(upcoming) if upcoming else None
-        elif hasattr(ed, "date"):
-            ed = ed.date()
-        if not isinstance(ed, date):
-            return None
-        # 盘前/盘后:yfinance .calendar 不带时段 → 标 '?',Part B 靠价格反应不依赖它
-        return ed, "?"
-    except Exception:
-        return None
-
-
 # ── Part A: 财报日历 ──────────────────────────────────────────────────────────
-def build_calendar(days: int = 7, max_workers: int = 10) -> dict:
-    """全市场未来 days 天财报日历。持仓优先标红。写 data/earnings_calendar.json。"""
-    universe = _load_universe()
+def build_calendar(days: int = 7) -> dict:
+    """全市场未来 days 天财报日历(Finnhub 批量,一次调用)。持仓优先标红。
+    写 data/earnings_calendar.json。带真实盘前/盘后(BMO/AMC)。"""
+    universe = set(_load_universe())
     holdings = _portfolio_symbols()
     watch = _watchlist_symbols()
-    # 持仓即使不在 universe 也要查(可能持有 universe 外的票)
-    symbols = sorted(set(universe) | holdings)
+    relevant = universe | holdings   # 过滤到我们关心的票(Finnhub 返回全市场含小盘)
     today = date.today()
     horizon = today + timedelta(days=days)
 
+    data = _finnhub_get("/calendar/earnings",
+                        **{"from": today.isoformat(), "to": horizon.isoformat()})
+    cal = (data or {}).get("earningsCalendar", []) if isinstance(data, dict) else []
+
     rows: list[dict] = []
-
-    def _one(sym):
-        r = _next_earnings_date(sym)
-        if not r:
-            return None
-        ed, sess = r
-        if not (today <= ed <= horizon):
-            return None
-        return {"symbol": sym, "date": ed.isoformat(), "session": sess}
-
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        for fut in as_completed([ex.submit(_one, s) for s in symbols]):
-            row = fut.result()
-            if row:
-                sym = row["symbol"]
-                row["in_portfolio"] = sym in holdings
-                row["importance"] = ("持仓" if sym in holdings
-                                     else "关注" if sym in watch else "")
-                row["days_until"] = (date.fromisoformat(row["date"]) - today).days
-                rows.append(row)
+    seen = set()
+    for e in cal:
+        sym = e.get("symbol")
+        ed = e.get("date")
+        if not sym or not ed or sym not in relevant or sym in seen:
+            continue
+        seen.add(sym)
+        session = {"bmo": "BMO", "amc": "AMC"}.get((e.get("hour") or "").lower(), "?")
+        rows.append({
+            "symbol": sym,
+            "date": ed,
+            "session": session,
+            "eps_estimate": e.get("epsEstimate"),
+            "in_portfolio": sym in holdings,
+            "importance": ("持仓" if sym in holdings else "关注" if sym in watch else ""),
+            "days_until": (date.fromisoformat(ed) - today).days,
+        })
 
     # 排序:持仓优先 → 距今天数 → 字母
     rows.sort(key=lambda r: (not r["in_portfolio"], r["days_until"], r["symbol"]))
@@ -120,43 +117,44 @@ def build_calendar(days: int = 7, max_workers: int = 10) -> dict:
 
 # ── Part B 背景: 历史财报后反应 ───────────────────────────────────────────────
 def historical_reactions(symbol: str, n: int = 4) -> list[dict]:
-    """过去 n 次财报:EPS 超预期% + 财报后价格反应%(财报日前收盘 → 后一交易日收盘)。"""
+    """过去 n 次财报:EPS 超预期%(Finnhub /stock/earnings,当前、含本年)+
+    财报后价格反应%(财季窗口内成交量最大那天的跳空 = 财报反应日,Alpaca)。"""
     out: list[dict] = []
-    try:
-        df = yf.Ticker(symbol).earnings_dates
-        if df is None or len(df) == 0:
-            return out
-        past = df[df.index <= datetime.now(df.index.tz)].head(n)
-        from src.trader.alpaca_trader import get_client
-        client = get_client()
-        for ts, row in past.iterrows():
-            ed = ts.date()
-            surprise = row.get("Surprise(%)")
-            move = None
-            try:
-                bars = client.get_bars(
-                    symbol, "1Day",
-                    start=(ed - timedelta(days=4)).isoformat(),
-                    end=(ed + timedelta(days=4)).isoformat(),
-                ).df
-                closes = bars["close"].tolist()
-                # 找财报日前后各一根:简化用窗口首尾比邻两根的最大跳变
-                if len(closes) >= 2:
-                    # 取财报日当天/次日 vs 前一日
-                    idx = [b for b in bars.index]
-                    after = [c for d, c in zip(idx, closes) if d.date() > ed]
-                    before = [c for d, c in zip(idx, closes) if d.date() <= ed]
-                    if before and after:
-                        move = (after[0] / before[-1] - 1) * 100
-            except Exception:
-                pass
-            out.append({
-                "date": ed.isoformat(),
-                "surprise_pct": round(float(surprise), 1) if surprise == surprise else None,
-                "reaction_pct": round(move, 1) if move is not None else None,
-            })
-    except Exception:
-        pass
+    earnings = _finnhub_get("/stock/earnings", symbol=symbol)
+    if not isinstance(earnings, list) or not earnings:
+        return out
+    from src.trader.alpaca_trader import get_client
+    client = get_client()
+    for e in earnings[:n]:
+        period = e.get("period")
+        if not period:
+            continue
+        try:
+            pd_ = date.fromisoformat(period)
+        except Exception:
+            continue
+        surprise = e.get("surprisePercent")
+        move = None
+        try:
+            end_d = min(pd_ + timedelta(days=20), date.today())
+            bars = client.get_bars(
+                symbol, "1Day",
+                start=(pd_ - timedelta(days=40)).isoformat(),
+                end=end_d.isoformat(), feed="iex",
+            ).df
+            vols = bars["volume"].tolist()
+            closes = bars["close"].tolist()
+            if len(vols) >= 2:
+                # 财报公布日 = 该财季窗口内成交量最大的那天 → 算它相对前一日的跳空
+                mi = max(range(1, len(vols)), key=lambda i: vols[i])
+                move = (closes[mi] / closes[mi - 1] - 1) * 100
+        except Exception:
+            pass
+        out.append({
+            "date": period,
+            "surprise_pct": round(float(surprise), 1) if surprise is not None else None,
+            "reaction_pct": round(move, 1) if move is not None else None,
+        })
     return out
 
 
@@ -179,7 +177,7 @@ def detect_reactions(gap_trigger: float = GAP_TRIGGER_PCT) -> list[dict]:
         sym = r["symbol"]
         try:
             bars = client.get_bars(sym, "1Day",
-                                   start=(today - timedelta(days=6)).isoformat()).df
+                                   start=(today - timedelta(days=6)).isoformat(), feed="iex").df
             closes = bars["close"].tolist()
             vols = bars["volume"].tolist()
             if len(closes) < 2:

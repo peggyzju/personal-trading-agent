@@ -1,37 +1,23 @@
 {
-  "generated_at": "2026-06-26T02:36:17.553429+00:00",
+  "generated_at": "2026-06-26T03:28:20.847923+00:00",
   "horizon_days": 7,
-  "count": 4,
+  "count": 2,
   "holdings_reporting": 0,
   "rows": [
     {
+      "symbol": "STZ",
+      "date": "2026-06-30",
+      "session": "AMC",
+      "eps_estimate": 3.2744,
+      "in_portfolio": false,
+      "importance": "",
+      "days_until": 4
+    },
+    {
       "symbol": "FDS",
       "date": "2026-07-01",
-      "session": "?",
-      "in_portfolio": false,
-      "importance": "",
-      "days_until": 5
-    },
-    {
-      "symbol": "GIS",
-      "date": "2026-07-01",
-      "session": "?",
-      "in_portfolio": false,
-      "importance": "",
-      "days_until": 5
-    },
-    {
-      "symbol": "NKE",
-      "date": "2026-07-01",
-      "session": "?",
-      "in_portfolio": false,
-      "importance": "",
-      "days_until": 5
-    },
-    {
-      "symbol": "STZ",
-      "date": "2026-07-01",
-      "session": "?",
+      "session": "BMO",
+      "eps_estimate": 4.4964,
       "in_portfolio": false,
       "importance": "",
       "days_until": 5

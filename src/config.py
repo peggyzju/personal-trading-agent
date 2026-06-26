@@ -19,6 +19,12 @@ def get_anthropic_key() -> str:
     return key
 
 
+def get_finnhub_key() -> str:
+    """Finnhub API key — 财报日历 / EPS 实际vs预期 / 历史超预期(当前、含本年)。
+    比 yfinance 实时,且带盘前/盘后(bmo/amc)。免费版 60次/分钟够用。"""
+    return os.environ.get("FINNHUB_API_KEY") or _load().get("FINNHUB_API_KEY", "")
+
+
 def get_anthropic_client(timeout: float = 60.0, max_retries: int = 2):
     """Anthropic 客户端 — 显式超时 + 有界重试。
     调度任务绝不能在一个卡住的 API 调用上无限挂起:那会占住一个调度器线程,

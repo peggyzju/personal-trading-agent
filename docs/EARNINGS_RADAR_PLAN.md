@@ -6,7 +6,10 @@
 
 ## 已确认的产品决策
 - **范围**:全市场(`data/sp500_constituents.txt` 487 只),持仓优先 —— 不漏重要财报
-- **数据源**:yfinance(免费,零配置)
+- **数据源**:**Finnhub**(2026-06-25 从 yfinance 切换 —— 实测 yfinance 滞后一年多、拿不到 2026 财报)。
+  财报日历(批量1次调用,带 BMO/AMC + EPS预期)+ 历史 EPS 超预期(含本年)用 Finnhub;
+  价格反应用 Alpaca(`feed="iex"`)。key 在 `.env: FINNHUB_API_KEY`,免费版 60次/分钟。
+  历史财报"反应日"= 财季窗口内成交量最大那天(Finnhub 免费版历史只给公布日不给逐次日期)
 - **通知**:桌面通知(osascript);**不发邮件**(用户不看)
 - **自动化**:仅"提醒 + AI 研判",**人工决策,系统不自动下单**(MVP 不接 Rex)
 - **dashboard 位置**:`Agent 运行` 面板下方、`收益` 面板上方
