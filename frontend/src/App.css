@@ -4078,6 +4078,28 @@ body {
 .perf-compact .pcc-heatmap-summary { font-size: 10px; }
 .perf-compact .pcc-heatmap-cell { width: 14px; height: 14px; border-radius: 3px; }
 
+/* 历史 + 持仓 胜率统计行（从 header 移来） */
+.perf-stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+}
+.perf-stat-group { display: inline-flex; align-items: center; gap: 4px; }
+.perf-stat-group b { font-weight: 700; }
+.perf-stat-tag {
+  font-size: 10px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 5px;
+  margin-right: 2px;
+}
+.perf-stat-sep { color: var(--border); margin: 0 2px; }
+
 .pcc-summary-today {
   display: flex;
   flex-direction: column;
