@@ -31,13 +31,14 @@ export default function App() {
   const [perfStats, setPerfStats] = useState<PerformanceStats | null>(null);
 
   const refresh = useCallback(async () => {
-    const [q, a, p, o] = await Promise.allSettled([
-      api.getQuotes(),
+    // 后端在线探针用 getAccount（快、稳）。原来用 getQuotes 当探针——它串行拉
+    // 整个 watchlist 的 yfinance 报价、常卡死，导致 header equity 永远「加载中」。
+    const [a, p, o] = await Promise.allSettled([
       api.getAccount(),
       api.getPositions(),
       api.getOrders(),
     ]);
-    setBackendOnline(q.status === "fulfilled");
+    setBackendOnline(a.status === "fulfilled");
     if (a.status === "fulfilled") setAccount(a.value);
     if (p.status === "fulfilled") setPositions(p.value);
     if (o.status === "fulfilled") setOrders(o.value);
