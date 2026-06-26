@@ -222,14 +222,14 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
   return (
     <div className="pcc-container">
 
-      {/* ── Dashboard top：Agent运行 → 财报雷达 → 收益（用户指定顺序）── */}
+      {/* ── Dashboard top：收益 → 财报雷达 → Agent运行（用户指定顺序）── */}
       <div className="pcc-dashboard-top">
-        <AgentRunsPanel status={data.agentsStatus} />
-        <EarningsRadar />
         <DashboardSummary goal={data.goal} history={data.history} account={data.account} />
         {(data.history?.days.length ?? 0) > 10 && (
           <CompactHeatmap days={data.history!.days} />
         )}
+        <EarningsRadar />
+        <AgentRunsPanel status={data.agentsStatus} />
       </div>
 
       {/* ── 方案A 两栏：持仓监控(主) + 侧栏(审批 + 交易记录)，用 grid-areas 定位 ── */}
