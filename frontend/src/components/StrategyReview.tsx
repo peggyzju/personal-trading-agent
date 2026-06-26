@@ -1,9 +1,36 @@
 import { useState, useEffect } from "react";
 import { api } from "../api/client";
 import type { StockDebateResult, PostmortemResult, PostmortemTrade, StrategyBacktestResult, TimelinePeriod } from "../api/client";
+import type { Account, PortfolioHistory, GoalProgress } from "../api/client";
 import { BacktestView } from "./BacktestView";
+import { DashboardSummary, CompactHeatmap } from "./PortfolioCommandCenter";
 
 interface Props { backendOnline: boolean }
+
+// 收益概览（从首页移来）：自取数 account / portfolio history / goal
+function PerformanceSummary() {
+  const [account, setAccount] = useState<Account | null>(null);
+  const [history, setHistory] = useState<PortfolioHistory | null>(null);
+  const [goal, setGoal]       = useState<GoalProgress | null>(null);
+
+  useEffect(() => {
+    const load = () => {
+      api.getAccount().then(setAccount).catch(() => {});
+      api.getPortfolioHistory().then(setHistory).catch(() => {});
+      api.getGoalProgress().then(setGoal).catch(() => {});
+    };
+    load();
+    const t = setInterval(load, 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  return (
+    <div className="pcc-dashboard-top" style={{ marginBottom: 16 }}>
+      <DashboardSummary goal={goal} history={history} account={account} />
+      {(history?.days.length ?? 0) > 10 && <CompactHeatmap days={history!.days} />}
+    </div>
+  );
+}
 
 export function StrategyReviewPanel({ backendOnline }: Props) {
   if (!backendOnline) {
@@ -12,6 +39,7 @@ export function StrategyReviewPanel({ backendOnline }: Props) {
 
   return (
     <div className="sr-container">
+      <PerformanceSummary />
       <PostMortemPanel backendOnline={backendOnline} />
       <BacktestView backendOnline={backendOnline} />
     </div>

@@ -222,12 +222,8 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
   return (
     <div className="pcc-container">
 
-      {/* ── Dashboard top：收益 → 财报雷达 → Agent运行（用户指定顺序）── */}
+      {/* ── Dashboard top：财报雷达 → Agent运行（收益已移至「复盘」Tab）── */}
       <div className="pcc-dashboard-top">
-        <DashboardSummary goal={data.goal} history={data.history} account={data.account} />
-        {(data.history?.days.length ?? 0) > 10 && (
-          <CompactHeatmap days={data.history!.days} />
-        )}
         <EarningsRadar />
         <AgentRunsPanel status={data.agentsStatus} />
       </div>
@@ -922,7 +918,7 @@ function _BuySignalRow({ rank, candidate: c, budget, backendOnline }: { rank: nu
 
 // ── Dashboard Top Components ──────────────────────────────────────────────────
 
-function DashboardSummary({ history, account }: { goal: GoalProgress | null; history: PortfolioHistory | null; account: Account | null }) {
+export function DashboardSummary({ history, account }: { goal: GoalProgress | null; history: PortfolioHistory | null; account: Account | null }) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const days = history?.days ?? [];
   const todayDay = days.find(d => d.date === todayStr) ?? (days.length > 0 ? days[days.length - 1] : null);
@@ -993,7 +989,7 @@ function cellColor(pct: number): string {
   return "#16a34a";
 }
 
-function CompactHeatmap({ days }: { days: PortfolioDay[] }) {
+export function CompactHeatmap({ days }: { days: PortfolioDay[] }) {
   const [tooltip, setTooltip] = useState<{ day: PortfolioDay; x: number; y: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
