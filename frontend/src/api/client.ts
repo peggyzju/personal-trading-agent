@@ -361,6 +361,40 @@ export interface StrategyReview {
   };
 }
 
+export interface EarningsCalendarRow {
+  symbol: string;
+  date: string;
+  session: string;
+  in_portfolio: boolean;
+  importance: string;
+  days_until: number;
+}
+
+export interface EarningsCalendar {
+  generated_at: string | null;
+  horizon_days?: number;
+  count: number;
+  holdings_reporting: number;
+  rows: EarningsCalendarRow[];
+}
+
+export interface EarningsReactionHist {
+  date: string;
+  surprise_pct: number | null;
+  reaction_pct: number | null;
+}
+
+export interface EarningsAnalysisItem {
+  symbol: string;
+  held: boolean;
+  gap_pct: number | null;
+  vol_ratio: number | null;
+  surprise_pct: number | null;
+  history: EarningsReactionHist[];
+  analysis: { summary: string; verdict: string; confidence: number; reason: string };
+  analyzed_at: string;
+}
+
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`);
   if (!r.ok) throw new Error(await r.text());
@@ -542,6 +576,8 @@ export const api = {
     post<{ status: string }>(`/strategy-backtest/run${months ? `?months=${months}` : ""}`),
   getStrategyBacktestStatus: () =>
     get<{ running: boolean; last_result: StrategyBacktestResult | null }>("/strategy-backtest/status"),
+  getEarningsCalendar: () => get<EarningsCalendar>("/earnings/calendar"),
+  getEarningsAnalysis: () => get<{ items: EarningsAnalysisItem[] }>("/earnings/analysis"),
 };
 
 export interface PostmortemTrade {

@@ -123,6 +123,55 @@ def run_market_context():
         f"return={gc.get('current_return_pct',0):+.2f}% "
         f"need/day={gc.get('daily_return_needed',0):.2f}%"
     )
+    # 财报雷达:每天生成未来 7 天全市场财报日历(非致命,失败不影响 Maya)
+    try:
+        from src.monitor.earnings_radar import build_calendar
+        cal = build_calendar(days=7)
+        print(f"[scheduler] 财报日历: 未来7天 {cal['count']} 只发财报 "
+              f"(持仓 {cal['holdings_reporting']} 只)")
+    except Exception as e:
+        print(f"[scheduler] 财报日历生成失败(不影响 Maya): {e}")
+
+
+def _desktop_notify(title: str, msg: str) -> None:
+    """桌面通知(best-effort,白天有用;后半夜 AMC 财报用户看不到,见设计文档)。"""
+    try:
+        import subprocess
+        subprocess.run(["osascript", "-e",
+                        f'display notification "{msg}" with title "{title}"'],
+                       timeout=10, check=False)
+    except Exception:
+        pass
+
+
+def run_earnings_scan():
+    """财报雷达 Part B:检测当日财报名单的显著价格反应 → AI 研判 → 桌面通知。
+    人工决策,不自动下单。结果写 data/earnings_analysis.json。"""
+    import json as _json
+    from pathlib import Path as _Path
+    print("[scheduler] 财报反应扫描…")
+    try:
+        from src.monitor.earnings_radar import detect_reactions, analyze_earnings, _ANALYSIS_FILE
+        triggered = detect_reactions()
+        if not triggered:
+            return
+        existing = {}
+        if _ANALYSIS_FILE.exists():
+            try:
+                existing = {a["symbol"]: a for a in _json.loads(_ANALYSIS_FILE.read_text())}
+            except Exception:
+                existing = {}
+        for t in triggered:
+            sym = t["symbol"]
+            res = analyze_earnings(sym, gap_pct=t.get("gap_pct"), vol_ratio=t.get("vol_ratio"))
+            existing[sym] = res
+            a = res.get("analysis", {})
+            _desktop_notify(f"财报研判 {sym} {t.get('gap_pct'):+}%",
+                            f"{a.get('verdict','')} · {a.get('summary','')[:60]}")
+            print(f"[scheduler] 财报研判 {sym}: {a.get('verdict')} (跳空 {t.get('gap_pct')}%)")
+        _ANALYSIS_FILE.write_text(_json.dumps(list(existing.values()), indent=2, ensure_ascii=False))
+    except Exception as e:
+        print(f"[scheduler] 财报反应扫描失败: {e}")
 
 
 def run_sp500_scan():
@@ -329,6 +378,12 @@ if __name__ == "__main__":
     scheduler.add_job(catch_up_premarket, "cron", day_of_week="mon-fri", hour=9, minute=0,
                       id="premarket_catchup", name="盘前补跑看门狗 (9:00 ET, Maya/Scout)",
                       misfire_grace_time=5400)
+
+    # 财报雷达 Part B: 每 15 分钟检测当日财报名单的价格反应 → AI 研判 + 桌面通知。
+    # 覆盖盘前(BMO)+盘后(AMC)反应窗口 7:00–20:00 ET。人工决策,不下单。
+    scheduler.add_job(run_earnings_scan, "cron", day_of_week="mon-fri", hour="7-20", minute="*/15",
+                      id="earnings_scan", name="财报反应扫描 + AI研判 (7:00–20:00 ET, 每15分钟)",
+                      misfire_grace_time=MGT)
 
     # Vera 复盘已移除自动定时 — 改为手动 trigger（POST /api/strategy/review）
 

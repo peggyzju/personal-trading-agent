@@ -1,0 +1,40 @@
+{
+  "generated_at": "2026-06-26T02:36:17.553429+00:00",
+  "horizon_days": 7,
+  "count": 4,
+  "holdings_reporting": 0,
+  "rows": [
+    {
+      "symbol": "FDS",
+      "date": "2026-07-01",
+      "session": "?",
+      "in_portfolio": false,
+      "importance": "",
+      "days_until": 5
+    },
+    {
+      "symbol": "GIS",
+      "date": "2026-07-01",
+      "session": "?",
+      "in_portfolio": false,
+      "importance": "",
+      "days_until": 5
+    },
+    {
+      "symbol": "NKE",
+      "date": "2026-07-01",
+      "session": "?",
+      "in_portfolio": false,
+      "importance": "",
+      "days_until": 5
+    },
+    {
+      "symbol": "STZ",
+      "date": "2026-07-01",
+      "session": "?",
+      "in_portfolio": false,
+      "importance": "",
+      "days_until": 5
+    }
+  ]
+}

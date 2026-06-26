@@ -7,6 +7,7 @@ import type {
   AgentsStatus, AgentRunStatus, AgentRunHistoryEntry,
 } from "../api/client";
 import { TradeModal } from "./TradeModal";
+import EarningsRadar from "./EarningsRadar";
 import { CandleChart } from "./CandleChart";
 import { DecisionChain, type DecisionInput } from "./DecisionChain";
 import type { PortfolioHistory } from "../api/client";
@@ -221,13 +222,14 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
   return (
     <div className="pcc-container">
 
-      {/* ── Dashboard top ── */}
+      {/* ── Dashboard top：Agent运行 → 财报雷达 → 收益（用户指定顺序）── */}
       <div className="pcc-dashboard-top">
+        <AgentRunsPanel status={data.agentsStatus} />
+        <EarningsRadar />
         <DashboardSummary goal={data.goal} history={data.history} account={data.account} />
         {(data.history?.days.length ?? 0) > 10 && (
           <CompactHeatmap days={data.history!.days} />
         )}
-        <AgentRunsPanel status={data.agentsStatus} />
       </div>
 
       {/* ── 方案A 两栏：持仓监控(主) + 侧栏(审批 + 交易记录)，用 grid-areas 定位 ── */}

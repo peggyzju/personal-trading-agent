@@ -1532,5 +1532,107 @@
     "quality_gate_removed": 0,
     "ai_scored": 15,
     "market_regime": "CAUTION"
+  },
+  {
+    "date": "2026-06-25",
+    "recorded_at": "2026-06-25T15:03:24.546911+00:00",
+    "scan_quality": {
+      "total_candidates": 14,
+      "rsi_mean": 47.7,
+      "rsi_dist": {
+        "rsi_below40": 5,
+        "rsi_40_55": 4,
+        "rsi_55_60": 1,
+        "rsi_60_65": 2,
+        "rsi_above65": 2
+      },
+      "vma20_mean": 1.3,
+      "vma20_dist": {
+        "vma20_neg": 5,
+        "vma20_0_3": 3,
+        "vma20_3_5": 2,
+        "vma20_5_8": 3,
+        "vma20_above8": 1
+      },
+      "signal_counts": {
+        "BUY": 8,
+        "HOLD": 6
+      },
+      "ai_score_mean": 5.6,
+      "quality_score": 44.3
+    },
+    "portfolio": {
+      "equity": 97322.0,
+      "cash": 69659.0,
+      "invested": 27663.0,
+      "alloc_pct": 28.4,
+      "float_pnl": -156.0,
+      "float_pct": -0.16,
+      "positions": 7
+    },
+    "trades_today": {
+      "closed_trades_today": 2,
+      "symbols_closed": [
+        "DIS",
+        "CDNS"
+      ]
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 14,
+    "quality_gate_removed": 0,
+    "ai_scored": 14,
+    "market_regime": "CAUTION"
+  },
+  {
+    "date": "2026-06-26",
+    "recorded_at": "2026-06-25T18:32:57.498591+00:00",
+    "scan_quality": {
+      "total_candidates": 14,
+      "rsi_mean": 48.6,
+      "rsi_dist": {
+        "rsi_below40": 5,
+        "rsi_40_55": 4,
+        "rsi_55_60": 1,
+        "rsi_60_65": 1,
+        "rsi_above65": 3
+      },
+      "vma20_mean": 2.3,
+      "vma20_dist": {
+        "vma20_neg": 5,
+        "vma20_0_3": 4,
+        "vma20_3_5": 1,
+        "vma20_5_8": 2,
+        "vma20_above8": 2
+      },
+      "signal_counts": {
+        "BUY": 4,
+        "HOLD": 10
+      },
+      "ai_score_mean": 5.6,
+      "quality_score": 40.0
+    },
+    "portfolio": {
+      "equity": 97112.0,
+      "cash": 73871.0,
+      "invested": 23241.0,
+      "alloc_pct": 23.9,
+      "float_pnl": -223.0,
+      "float_pct": -0.23,
+      "positions": 6
+    },
+    "trades_today": {
+      "closed_trades_today": 3,
+      "symbols_closed": [
+        "DIS",
+        "CDNS"
+      ]
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 14,
+    "quality_gate_removed": 0,
+    "ai_scored": 14,
+    "market_regime": "CAUTION"
   }
 ]

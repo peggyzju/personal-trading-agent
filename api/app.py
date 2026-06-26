@@ -279,6 +279,37 @@ def get_movers():
 
 # ── Earnings ─────────────────────────────────────────────────────────────────
 
+# ── 财报雷达 Earnings Radar(静态路由必须在 /{symbol} 之前)──────────────────────
+@app.get("/api/earnings/calendar")
+def get_earnings_calendar_panel():
+    """未来 7 天全市场财报日历(Maya 每日生成,持仓优先)。读缓存。"""
+    import json as _json
+    from pathlib import Path as _Path
+    f = _Path(__file__).parent.parent / "data" / "earnings_calendar.json"
+    if not f.exists():
+        return {"count": 0, "rows": [], "generated_at": None, "holdings_reporting": 0}
+    try:
+        return _json.loads(f.read_text())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/earnings/analysis")
+def get_earnings_analysis_panel():
+    """财报后 AI 研判结果(Part B 实时生成)。读缓存,最新在前。"""
+    import json as _json
+    from pathlib import Path as _Path
+    f = _Path(__file__).parent.parent / "data" / "earnings_analysis.json"
+    if not f.exists():
+        return {"items": []}
+    try:
+        items = _json.loads(f.read_text())
+        items.sort(key=lambda a: a.get("analyzed_at", ""), reverse=True)
+        return {"items": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/earnings/{symbol}")
 def get_earnings(symbol: str):
     from src.monitor.news_monitor import get_earnings_calendar

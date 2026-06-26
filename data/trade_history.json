@@ -1211,5 +1211,24 @@
     "strategy_version": "v7",
     "alpaca_order_id": "d0957c8d-d712-43e7-bd5a-64014e8541bb",
     "recorded_at": "2026-06-24T20:10:01.258611+00:00"
+  },
+  {
+    "symbol": "DIS",
+    "entry_date": "2026-06-22",
+    "exit_date": "2026-06-25",
+    "entry_price": 103.66,
+    "exit_price": 100.71,
+    "pnl_pct": -2.85,
+    "exit_reason": "ai_reduce",
+    "days_held": 2,
+    "notional": 8707.0,
+    "dollar_pnl": -248.0,
+    "rsi_at_entry": null,
+    "vma20_at_entry": null,
+    "market_regime": "CAUTION",
+    "screen_track": "momentum",
+    "strategy_version": "v7",
+    "alpaca_order_id": "2f90f6a4-00a5-462b-a460-d557c125d833",
+    "recorded_at": "2026-06-25T20:10:01.221749+00:00"
   }
 ]
