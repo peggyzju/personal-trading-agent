@@ -1,10 +1,13 @@
 import { useState, useEffect } from "react";
 import { api } from "../api/client";
-import type { V8BacktestResult } from "../api/client";
+import type { V8BacktestResult, V8BacktestSide } from "../api/client";
 
 interface Props { backendOnline: boolean }
-
 type Period = "6mo" | "1y" | "2025" | "2024" | "2023";
+const PERIODS: { v: Period; label: string }[] = [
+  { v: "6mo", label: "近6月" }, { v: "1y", label: "近1年" },
+  { v: "2025", label: "2025" }, { v: "2024", label: "2024" }, { v: "2023", label: "2023" },
+];
 
 export function BacktestView({ backendOnline }: Props) {
   const [data, setData] = useState<V8BacktestResult | null>(null);
@@ -13,10 +16,7 @@ export function BacktestView({ backendOnline }: Props) {
 
   useEffect(() => {
     if (!backendOnline) return;
-    api.getV8Backtest().then(r => {
-      setData(r);
-      if (r.status === "running") pollUntilDone();
-    }).catch(() => {});
+    api.getV8Backtest().then(r => { setData(r); if (r.status === "running") pollUntilDone(); }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backendOnline]);
 
@@ -32,97 +32,84 @@ export function BacktestView({ backendOnline }: Props) {
 
   async function run() {
     setLoading(true);
-    try {
-      await api.triggerV8Backtest(period);
-      setData({ status: "running", period });
-      pollUntilDone();
-    } catch { setLoading(false); }
+    try { await api.triggerV8Backtest(period); setData({ status: "running", period }); pollUntilDone(); }
+    catch { setLoading(false); }
   }
 
-  if (!backendOnline) return <div className="brief-offline">启动后端服务以运行回测。</div>;
+  if (!backendOnline) return null;
 
   const fmt = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
-  const col = (v: number) => (v >= 0 ? "#22c55e" : "#ef4444");
+  type Row = { key: string; label: string; side: V8BacktestSide; strat: boolean };
+  const rows: Row[] = [];
+  if (data?.status === "done" && data.v8) {
+    rows.push({ key: "v8", label: "v8 趋势", side: data.v8, strat: true });
+    if (data.qqq) rows.push({ key: "qqq", label: "QQQ 纳指", side: data.qqq, strat: false });
+    if (data.spy) rows.push({ key: "spy", label: "SPY 标普", side: data.spy, strat: false });
+  }
   const years = data?.v8?.by_year ? Object.keys(data.v8.by_year).sort() : [];
 
   return (
-    <div className="backtest-container">
-      <div className="scan-header">
+    <div className="pm-backtest-section">
+      <div className="sr-header" style={{ marginTop: 32 }}>
         <div>
-          <h2>📊 v8 回测 — 趋势打法 vs SPY</h2>
-          <span className="scan-meta">
-            机械动量(无 AI、无后见之明)· Alpaca 数据 · 同股票池对照 SPY
-          </span>
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <select value={period} onChange={e => setPeriod(e.target.value as Period)} className="config-input">
-            <option value="6mo">近 6 个月</option>
-            <option value="1y">近 1 年</option>
-            <option value="2025">2025 全年</option>
-            <option value="2024">2024 全年</option>
-            <option value="2023">2023 全年</option>
-          </select>
-          <button className="scan-btn" onClick={run} disabled={loading}>
-            {loading ? "回测中…" : "▶ 运行 v8 回测"}
-          </button>
+          <h2 className="sr-title">📊 v8 回测 — 趋势打法 vs 大盘</h2>
+          <p className="sr-subtitle">机械动量(无 AI、无后见之明)· Alpaca 数据 · v8 / QQQ / SPY 同池对照</p>
         </div>
       </div>
 
-      {(!data || data.status === "not_run") && (
-        <div className="brief-empty">选时间段,点「运行 v8 回测」。</div>
-      )}
-      {data?.status === "running" && <div className="brief-empty">回测中…(取数+模拟约 1-3 分钟)</div>}
-      {data?.status === "error" && <div className="brief-empty">回测失败:{data.error}</div>}
+      <div className="pm-controls">
+        <div className="pm-period-group">
+          {PERIODS.map(p => (
+            <button key={p.v} className={`pm-period-btn${period === p.v ? " active" : ""}`} onClick={() => setPeriod(p.v)}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <button className="brief-generate-btn" onClick={run} disabled={loading}>
+          {loading ? "回测中…" : "▶ 运行回测"}
+        </button>
+        {data?.status === "done" && (
+          <span className="pm-gen-time">{data.date_range} · {data.n_months} 个月</span>
+        )}
+      </div>
 
-      {data?.status === "done" && data.v8 && data.spy && (
+      {data?.status === "running" && <div className="brief-empty">回测中…(取数+模拟约 1-3 分钟)</div>}
+      {data?.status === "error" && <div className="pm-error">⚠ 回测失败:{data.error}</div>}
+
+      {data?.status === "done" && rows.length > 0 && (
         <>
-          <div style={{ fontSize: 12, color: "var(--muted)", margin: "4px 0 12px" }}>
-            {data.date_range} · {data.n_months} 个月
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-            {([["v8 趋势打法", data.v8, "#22c55e"], ["SPY 买入持有", data.spy, "#64748b"]] as const).map(([label, side, accent]) => (
-              <div key={label} style={{ border: `1px solid var(--border)`, borderLeft: `3px solid ${accent}`, borderRadius: 12, padding: "12px 14px" }}>
-                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{label}</div>
-                <div style={{ display: "flex", gap: 18 }}>
-                  <div>
-                    <div style={{ fontSize: 11, color: "var(--muted)" }}>总收益</div>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: col(side.total_return_pct) }}>{fmt(side.total_return_pct)}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 11, color: "var(--muted)" }}>最大回撤</div>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: "#ef4444" }}>{side.max_drawdown_pct.toFixed(1)}%</div>
-                  </div>
-                </div>
+          <div className="pm-stats-row">
+            {rows.map(r => (
+              <div className="pm-stat-card" key={r.key} style={r.strat ? { borderColor: "#22c55e" } : undefined}>
+                <div className="pm-stat-label">{r.strat ? "★ " : ""}{r.label} · 总收益</div>
+                <div className={`pm-stat-value ${r.side.total_return_pct >= 0 ? "pos" : "neg"}`}>{fmt(r.side.total_return_pct)}</div>
+                <div className="pm-stat-label">最大回撤 {r.side.max_drawdown_pct.toFixed(1)}%</div>
               </div>
             ))}
           </div>
 
           {years.length > 0 && (
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ color: "var(--muted)", fontSize: 11, textAlign: "right" }}>
-                  <th style={{ textAlign: "left", padding: "6px 4px" }}>分年收益</th>
-                  {years.map(y => <th key={y} style={{ padding: "6px 4px" }}>{y}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {([["v8", data.v8], ["SPY", data.spy]] as const).map(([label, side]) => (
-                  <tr key={label} style={{ borderTop: "1px solid var(--border)" }}>
-                    <td style={{ padding: "6px 4px", fontWeight: 500 }}>{label}</td>
-                    {years.map(y => {
-                      const v = side.by_year[y];
-                      return <td key={y} style={{ padding: "6px 4px", textAlign: "right", color: v != null ? col(v) : "var(--muted)" }}>{v != null ? fmt(v) : "—"}</td>;
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="pm-tier-card">
+              <div className="pm-tier-title">分年收益</div>
+              <div className="pm-tier-row pm-tier-header">
+                <span>策略</span>
+                {years.map(y => <span key={y} style={{ textAlign: "right" }}>{y}</span>)}
+              </div>
+              {rows.map(r => (
+                <div className="pm-tier-row" key={r.key}>
+                  <span style={{ fontWeight: r.strat ? 700 : 400 }}>{r.key === "v8" ? "v8" : r.label.slice(0, 3)}</span>
+                  {years.map(y => {
+                    const v = r.side.by_year[y];
+                    return <span key={y} className={v != null ? (v >= 0 ? "pos" : "neg") : ""} style={{ textAlign: "right" }}>{v != null ? fmt(v) : "—"}</span>;
+                  })}
+                </div>
+              ))}
+            </div>
           )}
 
-          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 12, lineHeight: 1.5 }}>
-            ⚠️ 用今天的 S&P500 名单有幸存者偏差(绝对数字偏高);但 v8 与 SPY 同池对照,<b>相对胜负可信</b>。
-            稳健性见 <code>scripts/v8_robustness.py</code>(9/9 组参数赢 SPY)。
-          </div>
+          <p className="sr-subtitle" style={{ marginTop: 12 }}>
+            ⚠️ 用今天的 S&P500 名单有幸存者偏差(绝对数字偏高);但三者同池对照,相对胜负可信。稳健性见 scripts/v8_robustness.py(9/9 组赢 SPY)。
+          </p>
         </>
       )}
     </div>

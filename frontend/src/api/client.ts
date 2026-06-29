@@ -601,6 +601,7 @@ export interface V8BacktestResult {
   n_months?: number;
   v8?: V8BacktestSide;
   spy?: V8BacktestSide;
+  qqq?: V8BacktestSide;
   error?: string;
 }
 

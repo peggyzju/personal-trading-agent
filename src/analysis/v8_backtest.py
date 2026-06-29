@@ -88,7 +88,7 @@ def run_v8_backtest(period: str = "6mo") -> dict:
     sim_start, sim_end = _period_range(period)
     fetch_start = (date.fromisoformat(sim_start) - timedelta(days=120)).isoformat()  # MA50/动量预热
 
-    px = _fetch(symbols + ["SPY"], fetch_start)
+    px = _fetch(symbols + ["SPY", "QQQ"], fetch_start)
     if px.empty or "SPY" not in px.columns:
         return {"status": "error", "error": "取数失败"}
     px = px[px.index <= pd.Timestamp(sim_end)]
@@ -97,7 +97,10 @@ def run_v8_backtest(period: str = "6mo") -> dict:
     slope = ma50 - ma50.shift(5); mom = px / px.shift(MOM_DAYS) - 1
     rsi = px.apply(_rsi)
     A = {k: v.values for k, v in {"px": px, "ma20": ma20, "ma50": ma50, "slope": slope, "mom": mom, "rsi": rsi}.items()}
-    spy_col = list(px.columns).index("SPY")
+    cols = list(px.columns)
+    spy_col = cols.index("SPY")
+    qqq_col = cols.index("QQQ") if "QQQ" in cols else -1
+    bench_cols = {spy_col, qqq_col} - {-1}
 
     sim_idx = [j for j, d in enumerate(px.index) if d >= pd.Timestamp(sim_start)]
     if len(sim_idx) < 5:
@@ -122,7 +125,8 @@ def run_v8_backtest(period: str = "6mo") -> dict:
         if free > 0 and cash > each * 0.5:
             elig = (row > A["ma50"][i]) & (A["slope"][i] > 0) & (A["rsi"][i] >= 50) & (A["rsi"][i] <= 80) \
                    & (A["mom"][i] > 0) & (row <= A["ma20"][i] * 1.15) & ~np.isnan(row)
-            elig[spy_col] = False
+            for bc in bench_cols:
+                elig[bc] = False
             for ci in pos:
                 elig[ci] = False
             idx = np.where(elig)[0]
@@ -140,8 +144,20 @@ def run_v8_backtest(period: str = "6mo") -> dict:
         eq[k] = val
 
     sim_dates = px.index[sim_idx]
-    spy = px["SPY"].values[sim_idx]
-    spy_eq = spy / spy[0]
+
+    def _bench(sym_name):
+        if sym_name not in px.columns:
+            return None
+        s = px[sym_name].values[sim_idx]
+        if len(s) < 2 or s[0] == 0 or np.isnan(s[0]):
+            return None
+        beq = s / s[0]
+        return {
+            "total_return_pct": round((beq[-1] - 1) * 100, 1),
+            "max_drawdown_pct": round(_max_dd(beq) * 100, 1),
+            "by_year": _by_year(sim_dates, beq),
+        }
+
     return {
         "status": "done",
         "period": period,
@@ -152,10 +168,7 @@ def run_v8_backtest(period: str = "6mo") -> dict:
             "max_drawdown_pct": round(_max_dd(eq) * 100, 1),
             "by_year": _by_year(sim_dates, eq),
         },
-        "spy": {
-            "total_return_pct": round((spy_eq[-1] - 1) * 100, 1),
-            "max_drawdown_pct": round(_max_dd(spy_eq) * 100, 1),
-            "by_year": _by_year(sim_dates, spy_eq),
-        },
+        "spy": _bench("SPY"),
+        "qqq": _bench("QQQ"),
         "generated_at": datetime.utcnow().isoformat(),
     }
