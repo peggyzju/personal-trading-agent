@@ -105,12 +105,6 @@
   ],
   "scout": [
     {
-      "ran_at": "2026-06-04T18:32:22.940865+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
       "ran_at": "2026-06-05T02:25:06.187629+00:00",
       "trigger": "manual",
       "result": "success",
@@ -463,15 +457,15 @@
       "trigger": "auto",
       "result": "success",
       "error": null
+    },
+    {
+      "ran_at": "2026-06-29T07:14:41.804892+00:00",
+      "trigger": "manual",
+      "result": "success",
+      "error": null
     }
   ],
   "rex": [
-    {
-      "ran_at": "2026-06-19T16:33:04.097332+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
     {
       "ran_at": "2026-06-19T16:33:55.197049+00:00",
       "trigger": "auto",
@@ -822,6 +816,12 @@
     },
     {
       "ran_at": "2026-06-26T18:32:34.563030+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-29T07:14:41.801492+00:00",
       "trigger": "auto",
       "result": "success",
       "error": null

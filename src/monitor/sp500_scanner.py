@@ -617,10 +617,9 @@ def quick_screen(
             and vs_ma20 <= 15.0                    # 不过度延伸(≤ MA20×1.15)
         )
 
-        if symbol in _force:   # watchlist 放宽:在上升趋势就考虑
-            passes = (vs_ma50 is not None and vs_ma50 > 0 and mom_3m > 0 and 50 <= rsi <= 80)
-        else:
-            passes = trend_ok
+        # v8: 自选(watchlist)不搞特殊 —— 和全量股走同一道趋势门(用户选 B,= 回测验证的那套)。
+        # force_symbols 仅保证过门后出现在候选列表(免被 top_n 截断),不给买入优先(买入按动量排名)。
+        passes = trend_ok
 
         if passes:
             all_results.append({**r, "screen_track": "momentum"})
