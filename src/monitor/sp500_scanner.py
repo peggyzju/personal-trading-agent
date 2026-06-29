@@ -547,15 +547,11 @@ def quick_screen(
     """
     Download 60d OHLCV per-ticker in parallel, compute technicals, return top_n.
 
-    Dual-track filter with sector resonance:
-      Track 1 (Momentum Breakout): RSI 50-75 (85 if sector is hot), today_bull, mom5d>0%, vs_ma20<=15%
-      Track 2 (Compression Coil):  RSI<55, vol<0.8x, mom5d>-3%  — bypass today_bull
+    v8 单一趋势门(无双轨、无 AI):price>MA50 且 MA50 上升 + RSI 50-80 +
+    3 月动量>0 + vs_ma20≤15%(不过度延伸)。过门后按 momentum_3m 整体排名取 top_n。
 
-    Sector resonance: if ≥3 stocks in a sector have today_bull=True, that sector's
-    Track 1 RSI ceiling is raised by SECTOR_RSI_BOOST (75→85), catching late-stage
-    institutional momentum in chip/software rallies.
-
-    force_symbols (watchlist): today_bull=True → bypass everything; else → Track 2 only.
+    force_symbols (watchlist): 走同一道趋势门(不搞特殊),仅保证过门后不被
+    top_n 截断;整体按动量重排,不给买入插队。
     """
     raw_results: list[dict] = []   # all tickers with valid technicals (pre-filter)
     total = len(tickers)
