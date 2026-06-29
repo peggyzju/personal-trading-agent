@@ -167,9 +167,8 @@ export function SignalsView({ backendOnline }: Props) {
     finally { setWatchlistLoading(prev => ({ ...prev, [sym]: false })); }
   }
 
-  // Merge + dedupe by symbol (keep higher ai_score), sort by ai_score desc
+  // v8: 合并去重,按 3 月动量排序(选股=机械动量,ai_score 仅参考)
   const allCandidates: TaggedCandidate[] = useMemo(() => {
-    // Include all candidates from sp500 scan (sp500, layer2, etc.) — not just pure S&P
     const sp = sp500Data?.candidates ?? [];
     const nq = nasdaqData?.candidates ?? [];
     const map = new Map<string, TaggedCandidate>();
@@ -180,15 +179,15 @@ export function SignalsView({ backendOnline }: Props) {
     for (const c of nq) {
       const ex = map.get(c.symbol);
       if (ex) {
-        if (!ex.sourceTags.includes("NQ")) ex.sourceTags.push("NQ");   // 去重，避免 ["NQ","NQ"] → key 撞车
-        if (c.ai_score > ex.ai_score) {
+        if (!ex.sourceTags.includes("NQ")) ex.sourceTags.push("NQ");
+        if ((c.momentum_3m ?? -999) > (ex.momentum_3m ?? -999)) {
           map.set(c.symbol, { ...c, sourceTags: ex.sourceTags });
         }
       } else {
         map.set(c.symbol, { ...c, sourceTags: ["NQ"] });
       }
     }
-    return Array.from(map.values()).sort((a, b) => b.ai_score - a.ai_score);
+    return Array.from(map.values()).sort((a, b) => (b.momentum_3m ?? -999) - (a.momentum_3m ?? -999));
   }, [sp500Data, nasdaqData]);
 
   const isRunning   = sp500Data?.status === "running" || nasdaqData?.status === "running";
@@ -304,6 +303,9 @@ function AllSignalsView({
 
   return (
     <div className="sc-list">
+      <div className="signals-stale-banner" style={{ background: "rgba(34,197,94,.1)", borderColor: "rgba(34,197,94,.3)", color: "#86efac" }}>
+        📈 v8 趋势打法 · 按 <b>3 月动量</b>排名,买动量前 N(机械选股) · AI 评分仅供参考,不参与买入
+      </div>
       {isRunning && (
         <div className="signals-stale-banner" style={{ background: "rgba(59,130,246,.1)", borderColor: "rgba(59,130,246,.3)", color: "#93c5fd" }}>
           ⏳ 新扫描进行中，以下为上次结果
@@ -409,11 +411,11 @@ function SignalCard({
           ))}
           {c.owned && <span className="sc-owned-badge">持仓中</span>}
         </div>
-        <div className="sc-ai-score">
+        <div className="sc-ai-score" title="AI 评分仅供参考,v8 不参与买入(买入按动量排名)">
           <div className="sc-ai-bar-wrap">
-            <div className="sc-ai-bar-fill" style={{ width: `${((c.ai_score ?? 0) / 10) * 100}%`, background: aiBarColor(c.ai_score ?? 0) }} />
+            <div className="sc-ai-bar-fill" style={{ width: `${((c.ai_score ?? 0) / 10) * 100}%`, background: aiBarColor(c.ai_score ?? 0), opacity: 0.5 }} />
           </div>
-          <span className="sc-ai-num">{c.ai_score != null ? c.ai_score.toFixed(1) : "—"}<span className="sc-ai-denom">/10</span></span>
+          <span className="sc-ai-num" style={{ opacity: 0.7 }}>AI {c.ai_score != null ? c.ai_score.toFixed(1) : "—"}<span className="sc-ai-denom"> 参考</span></span>
         </div>
       </div>
 
@@ -428,9 +430,16 @@ function SignalCard({
       {/* ── Row 3: price · change · fundamentals · technicals ── */}
       <div className="sc-data-row">
         <span className="sc-price">${c.price?.toFixed(2)}</span>
-        {c.momentum_5d != null && (
-          <span className="sc-change" style={{ color: c.momentum_5d >= 0 ? "#22c55e" : "#ef4444" }}>
-            {c.momentum_5d >= 0 ? "+" : ""}{c.momentum_5d.toFixed(1)}%
+        {c.momentum_3m != null && (
+          <span className="sc-change" style={{ color: c.momentum_3m >= 0 ? "#22c55e" : "#ef4444", fontWeight: 700 }}
+                title="3 月动量(v8 排名依据)">
+            动量 {c.momentum_3m >= 0 ? "+" : ""}{c.momentum_3m.toFixed(0)}%
+          </span>
+        )}
+        {c.vs_ma50_pct != null && (
+          <span className="sc-tech-chip" style={{ color: c.vs_ma50_pct >= 0 ? "#22c55e" : "#ef4444" }}
+                title="距 50 日线">
+            MA50 {c.vs_ma50_pct >= 0 ? "+" : ""}{c.vs_ma50_pct.toFixed(0)}%
           </span>
         )}
         {(c.pe_ratio || c.market_cap || c.beta) && <span className="sc-data-sep">|</span>}
