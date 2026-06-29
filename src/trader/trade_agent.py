@@ -1068,16 +1068,8 @@ def run_agent(
                 print(f"[agent] skip {pos['symbol']} REDUCE — already reduced today")
                 continue
 
-            # ── 趋势过滤器: 涨幅 ≥ 3% 时屏蔽 REDUCE，让追踪止盈管理退出(v8:让赢家跑)──
-            TREND_FILTER_PCT = 0.03
-            if sell_signal == "REDUCE":
-                _entry  = _sym_trade.get(pos["symbol"], {})
-                _epx    = _entry.get("price") or float(pos.get("avg_entry_price") or 0)
-                _cpx    = float(pos.get("current_price") or 0)
-                if _epx and _cpx >= _epx * (1 + TREND_FILTER_PCT):
-                    _gain = (_cpx / _epx - 1) * 100
-                    print(f"[agent] {pos['symbol']} 趋势过滤器: +{_gain:.1f}% ≥ 3% — skip REDUCE, trailing stop managing")
-                    continue
+            # v8: 趋势过滤器已移除 —— AI 软清仓撤掉后不再有 REDUCE 信号,无需压制。
+            # 让赢家跑 = 追踪止盈(+6%激活/-8%回撤);退出全由机械规则管理。
 
             # ── REDUCE streak escalation ───────────────────────────────────────
             # If the same position has been REDUCE'd 2+ times → escalate to full SELL

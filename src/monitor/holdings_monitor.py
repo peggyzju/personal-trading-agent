@@ -16,8 +16,8 @@ _PRICE_MOVE_THRESHOLD = 1.5           # re-analyse if price moved >1.5%
 
 # ── Trailing stop config ──────────────────────────────────────────────────────
 _TRAILING_FILE = Path(__file__).parent.parent.parent / "data" / "trailing_stops.json"
-TRAIL_PCT = 6.0          # trail 6% below high watermark (wider than 3% hard stop → lets winners run)
-TREND_FILTER_PCT = 3.0   # v8: 浮盈 ≥ 3% 就压制 AI REDUCE/SELL(原 5%)— 让赢家跑,交给追踪止盈管理退出
+TRAIL_PCT = 8.0           # v8: 高水位回撤 8% 才走(给赢家呼吸空间)
+TRAIL_ACTIVATE_PCT = 6.0  # v8: 浮盈高水位达 +6% 才激活追踪(未达则靠 -8% 硬止损,让赢家起步)
 
 
 def _load_trailing_stops() -> dict:
@@ -48,12 +48,12 @@ def _update_trailing_stops(positions: list[dict]) -> dict:
     for p in positions:
         sym   = p["symbol"]
         price = float(p.get("current_price") or 0)
+        entry = float(p.get("avg_entry_price") or 0)
         if not price:
             continue
         if sym not in stops:
             stops[sym] = {
                 "high_watermark":  price,
-                "trail_pct":       TRAIL_PCT,
                 "initialized_at":  datetime.now(timezone.utc).isoformat(),
             }
             print(f"[holdings] Trailing stop initialised for {sym} @ ${price:.2f}")
@@ -63,8 +63,11 @@ def _update_trailing_stops(positions: list[dict]) -> dict:
             print(f"[holdings] {sym} watermark updated ${old_wm:.2f} → ${price:.2f}")
 
         wm = stops[sym]["high_watermark"]
-        pct = stops[sym].get("trail_pct", TRAIL_PCT)
-        stops[sym]["trailing_stop"] = round(wm * (1 - pct / 100), 2)
+        # v8: 浮盈高水位达 +6% 才激活追踪;未达则不挂(trailing_stop=None,由 -8% 硬止损兜底)
+        if entry and wm >= entry * (1 + TRAIL_ACTIVATE_PCT / 100):
+            stops[sym]["trailing_stop"] = round(wm * (1 - TRAIL_PCT / 100), 2)
+        else:
+            stops[sym]["trailing_stop"] = None
 
     # Purge closed positions
     for sym in list(stops.keys()):
@@ -231,73 +234,6 @@ def analyze_sell_signals(positions: list[dict]) -> list[dict]:
     # 不再调 Claude 评估卖出;sell_signal 全由 _rule_based_override 的机械规则决定。
     enriched = _enrich_with_technicals(to_analyze)
 
-    def _tech_line(tech: dict) -> str:
-        parts = []
-        if tech.get("rsi") is not None:
-            zone = "oversold" if tech["rsi"] < 35 else "overbought" if tech["rsi"] > 70 else "neutral"
-            parts.append(f"RSI={tech['rsi']:.0f}({zone})")
-        if tech.get("mom5d_pct") is not None:
-            parts.append(f"5d_mom={tech['mom5d_pct']:+.1f}%")
-        if tech.get("vs_ma20_pct") is not None:
-            parts.append(f"vs_MA20={tech['vs_ma20_pct']:+.1f}%")
-        if tech.get("macd_bullish"):
-            parts.append("MACD_bullish_cross")
-        if tech.get("macd_bearish"):
-            parts.append("MACD_bearish_cross")
-        if tech.get("atr_pct") is not None:
-            parts.append(f"ATR={tech['atr_pct']:.1f}%/day")
-        if tech.get("stop_2atr") is not None:
-            parts.append(f"2xATR_stop=${tech['stop_2atr']:.2f}")
-        return " | ".join(parts) if parts else "no tech data"
-
-    def _trend_info(p: dict) -> str:
-        """Compute gain-from-entry and trend-protected status for prompt context."""
-        try:
-            entry = float(p.get("avg_entry_price") or 0)
-            cur   = float(p.get("current_price") or 0)
-            if entry and cur:
-                gain = (cur - entry) / entry * 100
-                protected = gain >= TREND_FILTER_PCT
-                return f"gain_from_entry={gain:+.1f}% trend_protected={'Yes' if protected else 'No'}"
-        except Exception:
-            pass
-        return ""
-
-    rows = "\n".join(
-        f'{i+1}. {p["symbol"]} | entry=${p["avg_entry_price"]:.2f} | '
-        f'now=${p["current_price"]:.2f} | P&L={p["unrealized_plpc"]:+.1f}% | '
-        f'qty={p["qty"]} | {_trend_info(p)} | {_tech_line(p.get("_tech", {}))}'
-        for i, p in enumerate(enriched)
-    )
-
-    prompt = f"""You are a portfolio risk manager. Assess each position for a sell/hold decision.
-Use BOTH the P&L data AND the technical indicators (RSI, momentum, MACD, MA position).
-
-CRITICAL TREND FILTER (highest priority rule):
-- If trend_protected=Yes (position up ≥5% from entry) → return HOLD, do NOT return REDUCE.
-  The mechanical trailing stop is already protecting this position.
-  Only override to SELL if: price breaks below MA20 AND MACD bearish cross confirmed simultaneously.
-
-Key guidelines:
-- RSI < 35 + positive momentum → consider HOLD even if P&L is negative (possible recovery)
-- RSI > 70 alone is NOT a sell signal if trend_protected=Yes — strong momentum stocks stay overbought
-- Position below 2×ATR stop level → SELL (stop hit)
-- MACD bullish cross + above MA20 → lean HOLD or ADD if fundamentals support
-- Pure P&L alone is NOT sufficient reason to sell; combine with technicals
-
-Positions:
-{rows}
-
-For each position return a JSON object:
-{{
-  "symbol": "...",
-  "sell_signal": "SELL" | "REDUCE" | "HOLD" | "ADD",
-  "urgency": "HIGH" | "MEDIUM" | "LOW",
-  "reason": "one sentence citing both P&L and the key technical signal",
-  "suggested_action": "e.g. sell all, sell half, hold with stop at $X, add X shares"
-}}
-
-Return ONLY a JSON array."""
 
     trailing_stops = _update_trailing_stops(enriched)
 
@@ -335,33 +271,10 @@ Return ONLY a JSON array."""
 
         return None
 
-    sig_map: dict = {}   # v8: 无 AI 卖出信号,sell_signal 全由机械 override(止损/追踪/MA20破位)决定
-
     result = []
     for p in enriched:
         override = _rule_based_override(p)
-        ai_sig   = sig_map.get(p["symbol"], {})
-        if override:
-            # Rule-based overrides always win (hard stop / trailing stop)
-            merged = {**ai_sig, **override}
-        else:
-            # ── 趋势过滤器 post-processing: belt-and-suspenders ─────────────────
-            # Even if Claude still returns REDUCE, override to HOLD when gain ≥ 5%
-            if ai_sig.get("sell_signal") == "REDUCE":
-                try:
-                    entry = float(p.get("avg_entry_price") or 0)
-                    cur   = float(p.get("current_price") or 0)
-                    gain  = (cur - entry) / entry * 100 if entry else 0
-                    if gain >= TREND_FILTER_PCT:
-                        print(f"[holdings] {p['symbol']} 趋势过滤器: +{gain:.1f}% ≥ {TREND_FILTER_PCT}% — REDUCE→HOLD")
-                        ai_sig = {**ai_sig,
-                                  "sell_signal": "HOLD",
-                                  "urgency": "LOW",
-                                  "reason": f"[趋势过滤器] 涨幅{gain:.1f}%≥{TREND_FILTER_PCT}%，追踪止盈托底，屏蔽REDUCE"}
-                except Exception:
-                    pass
-            merged = ai_sig if ai_sig else {"sell_signal": "HOLD", "urgency": "LOW", "reason": ""}
-
+        merged = override if override else {"sell_signal": "HOLD", "urgency": "LOW", "reason": ""}
         final = {k: v for k, v in {**p, **merged}.items() if k != "_tech"}
 
         # Populate cache (only for non-overridden / stable signals)
