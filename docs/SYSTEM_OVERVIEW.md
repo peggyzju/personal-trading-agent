@@ -1,7 +1,15 @@
 # Personal Trading Agent — 系统总览（策略 + 产品路线）
 
-> 最后更新 2026-06-02。当前策略版本 **v7**。
-> 本文 = 策略总览（Part 1）+ 产品功能路线（Part 2）。权威规则/参数见 `CLAUDE.md`；下周策略待办见 memory `trading_next_week_todos.md`。
+> 最后更新 2026-06-29。当前策略版本 **v8（趋势统一）**。
+> 本文 = 策略总览（Part 1）+ 产品功能路线（Part 2）。权威规则/参数见 `CLAUDE.md`。
+
+> **⚠️ v8 重大重构（2026-06-29，回测+稳健性 9/9 赢 SPY）—— 下面 Part 1 的 v7 双轨/三层保护描述已被取代,以此为准:**
+> - **选股**:机械动量(price>MA50 + MA50升 + RSI50-80 + 3月动量>0 + vs_ma20≤15%),**按动量排名**;砍掉 v7 双轨(Track1追强/Track2抄底,内在矛盾=32%胜率根因)
+> - **买入**:动量前 N,**AI 撤出买入决策**(移除 min_ai_score/信号门/Gate A/strict_entry);自选同门不特殊;固定 -8% 止损
+> - **卖出**:**纯机械**(无 AI)= -8%止损 + 追踪止盈(+6%/-8%) + MA20破位;趋势过滤 +3% 让赢家跑
+> - **AI 新角色**:买入侧"排雷"(advisory,A/B 验证中,不强制);财报研判;收盘复盘
+> - **数据源**:regime/报价/新闻/财报 全走 Alpaca/Finnhub(已迁离 yfinance,根治限流)
+> - 详见 `data/versions.json` v8 + `scripts/v8_robustness.py`
 
 ---
 

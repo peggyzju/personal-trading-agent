@@ -5,7 +5,7 @@
 用 AI 驱动的自动化系统，在美股市场执行短线波段策略（持仓 5–10 天）：
 - **选股**：从 ~700 只股票里每日筛出高胜率候选，捕捉动能突破和盘整蓄力两种形态
 - **买入**：信号驱动，严格入场门控（市场时间、信号新鲜度、财报风险、追高保护）
-- **卖出**：三层保护（Alpaca bracket 止损 + 追踪止盈 + AI 实时评估）
+- **卖出**：v8 纯机械退出（−8% 止损 + 追踪止盈 +6%/−8% + MA20 破位；无 AI 卖出）
 - **复盘**：每日收盘后 AI 分析胜负原因，提取策略迭代建议，注入下一轮扫描
 
 目前运行在 **paper trading** 模式（Alpaca）。
@@ -54,16 +54,17 @@
   - `BEAR`：aggression = conservative；`CAUTION`：aggression 封顶 normal
   - conservative tier：min_ai_score 6 → 8（与 BEAR 一致）
 
-**卖出（Rex）** — 三层保护
+**卖出（Rex）— v8 纯机械退出（无 AI 卖出，对齐回测）**
 
 | 层级 | 机制 |
 |------|------|
-| 1 | Alpaca Bracket GTC：入场时挂止损，服务器端自动执行，无需轮询 |
-| 2 | 追踪止盈：+10% 激活，高水位回落 5% 触发（`TRAIL_TRIGGER=0.10, TRAIL_PCT=0.05`）|
-| 3 | AI 软清仓：Claude 每 30 分钟评估持仓，SELL / REDUCE / HOLD 信号 |
+| 1 | **初始止损 −8%**：Alpaca Bracket GTC，入场即挂，服务器端自动执行 |
+| 2 | **追踪止盈**：浮盈 +6% 激活，高水位回落 8% 触发（`TRAIL_TRIGGER=0.06, TRAIL_PCT=0.08`）|
+| 3 | **MA20 破位**：收盘跌破 MA20（vs_ma20<0）→ SELL（趋势结束）|
 
-- Holdings Monitor `HARD_STOP_PCT = −8.0` 是最后兜底，不是主止损。
-- 趋势过滤（v6）：持仓盈利 ≥ +5% 时压制 REDUCE 信号，让赢家跑。
+- 三者都是机械规则（holdings_monitor `_rule_based_override`）：硬止损 > 追踪止盈 > MA20 破位。
+- `HARD_STOP_PCT = −8.0` 兜底；趋势过滤 +3% 压制残留 REDUCE（让赢家跑）。
+- **v8 已撤掉 v7 的「AI 软清仓」** —— 回测验证的是纯机械退出,AI 不再参与卖出决策。
 
 > 完整版本历史见 `data/versions.json`（v1–v7）。注意：v6 → v7 的回测结果必然相同——v7 是 regime/AI-score 实盘门控，机械回测引擎读不到这些参数，只能看实盘 Track 数据。
 
