@@ -585,7 +585,24 @@ export const api = {
     get<{ running: boolean; last_result: StrategyBacktestResult | null }>("/strategy-backtest/status"),
   getEarningsCalendar: () => get<EarningsCalendar>("/earnings/calendar"),
   getEarningsAnalysis: () => get<{ items: EarningsAnalysisItem[] }>("/earnings/analysis"),
+  getV8Backtest: () => get<V8BacktestResult>("/backtest/v8"),
+  triggerV8Backtest: (period: string) => post<{ status: string }>(`/backtest/v8?period=${period}`),
 };
+
+export interface V8BacktestSide {
+  total_return_pct: number;
+  max_drawdown_pct: number;
+  by_year: Record<string, number>;
+}
+export interface V8BacktestResult {
+  status: "not_run" | "running" | "done" | "error";
+  period?: string;
+  date_range?: string;
+  n_months?: number;
+  v8?: V8BacktestSide;
+  spy?: V8BacktestSide;
+  error?: string;
+}
 
 export interface PostmortemTrade {
   symbol: string;

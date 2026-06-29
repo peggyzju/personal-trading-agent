@@ -1674,6 +1674,54 @@ def trigger_version_compare(
     return {"status": "started", "symbols": sym_list}
 
 
+# ── v8 回测:v8 趋势打法 vs SPY(替代测不了 v8 的版本对比)────────────────────────
+_v8_bt_cache: dict = {}
+_v8_bt_running: bool = False
+_V8_BT_FILE = Path(__file__).parent.parent / "data" / "v8_backtest_cache.json"
+
+try:
+    if _V8_BT_FILE.exists():
+        _d = json.loads(_V8_BT_FILE.read_text())
+        if _d.get("status") == "done":
+            _v8_bt_cache["result"] = _d
+except Exception:
+    pass
+
+
+@app.get("/api/backtest/v8")
+def get_v8_backtest():
+    return _v8_bt_cache.get("result", {"status": "not_run"})
+
+
+@app.post("/api/backtest/v8")
+def trigger_v8_backtest(background_tasks: BackgroundTasks, period: str = "6mo"):
+    """v8 趋势打法组合回测 vs SPY(Alpaca,无 yfinance)。"""
+    global _v8_bt_running
+    if _v8_bt_running:
+        return {"status": "already_running"}
+    _v8_bt_running = True
+    _v8_bt_cache["result"] = {"status": "running", "period": period}
+
+    def _run():
+        global _v8_bt_running
+        try:
+            from src.analysis.v8_backtest import run_v8_backtest
+            result = run_v8_backtest(period=period)
+            _v8_bt_cache["result"] = result
+            try:
+                _V8_BT_FILE.parent.mkdir(parents=True, exist_ok=True)
+                _V8_BT_FILE.write_text(json.dumps(result))
+            except Exception:
+                pass
+        except Exception as e:
+            _v8_bt_cache["result"] = {"status": "error", "error": str(e)}
+        finally:
+            _v8_bt_running = False
+
+    background_tasks.add_task(_run)
+    return {"status": "started", "period": period}
+
+
 # ── Scheduler: auto-trigger after market close ────────────────────────────────
 
 def _start_scheduler():
