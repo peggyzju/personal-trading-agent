@@ -17,7 +17,7 @@ _PRICE_MOVE_THRESHOLD = 1.5           # re-analyse if price moved >1.5%
 # ── Trailing stop config ──────────────────────────────────────────────────────
 _TRAILING_FILE = Path(__file__).parent.parent.parent / "data" / "trailing_stops.json"
 TRAIL_PCT = 6.0          # trail 6% below high watermark (wider than 3% hard stop → lets winners run)
-TREND_FILTER_PCT = 5.0   # suppress REDUCE when gain from entry ≥ 5% — let trailing stop manage exit
+TREND_FILTER_PCT = 3.0   # v8: 浮盈 ≥ 3% 就压制 AI REDUCE/SELL(原 5%)— 让赢家跑,交给追踪止盈管理退出
 
 
 def _load_trailing_stops() -> dict:

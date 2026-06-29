@@ -1634,5 +1634,51 @@
     "quality_gate_removed": 0,
     "ai_scored": 14,
     "market_regime": "CAUTION"
+  },
+  {
+    "date": "2026-06-27",
+    "recorded_at": "2026-06-26T18:31:51.758282+00:00",
+    "scan_quality": {
+      "total_candidates": 10,
+      "rsi_mean": 40.7,
+      "rsi_dist": {
+        "rsi_below40": 6,
+        "rsi_40_55": 3,
+        "rsi_55_60": 0,
+        "rsi_60_65": 1,
+        "rsi_above65": 0
+      },
+      "vma20_mean": -6.4,
+      "vma20_dist": {
+        "vma20_neg": 9,
+        "vma20_0_3": 0,
+        "vma20_3_5": 0,
+        "vma20_5_8": 0,
+        "vma20_above8": 1
+      },
+      "signal_counts": {
+        "HOLD": 10
+      },
+      "ai_score_mean": null,
+      "quality_score": 18.0
+    },
+    "portfolio": {
+      "equity": 97402.0,
+      "cash": 73872.0,
+      "invested": 23530.0,
+      "alloc_pct": 24.2,
+      "float_pnl": 65.0,
+      "float_pct": 0.07,
+      "positions": 6
+    },
+    "trades_today": {
+      "closed_trades_today": 0
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 22,
+    "quality_gate_removed": 0,
+    "ai_scored": 0,
+    "market_regime": "NEUTRAL"
   }
 ]

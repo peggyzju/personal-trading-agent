@@ -23,17 +23,22 @@
 | **Rex** | 交易执行：读取 Scout 信号执行买入；监控持仓执行卖出 | 每次扫描后 cascade（买）+ 每 30 分钟（卖）|
 | **Vera** | 收盘复盘，分析胜负特征，提取策略教训注入未来扫描 | 手动 trigger（POST /api/strategy/review，已移除自动定时）|
 
-### 当前策略版本：v7
+### 当前策略版本：v8（趋势统一 — 2026-06-29）
 
-**选股（Scout）** — 双轨制解耦 + 板块共振
+> v8 把整套系统统一到**单一趋势/动量 thesis**,消除 v7 的内在矛盾(Track1 追强 vs Track2 抄底)。
+> 回测+稳健性:9/9 组参数均赢 SPY(+150% vs +100%,回撤相当,见 `scripts/v8_robustness.py`)。
+> 根因:实盘 PF 0.67、32% 胜率(选股矛盾)+ 赢家被砍短。
 
-| Track | 条件 |
-|-------|------|
-| Track 1 动能突破 | RSI 50–75（热板块升至 85）+ today_bull + mom5d > 0 + vs_ma20 ≤ 15% + **vol_ratio ≥ 1.2（v6 成交量门，防假突破）** |
-| Track 2 盘整蓄力 | RSI < 55 + vol_ratio < 0.8 + mom5d > −3% + **ma20_slope > 0（v6 斜率门，防死水股）** + **vs_ma20 ≥ −3%（v6 安全垫）**（bypass today_bull）|
+**选股(Scout · 机械动量,无 AI)** — 砍掉双轨,只买"上升趋势中的强势股"
+- price > MA50 且 **MA50 上升**(5日斜率>0)
+- RSI **50–80**(强势区,不再抄底超卖)
+- 3 月动量 > 0(≈60日动量)
+- vs_ma20 ≤ 15%(不过度延伸)
+- **按 3 月动量排名**取 top N(替代 tech_score / ai_score 排序)
 
-- 板块共振：同板块 ≥ 3 只 today_bull → 该板块 RSI 上限 75 → 85
-- v6 起 Track1/Track2 的 RSI 门槛彻底解耦（T1: 50–75，T2: < 55）
+**AI 评分** — 从买入主路**撤下**:不再 min_ai_score / SELL-HOLD 门控。降为可选"排雷"(A/B 验证后才生效)。AI 仍用于:财报研判、收盘复盘。
+
+> v1–v7 历史见 `data/versions.json`。v7 双轨(Track1 动能 + Track2 盘整 + 板块共振)已被 v8 取代。
 
 **买入（Rex）** — Entry Gate（任一不通过则跳过）
 
@@ -76,8 +81,8 @@
 | `MIN_CASH_PCT` | 0.05 | trade_agent.py |
 | `risk_pct` | 0.02 | trade_agent.py |
 | `max_pos_pct` | 0.08 | trade_agent.py |
-| `TRAIL_TRIGGER` | 0.10 | trade_agent.py |
-| `TRAIL_PCT` | 0.05 | trade_agent.py |
+| `TRAIL_TRIGGER` | 0.06 (v8,原0.10) | trade_agent.py |
+| `TRAIL_PCT` | 0.08 (v8,原0.05) | trade_agent.py |
 | `PRICE_DRIFT_THRESHOLD` | 0.015 | trade_agent.py |
 | `SECTOR_RESONANCE_THRESHOLD` | 3 | sp500_scanner.py |
 

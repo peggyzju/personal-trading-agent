@@ -4,7 +4,9 @@
     "label": "v1 — 单轨 + 固定止盈",
     "created_at": "2026-05-13",
     "description": "单轨选股（RSI<60 + MA20≤8%）+ 固定止盈 8%",
-    "changes": ["初始版本"],
+    "changes": [
+      "初始版本"
+    ],
     "backtest_params": {
       "entry_mode": "strict",
       "stop_type": "atr",
@@ -19,7 +21,10 @@
     "label": "v2 — 单轨 + 追踪止盈",
     "created_at": "2026-05-21",
     "description": "单轨选股（RSI<60 + MA20≤8%）+ 追踪止盈（+12% 激活，8% 回落触发）",
-    "changes": ["固定止盈 → 追踪止盈", "止损 1.5×ATR"],
+    "changes": [
+      "固定止盈 → 追踪止盈",
+      "止损 1.5×ATR"
+    ],
     "backtest_params": {
       "entry_mode": "strict",
       "stop_type": "atr",
@@ -34,7 +39,14 @@
     "label": "v3 — 双轨 + 板块共振 + 优化追踪",
     "created_at": "2026-05-22",
     "description": "双轨选股（动能突破 RSI 50-75 / 盘整蓄力 RSI<55）+ 板块共振 + 追踪止盈（+6% 激活，5% 回落触发）",
-    "changes": ["单轨 → 双轨选股", "板块共振 RSI 上限提升", "止损 2×ATR", "追踪激活 12% → 6%", "追踪回落 8% → 5%", "财报过滤精确到今天/明天"],
+    "changes": [
+      "单轨 → 双轨选股",
+      "板块共振 RSI 上限提升",
+      "止损 2×ATR",
+      "追踪激活 12% → 6%",
+      "追踪回落 8% → 5%",
+      "财报过滤精确到今天/明天"
+    ],
     "backtest_params": {
       "entry_mode": "dual_track",
       "stop_type": "atr",
@@ -49,13 +61,16 @@
     "label": "v4 — 双轨 + 板块共振 + 追踪激活 10%",
     "created_at": "2026-05-22",
     "description": "双轨选股 + 板块共振 + 追踪止盈（+10% 激活，5% 回落触发）— 让赢家跑更久",
-    "changes": ["追踪激活 6% → 10%", "持仓上限 7 → 14 天"],
+    "changes": [
+      "追踪激活 6% → 10%",
+      "持仓上限 7 → 14 天"
+    ],
     "backtest_params": {
       "entry_mode": "dual_track",
       "stop_type": "atr",
       "exit_mode": "trailing",
-      "target_pct": 0.10,
-      "trail_trigger": 0.10,
+      "target_pct": 0.1,
+      "trail_trigger": 0.1,
       "trail_pct": 0.05
     }
   },
@@ -64,13 +79,16 @@
     "label": "v5 — 双轨 + SPY趋势门 + R:R ≥ 1.5",
     "created_at": "2026-05-22",
     "description": "在 v4 基础上新增两道入场过滤：Track1 需要 SPY > MA20（趋势顺风），所有入场需要 R:R ≥ 1.5（止损不超过 6.7%）",
-    "changes": ["Track1 入场新增 SPY > MA20 趋势门", "新增 R:R ≥ 1.5 预筛（拒绝大 ATR 股票）"],
+    "changes": [
+      "Track1 入场新增 SPY > MA20 趋势门",
+      "新增 R:R ≥ 1.5 预筛（拒绝大 ATR 股票）"
+    ],
     "backtest_params": {
       "entry_mode": "dual_track",
       "stop_type": "atr",
       "exit_mode": "trailing",
-      "target_pct": 0.10,
-      "trail_trigger": 0.10,
+      "target_pct": 0.1,
+      "trail_trigger": 0.1,
       "trail_pct": 0.05,
       "spy_gate": true,
       "rr_min": 1.5
@@ -93,8 +111,8 @@
       "entry_mode": "dual_track_v6",
       "stop_type": "atr",
       "exit_mode": "trailing",
-      "target_pct": 0.10,
-      "trail_trigger": 0.10,
+      "target_pct": 0.1,
+      "trail_trigger": 0.1,
       "trail_pct": 0.05,
       "spy_gate": true,
       "rr_min": 1.5,
@@ -117,14 +135,31 @@
       "entry_mode": "dual_track_v6",
       "stop_type": "atr",
       "exit_mode": "trailing",
-      "target_pct": 0.10,
-      "trail_trigger": 0.10,
+      "target_pct": 0.1,
+      "trail_trigger": 0.1,
       "trail_pct": 0.05,
       "spy_gate": true,
       "rr_min": 1.5,
       "max_stop_t1": 0.08,
       "neutral_min_score": 8,
       "neutral_size_scale": 0.75
+    }
+  },
+  {
+    "version": "v8",
+    "label": "v8 — 趋势统一(动量选股 + 让赢家跑)",
+    "created_at": "2026-06-29",
+    "description": "统一到单一趋势/动量 thesis,消除 v7 的内在矛盾(Track1追强 vs Track2抄底)。选股=机械动量(price>MA50 + MA50升 + RSI50-80 + 3月动量>0 + 不过高),按动量排名,砍掉 Track2 抄底。AI 评分从买入主路撤下(降为可选排雷,A/B验证)。退出让赢家跑(追踪止盈 +6%激活/-8%回撤,趋势过滤 +3%)。组合级回测+稳健性:9/9 组参数均赢 SPY(+150% vs +100%,回撤相当)。诊断根因:实盘 PF0.67、32%胜率(选股矛盾)+ 赢家被砍短。",
+    "changes": [
+      "砍掉 Track2(盘整抄底):与 Track1 趋势追强矛盾,是 32% 胜率根因",
+      "选股 v8 趋势门:price>MA50 + MA50升 + RSI50-80 + 3月动量>0 + vs_ma20≤15%",
+      "候选按 3月动量排名(替代 tech_score / ai_score 排序)",
+      "AI 评分撤出买入主路:不再 min_ai_score/SELL-HOLD 门控(降为参考,后续 A/B 排雷)",
+      "移除 _strict_entry_ok + Gate A(被 scanner 趋势门替代)",
+      "让赢家跑:TRAIL_TRIGGER 0.10→0.06, TRAIL_PCT 0.05→0.08, TREND_FILTER 5%→3%"
+    ],
+    "backtest_params": {
+      "note": "v8 机械逻辑可回测,见 scripts/v8_robustness.py(9/9赢SPY)"
     }
   }
 ]

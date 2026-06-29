@@ -542,12 +542,9 @@ def _run_sp500_scan(cascade_agent: bool = False):
             sector_bias=sector_bias,
         ))
 
-        # Sector bias post-sort only (scoring already incorporates bias via prompt)
+        # v8: 按动量排序(选股=机械动量,AI 分数/信号不再决定买入顺序)。
         if top_ai:
-            top_ai = sorted(top_ai, key=lambda x: (
-                0 if x.get("signal") in ("STRONG_BUY", "BUY") else 1,
-                -(x.get("ai_score") or 0),
-            ))
+            top_ai = sorted(top_ai, key=lambda x: -(x.get("momentum_3m") or 0))
 
         ai_scored = sum(1 for c in top_ai if c.get("ai_score") is not None)
 

@@ -404,6 +404,13 @@ def compute_technicals(df: pd.DataFrame) -> dict:
     else:
         ma20_slope_pct = 0.0
 
+    # MA50 slope (v8 趋势确认): MA50 现在 vs 5 天前(正 = 上升趋势)
+    ma50_series = closes.rolling(50).mean().dropna()
+    if len(ma50_series) >= 6 and float(ma50_series.iloc[-6]):
+        ma50_slope_pct = (float(ma50_series.iloc[-1]) - float(ma50_series.iloc[-6])) / float(ma50_series.iloc[-6]) * 100
+    else:
+        ma50_slope_pct = 0.0
+
     result = {
         "price":          round(price_now, 2),
         "momentum_5d":    round(momentum_5d, 2),
@@ -414,6 +421,7 @@ def compute_technicals(df: pd.DataFrame) -> dict:
         "rsi":            rsi,
         "tech_score":     round(score, 2),
         "ma20_slope_pct": round(ma20_slope_pct, 3),
+        "ma50_slope_pct": round(ma50_slope_pct, 3),
         # K-line fields
         "candle_quality": kline.get("candle_quality"),
         "candle_desc":    kline.get("candle_desc"),
@@ -592,40 +600,41 @@ def quick_screen(
         sector      = r["sector"]
         ma20_slope  = r.get("ma20_slope_pct", 0)
 
-        rsi_ceiling = 75 + (SECTOR_RSI_BOOST if sector in hot_sectors else 0)
+        # v8 趋势统一:上升趋势 + 强动量(替代 Track1/Track2 双轨)。
+        # 砍掉"抄底(Track2) vs 追突破(Track1)"的矛盾,只买"趋势中的强势股"。
+        # 回测+稳健性验证:9/9 组参数均赢 SPY(见 scripts/v8_robustness.py)。
+        # 条件精确匹配回测(scripts/v8_robustness.py,9/9赢SPY):
+        # 不加 vol 门、不加板块RSI boost —— 那些没被验证过,加了就不是"测过的那套"。
+        vs_ma50    = r.get("vs_ma50_pct")
+        mom_3m     = r.get("momentum_3m") or 0
+        ma50_slope = r.get("ma50_slope_pct") or 0
 
-        # Track 1 (动能突破): 加爆量验证 vol_ratio ≥ 1.2x，确保有机构资金背书
-        track1 = (50 <= rsi <= rsi_ceiling and bull_ok and mom5d > 0
-                  and vs_ma20 <= 15.0 and vol_ratio >= 1.2)
+        trend_ok = (
+            vs_ma50 is not None and vs_ma50 > 0   # 价在 MA50 上方
+            and ma50_slope > 0                    # MA50 上升
+            and 50 <= rsi <= 80                    # 强势区(不超卖、不过热)
+            and mom_3m > 0                         # 3 月动量为正(≈60日动量)
+            and vs_ma20 <= 15.0                    # 不过度延伸(≤ MA20×1.15)
+        )
 
-        # Track 2 (盘整蓄力): 加安全垫——价格在 MA20 附近（≥-3%）且 MA20 本身向上
-        # 排除下降趋势中的"死水"股，只选多头趋势中的横盘蓄力
-        track2 = (rsi < 55 and vol_ratio < 0.8 and mom5d > -3
-                  and vs_ma20 >= -3.0 and ma20_slope > 0)
-
-        if symbol in _force:
-            passes = bull_ok or track2
-            force_track = "momentum" if bull_ok else "compression"
+        if symbol in _force:   # watchlist 放宽:在上升趋势就考虑
+            passes = (vs_ma50 is not None and vs_ma50 > 0 and mom_3m > 0 and 50 <= rsi <= 80)
         else:
-            passes = track1 or track2
-            force_track = None
+            passes = trend_ok
 
         if passes:
-            track_label = force_track if force_track else ("momentum" if track1 else "compression")
-            all_results.append({**r, "screen_track": track_label})
+            all_results.append({**r, "screen_track": "momentum"})
 
     passed = len(all_results)
     if passed == 0:
         print("[scanner] WARNING: 0 candidates passed technical filter")
     else:
-        t1 = sum(1 for r in all_results if r.get("screen_track") == "momentum")
-        t2 = sum(1 for r in all_results if r.get("screen_track") == "compression")
-        print(f"[scanner] {passed}/{total} passed — track1(momentum):{t1}  track2(compression):{t2}")
+        print(f"[scanner] {passed}/{total} passed v8 趋势门(MA50上+MA50升+RSI50-80+3月动量正+不过高+爆量)")
 
     # Always include force_symbols that passed — don't let tech_score ranking cut them
     force_results   = [r for r in all_results if r["symbol"] in _force]
     regular_results = [r for r in all_results if r["symbol"] not in _force]
-    regular_results.sort(key=lambda x: x["tech_score"], reverse=True)
+    regular_results.sort(key=lambda x: x.get("momentum_3m") or 0, reverse=True)   # v8: 按动量排名
     regular_slots = max(0, top_n - len(force_results))
     combined = force_results + regular_results[:regular_slots]
     if _force:

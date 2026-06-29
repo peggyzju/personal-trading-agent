@@ -105,18 +105,6 @@
   ],
   "scout": [
     {
-      "ran_at": "2026-06-04T15:02:11.810879+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
-      "ran_at": "2026-06-04T16:34:16.957298+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
       "ran_at": "2026-06-04T18:32:22.940865+00:00",
       "trigger": "auto",
       "result": "success",
@@ -463,21 +451,21 @@
       "trigger": "auto",
       "result": "success",
       "error": null
+    },
+    {
+      "ran_at": "2026-06-26T16:33:34.975255+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-26T18:32:34.566292+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
     }
   ],
   "rex": [
-    {
-      "ran_at": "2026-06-19T15:31:26.973157+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
-      "ran_at": "2026-06-19T16:00:25.900886+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
     {
       "ran_at": "2026-06-19T16:33:04.097332+00:00",
       "trigger": "auto",
@@ -822,6 +810,18 @@
     },
     {
       "ran_at": "2026-06-25T19:31:21.661110+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-26T16:33:34.972198+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-26T18:32:34.563030+00:00",
       "trigger": "auto",
       "result": "success",
       "error": null

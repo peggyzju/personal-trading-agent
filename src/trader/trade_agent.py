@@ -745,15 +745,11 @@ def run_agent(
             for c in list(scan.get("candidates", [])):
                 signal   = c.get("signal", "HOLD")
                 ai_score = c.get("ai_score") or 0
-                if signal in ("SELL", "HOLD"):
-                    continue   # Scout flagged deterioration or no conviction — skip
-                if ai_score < min_ai_score:
-                    continue   # quality gate
+                # v8: 选股=机械动量(scanner 已过趋势门 + 按动量排序)。AI 信号/分数降为参考,
+                # 不再挡买入 —— 原 SELL/HOLD 跳过 + min_ai_score 门已移除(AI 重新上岗需先 A/B 验证)。
 
-                # Track-aware entry: Track1 RSI≤75/80 + vs_ma20≤10%; Track2 RSI<60 + vs_ma20≤5%
-                if not _strict_entry_ok(c, _hot_sectors):
-                    summary["signals_found"] += 1
-                    continue
+                # v8: 入场门即 scanner 的趋势门(RSI50-80 + 动量 + 不过高),选股时已套用。
+                # 不再叠加 v7 的 _strict_entry_ok(其 RSI≤75/vs_ma20≤10 会过度收紧 v8、偏离回测)。
                 # Problem 4: skip if earnings this week
                 if not _earnings_safe(c["symbol"]):
                     summary["signals_found"] += 1   # found but skipped
@@ -766,14 +762,10 @@ def run_agent(
                 stop = c.get("stop_loss") or (price * (1 - stop_loss_pct) if price else None)
                 track = c.get("screen_track", "compression")   # "momentum" or "compression"
 
-                # Gate A: SPY trend — Track 1 (momentum) requires bull market
-                # Track 2 (compression) is exempt: it targets independent breakouts
-                if track == "momentum" and _get_spy_trend() == "bear":
-                    print(f"[agent] {c['symbol']} skip — SPY bear trend (Track1 blocked)")
-                    summary["signals_found"] += 1
-                    continue
+                # v8: SPY 大势保护交给 Maya regime(BEAR → block_buys),不再叠加 Gate A
+                # (回测未对 SPY 趋势设独立门;regime 门控已覆盖极端市况)。
 
-                # Gate B: R:R pre-screen
+                # Gate B: R:R pre-screen(保留:风险门,与 v8 的 -8% 止损一致)
                 # Track 1: high-vol stocks allowed up to -8% stop — position sizing naturally
                 #          reduces shares (portfolio×2%÷stop), no extra hard cap needed.
                 # Track 2: keep strict R:R ≥ 1.5 (compression coil = conservative entry)
@@ -962,8 +954,8 @@ def run_agent(
         # ── 3. Holdings: SELL / REDUCE ────────────────────────────────────────
         # First pass: hard stop-loss + trailing stop from live Alpaca positions
         HARD_STOP_PCT  = -stop_loss_pct * 100   # fallback for untracked positions
-        TRAIL_TRIGGER = 0.10   # activate trailing after +10% gain
-        TRAIL_PCT     = 0.05   # sell if drops 5% from high water
+        TRAIL_TRIGGER = 0.06   # v8: 浮盈 +6% 激活追踪(原 +10%)— 顺势早保护
+        TRAIL_PCT     = 0.08   # v8: 高水位回撤 8% 才走(原 5%)— 给赢家呼吸空间、让它跑
 
         # Build symbol → trade entry from most-recent buy in trades.json
         all_trades = _load_from_disk()

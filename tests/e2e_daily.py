@@ -736,91 +736,63 @@ def test_v3_strategy():
     except Exception as e:
         fail("Market hours gate", str(e))
 
-    # ── 3. 双轨选股逻辑 ──────────────────────────────────────────────────────
+    # ── 3. v8 趋势统一选股(替代 v7 双轨)──────────────────────────────────────
     try:
         from src.monitor.sp500_scanner import quick_screen
 
-        # Build minimal mock raw records
         mock_raws = [
-            # Track 1: RSI=60, today_bull=True, mom5d=2%, vs_ma20=5%, vol_ratio=1.6 → passes
-            {"symbol": "T1OK", "rsi": 60, "today_bull": True, "momentum_5d": 2.0,
-             "vs_ma20_pct": 5.0, "volume_ratio": 1.6, "sector": "SEMIS",
-             "price": 100, "ma20": 95, "tech_score": 50.0, "macd_hist": 0.5,
-             "ma20_slope_pct": 0.5},
-            # Track 2: RSI=50, today_bull=False, vol_ratio=0.6, mom5d=0,
-            #          vs_ma20=3% (≥-3%), ma20_slope=+0.3% (>0) → passes
-            {"symbol": "T2OK", "rsi": 50, "today_bull": False, "momentum_5d": 0.0,
-             "vs_ma20_pct": 3.0, "volume_ratio": 0.6, "sector": "SOFTWARE",
-             "price": 100, "ma20": 97, "tech_score": 40.0, "macd_hist": 0.2,
-             "ma20_slope_pct": 0.3},
-            # Fails both: RSI=80 (>75, not in hot sector), today_bull=False
-            {"symbol": "FAIL", "rsi": 80, "today_bull": False, "momentum_5d": 1.0,
-             "vs_ma20_pct": 5.0, "volume_ratio": 1.0, "sector": "OTHER",
-             "price": 100, "ma20": 95, "tech_score": 30.0, "macd_hist": -0.1,
-             "ma20_slope_pct": 0.0},
+            # 过 v8: 价在MA50上(+10%)、MA50升、RSI62、3月动量+20%、不过高(vs_ma20=5%)
+            {"symbol": "V8OK", "rsi": 62, "today_bull": True, "momentum_5d": 2.0,
+             "momentum_3m": 20.0, "vs_ma20_pct": 5.0, "vs_ma50_pct": 10.0,
+             "ma50_slope_pct": 2.0, "volume_ratio": 1.3, "sector": "SEMIS",
+             "price": 100, "ma20": 95, "tech_score": 50.0, "ma20_slope_pct": 0.5},
+            # 更高动量(+40%),排名应在 V8OK 前
+            {"symbol": "V8TOP", "rsi": 60, "today_bull": True, "momentum_5d": 3.0,
+             "momentum_3m": 40.0, "vs_ma20_pct": 8.0, "vs_ma50_pct": 18.0,
+             "ma50_slope_pct": 4.0, "volume_ratio": 1.5, "sector": "SEMIS",
+             "price": 100, "ma20": 95, "tech_score": 55.0, "ma20_slope_pct": 0.6},
+            # 下跌趋势:价在MA50下(-5%)→ 拦截
+            {"symbol": "DOWN", "rsi": 55, "today_bull": False, "momentum_5d": -1.0,
+             "momentum_3m": -10.0, "vs_ma20_pct": -2.0, "vs_ma50_pct": -5.0,
+             "ma50_slope_pct": -1.0, "volume_ratio": 1.0, "sector": "OTHER",
+             "price": 100, "ma20": 102, "tech_score": 30.0, "ma20_slope_pct": -0.3},
+            # 追太高:vs_ma20=20% > 15% → 拦截
+            {"symbol": "OVEREXT", "rsi": 70, "today_bull": True, "momentum_5d": 5.0,
+             "momentum_3m": 50.0, "vs_ma20_pct": 20.0, "vs_ma50_pct": 30.0,
+             "ma50_slope_pct": 5.0, "volume_ratio": 2.0, "sector": "OTHER",
+             "price": 100, "ma20": 83, "tech_score": 60.0, "ma20_slope_pct": 1.0},
         ]
 
         from unittest.mock import patch as _patch
         _mock_map = {r["symbol"]: r for r in mock_raws}
         with _patch("src.monitor.sp500_scanner._fetch_raw", side_effect=lambda sym, *a, **k: _mock_map.get(sym)), \
              _patch("src.monitor.sp500_scanner.fetch_bars_batch", return_value={}):
-            results_q = quick_screen(["T1OK", "T2OK", "FAIL"], force_symbols=set())
+            results_q = quick_screen(["V8TOP", "V8OK", "DOWN", "OVEREXT"], force_symbols=set())
 
-        syms = {r["symbol"] for r in results_q}
-        if "T1OK" in syms:
-            ok("Track1 passes", "T1OK RSI=60+today_bull → 通过 ✓")
+        syms = [r["symbol"] for r in results_q]
+        if "V8OK" in syms and "V8TOP" in syms:
+            ok("v8 趋势门通过", "上升趋势+强动量股通过 ✓")
         else:
-            fail("Track1 passes", "T1OK 应通过 Track1")
+            fail("v8 趋势门通过", f"V8OK/V8TOP 应通过, 实际 {syms}")
 
-        if "T2OK" in syms:
-            ok("Track2 passes", "T2OK RSI=50+low_vol → 通过 ✓")
+        if "DOWN" not in syms:
+            ok("v8 拦下跌趋势", "DOWN(价在MA50下)正确拦截 ✓")
         else:
-            fail("Track2 passes", "T2OK 应通过 Track2")
+            fail("v8 拦下跌趋势", "DOWN 不应通过")
 
-        if "FAIL" not in syms:
-            ok("Dual-track filter", "FAIL RSI=80+no_bull → 正确拦截 ✓")
+        if "OVEREXT" not in syms:
+            ok("v8 拦追高", "OVEREXT(vs_ma20>15%)正确拦截 ✓")
         else:
-            fail("Dual-track filter", "FAIL 不应通过双轨过滤")
+            fail("v8 拦追高", "OVEREXT 不应通过")
+
+        # 动量排名:V8TOP(+40%) 应排在 V8OK(+20%) 前
+        if syms and syms[0] == "V8TOP":
+            ok("v8 动量排名", "高动量 V8TOP 排第一 ✓")
+        else:
+            fail("v8 动量排名", f"应按动量排序, 实际首位 {syms[0] if syms else '无'}")
 
     except Exception as e:
-        fail("双轨选股", str(e))
-        traceback.print_exc()
-
-    # ── 4. 板块共振 RSI 上限提升 ──────────────────────────────────────────────
-    try:
-        from src.monitor.sp500_scanner import quick_screen, SECTOR_RESONANCE_THRESHOLD
-
-        # Create 3 SEMIS stocks with today_bull → sector becomes hot → RSI ceiling 85
-        semis_hot = [
-            {"symbol": f"SEMI{i}", "rsi": 78, "today_bull": True, "momentum_5d": 1.0,
-             "vs_ma20_pct": 5.0, "volume_ratio": 1.6, "sector": "SEMIS",
-             "price": 100, "ma20": 95, "tech_score": 50.0, "macd_hist": 0.5,
-             "ma20_slope_pct": 0.4}
-            for i in range(SECTOR_RESONANCE_THRESHOLD)
-        ]
-        # One stock with RSI=78 that should only pass when sector is hot
-        test_stock = {"symbol": "SEMIHIGH", "rsi": 78, "today_bull": True,
-                      "momentum_5d": 1.0, "vs_ma20_pct": 5.0, "volume_ratio": 1.6,
-                      "sector": "SEMIS", "price": 100, "ma20": 95,
-                      "tech_score": 48.0, "macd_hist": 0.3, "ma20_slope_pct": 0.4}
-
-        all_mock = semis_hot + [test_stock]
-        syms_all = [r["symbol"] for r in all_mock]
-
-        from unittest.mock import patch as _patch
-        _mock_map2 = {r["symbol"]: r for r in all_mock}
-        with _patch("src.monitor.sp500_scanner._fetch_raw", side_effect=lambda sym, *a, **k: _mock_map2.get(sym)), \
-             _patch("src.monitor.sp500_scanner.fetch_bars_batch", return_value={}):
-            res_hot = quick_screen(syms_all, force_symbols=set())
-
-        hot_syms = {r["symbol"] for r in res_hot}
-        if "SEMIHIGH" in hot_syms:
-            ok("Sector resonance boost", f"SEMIS hot (≥{SECTOR_RESONANCE_THRESHOLD} today_bull) → RSI=78 通过 ✓")
-        else:
-            fail("Sector resonance boost", "SEMIS 板块共振应将 RSI 上限提升至 85，SEMIHIGH 应通过")
-
-    except Exception as e:
-        fail("板块共振", str(e))
+        fail("v8 选股", str(e))
         traceback.print_exc()
 
     # ── 5. 财报过滤 days=1 (今天/明天) ───────────────────────────────────────
@@ -851,15 +823,15 @@ def test_v3_strategy():
         import src.trader.trade_agent as _ta_mod
         ta_src = inspect.getsource(_ta_mod)
         import re as _re
-        if _re.search(r"TRAIL_TRIGGER\s+=\s+0\.10", ta_src):
-            ok("Trail trigger", "TRAIL_TRIGGER = 10% ✓")
+        # v8: 实际追踪止盈 TRAIL_TRIGGER=0.06 / TRAIL_PCT=0.08(让赢家跑)
+        if _re.search(r"TRAIL_TRIGGER\s*=\s*0\.06", ta_src):
+            ok("Trail trigger v8", "TRAIL_TRIGGER = 6% ✓")
         else:
-            fail("Trail trigger", "TRAIL_TRIGGER 不是 0.10")
-        import re
-        if re.search(r"TRAIL_PCT\s+=\s+0\.05", ta_src):
-            ok("Trail pct", "TRAIL_PCT = 5% ✓")
+            fail("Trail trigger v8", "TRAIL_TRIGGER 不是 0.06")
+        if _re.search(r"TRAIL_PCT\s*=\s*0\.08", ta_src):
+            ok("Trail pct v8", "TRAIL_PCT = 8% ✓")
         else:
-            fail("Trail pct", "TRAIL_PCT 不是 0.05")
+            fail("Trail pct v8", "TRAIL_PCT 不是 0.08")
     except Exception as e:
         fail("Trail 参数", str(e))
 
