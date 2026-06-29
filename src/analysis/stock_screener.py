@@ -174,7 +174,6 @@ def _parse_response(text: str) -> list[dict] | None:
 
 def _validate_and_fill(item: dict, tech: dict) -> dict:
     """Ensure all required fields exist; fill defaults rather than leaving None."""
-    from src.analysis.position_sizer import compute_structured_stop
 
     price = tech.get("price", 0) or 0
 
@@ -195,27 +194,11 @@ def _validate_and_fill(item: dict, tech: dict) -> dict:
     except (TypeError, ValueError):
         target_pct = 0.0
 
-    # ── Structured stop: MA20 × 0.99 or entry − 1.5×ATR (whichever is higher) ──
-    # Prefer market-structure stop over Claude's suggested fixed %; fall back if
-    # ATR/MA20 data is unavailable.
-    atr = tech.get("atr")
-    vs_ma20_pct = tech.get("vs_ma20_pct")
-    ma20 = price / (1 + vs_ma20_pct / 100) if (vs_ma20_pct is not None and price) else None
-
-    if price and (atr or ma20):
-        stop_price = compute_structured_stop(price, ma20, atr)
-    elif price:
-        # Fallback: use Claude's suggested pct, clamped 3–8%
-        claude_pct = item.get("stop_loss_pct") or 5.0
-        try:
-            claude_pct = max(3.0, min(8.0, float(claude_pct)))
-        except (TypeError, ValueError):
-            claude_pct = 5.0
-        stop_price = round(price * (1 - claude_pct / 100), 2)
-    else:
-        stop_price = None
-
-    stop_pct = round((price - stop_price) / price * 100, 2) if (price and stop_price) else 5.0
+    # v8: 固定 -8% 初始止损(= 回测验证值)。让赢家跑靠"宽止损 + 追踪止盈(+6%/-8%) +
+    # 跌破MA20",不用 v7 结构化止损 —— 它对动量股(远在MA20上、低ATR)常钳到 -3%,
+    # 会被正常回调打掉,直接违背"让赢家跑"。固定 -8% 给趋势呼吸空间。
+    stop_price = round(price * 0.92, 2) if price else None
+    stop_pct = 8.0 if stop_price else 5.0
 
     veto = bool(item.get("veto", False))
     return {
