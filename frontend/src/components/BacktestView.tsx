@@ -90,7 +90,7 @@ export function BacktestView({ backendOnline }: Props) {
 
           {years.length > 0 && (
             <div className="pm-tier-card">
-              <div className="pm-tier-title">分年收益</div>
+              <div className="pm-tier-title">分年收益 · 连续运行 2023→今(每年固定,不随上方周期变)</div>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>
                 <thead>
                   <tr style={{ color: "var(--muted)" }}>

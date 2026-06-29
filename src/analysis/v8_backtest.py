@@ -23,17 +23,18 @@ COST = 0.0005
 MOM_DAYS = 60
 
 
-def _period_range(period: str) -> tuple[str, str]:
-    """返回 (sim_start, sim_end ISO)。支持 6mo/1y/2023/2024/2025。"""
-    today = date.today()
-    if period in ("2023", "2024", "2025"):
+def _slice_bounds(period: str, sim_dates) -> tuple:
+    """周期 → (lo, hi) Timestamp。在'永远连续跑 2023→今天'的曲线上切出'总收益'区间,
+    所以分年永远 canonical(2026 在任何周期下都是同一个数),周期只决定头部总收益看哪一段。"""
+    lo0, hi0 = sim_dates[0], sim_dates[-1]
+    if period in ("2023", "2024", "2025", "2026"):
         y = int(period)
-        return f"{y}-01-01", f"{y}-12-31"
+        return pd.Timestamp(f"{y}-01-01"), pd.Timestamp(f"{y}-12-31")
     if period == "1y":
-        return (today - timedelta(days=365)).isoformat(), today.isoformat()
+        return hi0 - pd.Timedelta(days=365), hi0
     if period == "3y":
-        return "2023-01-01", today.isoformat()   # 近3年:覆盖 2023/2024/2025/2026
-    return (today - timedelta(days=183)).isoformat(), today.isoformat()   # 6mo 默认
+        return lo0, hi0
+    return hi0 - pd.Timedelta(days=183), hi0   # 6mo 默认
 
 
 def _fetch(symbols, start):
@@ -87,7 +88,8 @@ def run_v8_backtest(period: str = "6mo") -> dict:
     if not _UNI.exists():
         return {"status": "error", "error": "缺 sp500_constituents.txt"}
     symbols = sorted(set(_UNI.read_text().split()))
-    sim_start, sim_end = _period_range(period)
+    # 永远连续从 2023 跑到今天 → 分年 canonical;周期只决定头部"总收益"看哪一段(切片)
+    sim_start, sim_end = "2023-01-01", date.today().isoformat()
     fetch_start = (date.fromisoformat(sim_start) - timedelta(days=120)).isoformat()  # MA50/动量预热
 
     px = _fetch(symbols + ["SPY", "QQQ"], fetch_start)
@@ -147,30 +149,40 @@ def run_v8_backtest(period: str = "6mo") -> dict:
 
     sim_dates = px.index[sim_idx]
 
-    def _bench(sym_name):
+    def _bench_eq(sym_name):
         if sym_name not in px.columns:
             return None
         s = px[sym_name].values[sim_idx]
         if len(s) < 2 or s[0] == 0 or np.isnan(s[0]):
             return None
-        beq = s / s[0]
+        return s / s[0]
+
+    spy_eq, qqq_eq = _bench_eq("SPY"), _bench_eq("QQQ")
+
+    # 周期切片:总收益/回撤只看选定区间;分年永远用整条连续曲线(canonical)
+    lo, hi = _slice_bounds(period, sim_dates)
+    sl = [k for k, d in enumerate(sim_dates) if lo <= d <= hi]
+    if len(sl) < 2:
+        sl = list(range(len(sim_dates)))
+    s0, s1 = sl[0], sl[-1]
+
+    def _side(eq_arr):
+        if eq_arr is None:
+            return None
+        seg = eq_arr[s0:s1 + 1]
         return {
-            "total_return_pct": round((beq[-1] - 1) * 100, 1),
-            "max_drawdown_pct": round(_max_dd(beq) * 100, 1),
-            "by_year": _by_year(sim_dates, beq),
+            "total_return_pct": round((seg[-1] / seg[0] - 1) * 100, 1),
+            "max_drawdown_pct": round(_max_dd(seg) * 100, 1),
+            "by_year": _by_year(sim_dates, eq_arr),   # 整条曲线 → 分年 canonical
         }
 
     return {
         "status": "done",
         "period": period,
-        "date_range": f"{str(sim_dates[0])[:10]} ~ {str(sim_dates[-1])[:10]}",
-        "n_months": round(len(sim_idx) / 21, 1),
-        "v8": {
-            "total_return_pct": round((eq[-1] - 1) * 100, 1),
-            "max_drawdown_pct": round(_max_dd(eq) * 100, 1),
-            "by_year": _by_year(sim_dates, eq),
-        },
-        "spy": _bench("SPY"),
-        "qqq": _bench("QQQ"),
+        "date_range": f"{str(sim_dates[s0])[:10]} ~ {str(sim_dates[s1])[:10]}",
+        "n_months": round((s1 - s0 + 1) / 21, 1),
+        "v8": _side(eq),
+        "spy": _side(spy_eq),
+        "qqq": _side(qqq_eq),
         "generated_at": datetime.utcnow().isoformat(),
     }
