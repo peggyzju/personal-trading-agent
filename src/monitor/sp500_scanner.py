@@ -639,4 +639,7 @@ def quick_screen(
     if _force:
         force_tracks = {r["symbol"]: r.get("screen_track", "?") for r in force_results}
         print(f"[scanner] force_symbols: {force_tracks}")
+    # v8: 自选不搞特殊 —— 仅保证过门后不被 top_n 截断(已进 combined),
+    # 但整体按动量重排,坐回真实排名、不给买入插队。三处(信号页/候选表/买入循环)统一动量序。
+    combined.sort(key=lambda x: x.get("momentum_3m") or 0, reverse=True)
     return combined
