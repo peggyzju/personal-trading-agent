@@ -816,7 +816,10 @@ def run_agent(
                 if price and stop and stop < price:
                     risk_pct_actual = (price - stop) / price
                     if track == "momentum":
-                        if risk_pct_actual > HARD_STOP_PCT_T1:
+                        # v8 固定 -8% 止损 = round(price*0.92,2),取整后距离常微超 8%(如 8.00x%)。
+                        # 加 0.5% 容差,避免标准 -8% 止损被这道门误挡 —— 否则 MU 等头部候选几乎全被
+                        # 跳过,买入落到恰好取整≤8% 的低排名票,导致"买入与动量排名不一致"。
+                        if risk_pct_actual > HARD_STOP_PCT_T1 + 0.005:
                             print(f"[agent] {c['symbol']} skip — stop {risk_pct_actual:.1%} > 8% hard limit (Track1)")
                             summary["signals_found"] += 1
                             continue
