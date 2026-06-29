@@ -227,9 +227,8 @@ def analyze_sell_signals(positions: list[dict]) -> list[dict]:
     if not to_analyze:
         return cached_results  # All served from cache
 
-    client = get_anthropic_client()
-
-    # Enrich with technicals first
+    # v8: 纯机械卖出 —— 撤掉 AI 软清仓(回测验证的是纯机械退出:止损 + 追踪止盈 + MA20破位)。
+    # 不再调 Claude 评估卖出;sell_signal 全由 _rule_based_override 的机械规则决定。
     enriched = _enrich_with_technicals(to_analyze)
 
     def _tech_line(tech: dict) -> str:
@@ -300,15 +299,7 @@ For each position return a JSON object:
 
 Return ONLY a JSON array."""
 
-    # Update trailing stops BEFORE asking Claude — used in override logic below
     trailing_stops = _update_trailing_stops(enriched)
-
-    msg = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=1024,
-        temperature=0,
-        messages=[{"role": "user", "content": prompt}],
-    )
 
     HARD_STOP_PCT = -8.0   # last-resort catch-all; per-position structured stops are 4-8%
 
@@ -336,17 +327,15 @@ Return ONLY a JSON array."""
                     "reason": f"Trailing stop hit: ${price:.2f} ≤ ${ts:.2f} "
                               f"({drawdown:.1f}% from high of ${wm:.2f})"}
 
+        # 3. v8 趋势破位:收盘价跌破 MA20 → 趋势结束,退出(= 回测的 price<MA20 退出)
+        vs_ma20 = (p.get("_tech", {}) or {}).get("vs_ma20_pct")
+        if vs_ma20 is not None and vs_ma20 < 0:
+            return {"sell_signal": "SELL", "urgency": "MEDIUM",
+                    "reason": f"趋势破位:跌破 MA20(vs_MA20 {vs_ma20:+.1f}%)"}
+
         return None
 
-    text = msg.content[0].text
-    match = re.search(r"\[.*?\]", text, re.DOTALL)
-    sig_map: dict = {}
-    if match:
-        try:
-            signals = json.loads(match.group())
-            sig_map = {s["symbol"]: s for s in signals if isinstance(s, dict)}
-        except Exception:
-            pass
+    sig_map: dict = {}   # v8: 无 AI 卖出信号,sell_signal 全由机械 override(止损/追踪/MA20破位)决定
 
     result = []
     for p in enriched:
