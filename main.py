@@ -177,19 +177,15 @@ def run_earnings_scan():
 def run_sp500_scan():
     """Step 2 of pipeline — scan S&P 500, then auto-cascade to agent."""
     from api.app import _run_sp500_scan
-    from api.agent_runs import record_agent_run
     print("[scheduler] Running daily S&P 500 scan (cascade→agent)…")
     try:
-        status = _run_sp500_scan(cascade_agent=True)
+        # scout 运行记录已收口到 _run_sp500_scan 内部(完成即记一次),此处只触发。
+        status = _run_sp500_scan(cascade_agent=True, trigger="auto")
         if status == "skipped":
             print("[scheduler] scan 被跳过（已在运行）— 不记录运行历史，避免假成功")
-        elif status == "done":
-            record_agent_run("scout", trigger="auto", result="success")
-        else:   # data_fail（取数大面积失败）/ error
-            record_agent_run("scout", trigger="auto", result="fail", error=f"scan status={status}")
+        elif status != "done":
             print(f"[scheduler] S&P 500 scan {status}")
     except Exception as e:
-        record_agent_run("scout", trigger="auto", result="fail", error=str(e))
         print(f"[scheduler] S&P 500 scan error: {e}")
 
 

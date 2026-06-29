@@ -1683,42 +1683,47 @@
   },
   {
     "date": "2026-06-29",
-    "recorded_at": "2026-06-29T13:58:05.177508+00:00",
+    "recorded_at": "2026-06-29T15:15:36.874192+00:00",
     "scan_quality": {
       "total_candidates": 25,
-      "rsi_mean": 64.2,
+      "rsi_mean": 63.9,
       "rsi_dist": {
         "rsi_below40": 0,
-        "rsi_40_55": 2,
-        "rsi_55_60": 5,
+        "rsi_40_55": 1,
+        "rsi_55_60": 7,
         "rsi_60_65": 7,
-        "rsi_above65": 11
+        "rsi_above65": 10
       },
-      "vma20_mean": 7.0,
+      "vma20_mean": 7.3,
       "vma20_dist": {
-        "vma20_neg": 0,
-        "vma20_0_3": 4,
-        "vma20_3_5": 2,
+        "vma20_neg": 1,
+        "vma20_0_3": 2,
+        "vma20_3_5": 4,
         "vma20_5_8": 10,
-        "vma20_above8": 9
+        "vma20_above8": 8
       },
       "signal_counts": {
         "HOLD": 25
       },
-      "ai_score_mean": 5.5,
-      "quality_score": 36.0
+      "ai_score_mean": 5.3,
+      "quality_score": 33.6
     },
     "portfolio": {
-      "equity": 97440.0,
-      "cash": 73873.0,
-      "invested": 23567.0,
-      "alloc_pct": 24.2,
-      "float_pnl": 102.0,
-      "float_pct": 0.1,
-      "positions": 6
+      "equity": 97305.0,
+      "cash": 80721.0,
+      "invested": 16584.0,
+      "alloc_pct": 17.0,
+      "float_pnl": 223.0,
+      "float_pct": 0.23,
+      "positions": 4
     },
     "trades_today": {
-      "closed_trades_today": 0
+      "closed_trades_today": 3,
+      "symbols_closed": [
+        "AMD",
+        "AAPL",
+        "DUOL"
+      ]
     },
     "closed_pnl_pct": null,
     "total_screened": 169,

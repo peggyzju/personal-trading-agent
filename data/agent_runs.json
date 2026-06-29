@@ -111,18 +111,6 @@
   ],
   "scout": [
     {
-      "ran_at": "2026-06-08T15:03:58.911242+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
-      "ran_at": "2026-06-08T16:35:09.666572+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
       "ran_at": "2026-06-08T18:32:58.811591+00:00",
       "trigger": "auto",
       "result": "success",
@@ -469,21 +457,21 @@
       "trigger": "manual",
       "result": "success",
       "error": null
+    },
+    {
+      "ran_at": "2026-06-29T15:10:34.928375+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-29T15:15:36.883695+00:00",
+      "trigger": "manual",
+      "result": "success",
+      "error": null
     }
   ],
   "rex": [
-    {
-      "ran_at": "2026-06-19T18:33:54.543188+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
-      "ran_at": "2026-06-19T19:00:20.636740+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
     {
       "ran_at": "2026-06-19T19:30:15.838220+00:00",
       "trigger": "auto",
@@ -831,6 +819,18 @@
       "trigger": "manual",
       "result": "success",
       "error": null
+    },
+    {
+      "ran_at": "2026-06-29T15:00:11.578789+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-29T15:10:34.926709+00:00",
+      "trigger": "auto",
+      "result": "fail",
+      "error": "unsupported operand type(s) for /: 'NoneType' and 'int'"
     }
   ]
 }

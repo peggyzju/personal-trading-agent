@@ -391,8 +391,9 @@ def _sanitize_floats(obj):
     return obj
 
 
-def _run_sp500_scan(cascade_agent: bool = False):
-    """Run scan. If cascade_agent=True, auto-trigger agent after scan completes."""
+def _run_sp500_scan(cascade_agent: bool = False, trigger: str = "auto"):
+    """Run scan. If cascade_agent=True, auto-trigger agent after scan completes.
+    trigger: "auto"(调度)/ "manual"(手动)— 用于运行记录标记。"""
     global _scan_running, _last_cascade_at
 
     # Guard and flag-set BEFORE slow imports to minimize the race window
@@ -605,6 +606,17 @@ def _run_sp500_scan(cascade_agent: bool = False):
         watchdog.cancel()
         _scan_running = False
 
+    # 记录 Scout 运行 —— 收口到此处:任何完成的扫描都恰好记一次,放在 cascade 之前
+    # (即使下面 cascade 抛错,scout 记录也已落库),不再依赖外层分散的记录点。
+    try:
+        from api.agent_runs import record_agent_run as _rec_scout
+        if _scan_status == "done":
+            _rec_scout("scout", trigger=trigger, result="success")
+        else:   # data_fail / error
+            _rec_scout("scout", trigger=trigger, result="fail", error=f"scan status={_scan_status}")
+    except Exception as _re:
+        print(f"[scan] record scout run failed (non-fatal): {_re}")
+
     # Cascade: auto-run agent — debounced to prevent rapid re-triggering
     if cascade_agent and _scan_cache.get("sp500", {}).get("status") == "done":
         now = _time.time()
@@ -720,17 +732,8 @@ def trigger_scan(background_tasks: BackgroundTasks):
     if _scan_running:
         return {"status": "already_running"}
     def _manual_scan():
-        from api.agent_runs import record_agent_run
-        try:
-            status = _run_sp500_scan(True)   # cascade_agent=True
-            if status == "skipped":
-                print("[scan] manual scan 被跳过 — 不记录")
-            elif status == "done":
-                record_agent_run("scout", trigger="manual", result="success")
-            else:   # data_fail / error
-                record_agent_run("scout", trigger="manual", result="fail", error=f"scan status={status}")
-        except Exception as e:
-            record_agent_run("scout", trigger="manual", result="fail", error=str(e))
+        # scout 运行记录已收口到 _run_sp500_scan 内部(完成即记一次),此处只触发。
+        _run_sp500_scan(True, trigger="manual")   # cascade_agent=True
     background_tasks.add_task(_manual_scan)
     return {"status": "started", "cascade": "agent will auto-run after scan"}
 
