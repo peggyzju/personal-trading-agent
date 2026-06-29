@@ -3,9 +3,9 @@ import { api } from "../api/client";
 import type { V8BacktestResult, V8BacktestSide } from "../api/client";
 
 interface Props { backendOnline: boolean }
-type Period = "6mo" | "1y" | "2025" | "2024" | "2023";
+type Period = "6mo" | "1y" | "3y" | "2025" | "2024" | "2023";
 const PERIODS: { v: Period; label: string }[] = [
-  { v: "6mo", label: "近6月" }, { v: "1y", label: "近1年" },
+  { v: "6mo", label: "近6月" }, { v: "1y", label: "近1年" }, { v: "3y", label: "近3年" },
   { v: "2025", label: "2025" }, { v: "2024", label: "2024" }, { v: "2023", label: "2023" },
 ];
 
@@ -78,7 +78,7 @@ export function BacktestView({ backendOnline }: Props) {
 
       {data?.status === "done" && rows.length > 0 && (
         <>
-          <div className="pm-stats-row">
+          <div className="pm-stats-row" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
             {rows.map(r => (
               <div className="pm-stat-card" key={r.key} style={r.strat ? { borderColor: "#22c55e" } : undefined}>
                 <div className="pm-stat-label">{r.strat ? "★ " : ""}{r.label} · 总收益</div>
@@ -91,19 +91,25 @@ export function BacktestView({ backendOnline }: Props) {
           {years.length > 0 && (
             <div className="pm-tier-card">
               <div className="pm-tier-title">分年收益</div>
-              <div className="pm-tier-row pm-tier-header">
-                <span>策略</span>
-                {years.map(y => <span key={y} style={{ textAlign: "right" }}>{y}</span>)}
-              </div>
-              {rows.map(r => (
-                <div className="pm-tier-row" key={r.key}>
-                  <span style={{ fontWeight: r.strat ? 700 : 400 }}>{r.key === "v8" ? "v8" : r.label.slice(0, 3)}</span>
-                  {years.map(y => {
-                    const v = r.side.by_year[y];
-                    return <span key={y} className={v != null ? (v >= 0 ? "pos" : "neg") : ""} style={{ textAlign: "right" }}>{v != null ? fmt(v) : "—"}</span>;
-                  })}
-                </div>
-              ))}
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead>
+                  <tr style={{ color: "var(--muted)" }}>
+                    <th style={{ textAlign: "left", padding: "5px 6px", fontWeight: 400 }}>策略</th>
+                    {years.map(y => <th key={y} style={{ textAlign: "right", padding: "5px 6px", fontWeight: 400 }}>{y}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(r => (
+                    <tr key={r.key} style={{ borderTop: "1px solid var(--border)" }}>
+                      <td style={{ textAlign: "left", padding: "5px 6px", fontWeight: r.strat ? 700 : 400 }}>{r.key === "v8" ? "v8" : r.label.slice(0, 3)}</td>
+                      {years.map(y => {
+                        const v = r.side.by_year[y];
+                        return <td key={y} style={{ textAlign: "right", padding: "5px 6px", color: v == null ? "var(--muted)" : v >= 0 ? "#22c55e" : "#ef4444" }}>{v != null ? fmt(v) : "—"}</td>;
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
 

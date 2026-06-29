@@ -31,6 +31,8 @@ def _period_range(period: str) -> tuple[str, str]:
         return f"{y}-01-01", f"{y}-12-31"
     if period == "1y":
         return (today - timedelta(days=365)).isoformat(), today.isoformat()
+    if period == "3y":
+        return "2023-01-01", today.isoformat()   # 近3年:覆盖 2023/2024/2025/2026
     return (today - timedelta(days=183)).isoformat(), today.isoformat()   # 6mo 默认
 
 
