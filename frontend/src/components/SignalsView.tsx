@@ -20,12 +20,6 @@ const SIGNAL_BG: Record<string, string> = {
   WATCH:      "#d97706",
 };
 
-function aiBarColor(score: number): string {
-  if (score >= 8) return "linear-gradient(90deg,#16a34a,#22c55e)";
-  if (score >= 6) return "linear-gradient(90deg,#2563eb,#3b82f6)";
-  if (score >= 4) return "linear-gradient(90deg,#b45309,#f59e0b)";
-  return "linear-gradient(90deg,#991b1b,#ef4444)";
-}
 
 function fmtMktCap(mc: number): string {
   if (mc >= 1e12) return `$${(mc / 1e12).toFixed(1)}T`;
@@ -415,17 +409,15 @@ function SignalCard({
           <div className="sc-ai-score" title={`AI 排雷(建议跳过,A/B验证中,当前不强制): ${c.veto_reason || ""}`}
                style={{ flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
             <span style={{ fontSize: 11, color: "#ef4444", fontWeight: 700 }}>🚫 AI排雷</span>
-            <span style={{ fontSize: 10, color: "#fca5a5", maxWidth: 180, textAlign: "right", lineHeight: 1.3 }}>
+            <span style={{ fontSize: 10, color: "#fca5a5", maxWidth: 160, textAlign: "right", lineHeight: 1.3 }}>
               {c.veto_reason || c.veto_category}
             </span>
           </div>
         ) : (
-          <div className="sc-ai-score" title="AI 评分仅供参考,v8 不参与买入(买入按动量排名)">
-            <div className="sc-ai-bar-wrap">
-              <div className="sc-ai-bar-fill" style={{ width: `${((c.ai_score ?? 0) / 10) * 100}%`, background: aiBarColor(c.ai_score ?? 0), opacity: 0.5 }} />
-            </div>
-            <span className="sc-ai-num" style={{ opacity: 0.7 }}>AI {c.ai_score != null ? c.ai_score.toFixed(1) : "—"}<span className="sc-ai-denom"> 参考</span></span>
-          </div>
+          <span title="AI 排雷未发现风险(v8:AI 只排雷,不打分选股)"
+                style={{ fontSize: 11, color: "#22c55e", fontWeight: 600, whiteSpace: "nowrap" }}>
+            ✓ AI 放行
+          </span>
         )}
       </div>
 

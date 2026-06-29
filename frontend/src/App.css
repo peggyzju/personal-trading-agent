@@ -2847,10 +2847,13 @@ body {
 ════════════════════════════════════════════════════════════ */
 
 .sc-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 12px;
+  align-items: start;
 }
+/* 横幅(v8 说明 / 缓存提示)跨满整行 */
+.sc-list > .signals-stale-banner { grid-column: 1 / -1; }
 
 /* ── Card shell ─────────────────────────────────────────── */
 .sc-card {
