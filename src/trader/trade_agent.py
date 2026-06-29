@@ -349,17 +349,40 @@ def approve_trade(trade_id: str) -> dict:
         if trade["side"] == "sell":
             # 主动卖出前,先取消该股挂着的保护止损/任何 sell 单,释放被占用的股数,
             # 否则 close_position / 卖单会被 Alpaca 拒("insufficient qty available")。
+            # 关键:取消后要等 Alpaca 真正释放股数再卖,否则有竞态(取消未落地→insufficient qty)。
             try:
+                import time as _time
                 from src.trader.alpaca_trader import get_client as _gc, cancel_order as _cxl
-                for _o in _gc().list_orders(status="open"):
+                _client = _gc()
+                _cancelled = []
+                for _o in _client.list_orders(status="open"):
                     if _o.symbol == trade["symbol"] and _o.side == "sell":
                         _cxl(_o.id)
+                        _cancelled.append(_o.id)
                         print(f"[agent] cancelled resting sell order {_o.id} for {trade['symbol']} before close")
+                # 轮询确认取消落地(被占股数已释放),最多等 ~3s
+                for _ in range(10):
+                    if not _cancelled:
+                        break
+                    _still = {o.id for o in _client.list_orders(status="open")
+                              if o.symbol == trade["symbol"] and o.side == "sell"}
+                    if not (set(_cancelled) & _still):
+                        break
+                    _time.sleep(0.3)
             except Exception as _ce:
                 print(f"[agent] cancel-before-sell failed for {trade['symbol']}: {_ce}")
 
         if trade["side"] == "sell" and trade["qty"] is None:
-            order = close_position(trade["symbol"])
+            # 兜底:若仍偶发 insufficient qty(取消刚落地),短暂重试一次
+            try:
+                order = close_position(trade["symbol"])
+            except Exception as _se:
+                if "insufficient qty" in str(_se).lower():
+                    import time as _time2
+                    _time2.sleep(1.0)
+                    order = close_position(trade["symbol"])
+                else:
+                    raise
         elif (
             trade["side"] == "buy"
             and trade.get("stop_loss")
