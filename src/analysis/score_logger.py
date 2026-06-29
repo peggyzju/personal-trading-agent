@@ -41,6 +41,9 @@ def record_scored_candidates(candidates, regime=None, min_ai_score=None):
             "symbol": c.get("symbol"),
             "ai_score": c.get("ai_score"),
             "signal": c.get("signal"),
+            "momentum_3m": c.get("momentum_3m"),     # v8 排名依据
+            "veto": bool(c.get("veto", False)),       # AI 排雷(A/B:对比"机械选 vs 排雷后"前向收益)
+            "veto_category": c.get("veto_category") or "",
             "regime": regime,
             "min_ai_score": min_ai_score,
             "screen_track": c.get("screen_track") or c.get("track"),

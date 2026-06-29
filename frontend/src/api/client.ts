@@ -116,6 +116,9 @@ export interface ScanCandidate {
   vs_ma50_pct?: number;
   vs_ma20_pct?: number;
   ma50_slope_pct?: number;
+  veto?: boolean;
+  veto_reason?: string;
+  veto_category?: string;
   volume_ratio?: number;
   rsi?: number;
   near_breakout?: boolean;

@@ -411,12 +411,22 @@ function SignalCard({
           ))}
           {c.owned && <span className="sc-owned-badge">持仓中</span>}
         </div>
-        <div className="sc-ai-score" title="AI 评分仅供参考,v8 不参与买入(买入按动量排名)">
-          <div className="sc-ai-bar-wrap">
-            <div className="sc-ai-bar-fill" style={{ width: `${((c.ai_score ?? 0) / 10) * 100}%`, background: aiBarColor(c.ai_score ?? 0), opacity: 0.5 }} />
+        {c.veto ? (
+          <div className="sc-ai-score" title={`AI 排雷(建议跳过,A/B验证中,当前不强制): ${c.veto_reason || ""}`}
+               style={{ flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+            <span style={{ fontSize: 11, color: "#ef4444", fontWeight: 700 }}>🚫 AI排雷</span>
+            <span style={{ fontSize: 10, color: "#fca5a5", maxWidth: 180, textAlign: "right", lineHeight: 1.3 }}>
+              {c.veto_reason || c.veto_category}
+            </span>
           </div>
-          <span className="sc-ai-num" style={{ opacity: 0.7 }}>AI {c.ai_score != null ? c.ai_score.toFixed(1) : "—"}<span className="sc-ai-denom"> 参考</span></span>
-        </div>
+        ) : (
+          <div className="sc-ai-score" title="AI 评分仅供参考,v8 不参与买入(买入按动量排名)">
+            <div className="sc-ai-bar-wrap">
+              <div className="sc-ai-bar-fill" style={{ width: `${((c.ai_score ?? 0) / 10) * 100}%`, background: aiBarColor(c.ai_score ?? 0), opacity: 0.5 }} />
+            </div>
+            <span className="sc-ai-num" style={{ opacity: 0.7 }}>AI {c.ai_score != null ? c.ai_score.toFixed(1) : "—"}<span className="sc-ai-denom"> 参考</span></span>
+          </div>
+        )}
       </div>
 
       {/* ── Row 2: company name + sector ── */}

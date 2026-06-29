@@ -112,47 +112,38 @@ def _build_prompt(
         notes_text = "\n".join(f"- {n}" for n in strategy_notes)
         notes_section = f"\nActive strategy guidelines:\n{notes_text}\n"
 
-    return f"""You are a professional swing trader analyzing stocks that passed a pullback/recovery screen.
-These candidates have RSI < 60 and price within 8% of MA20 — they are NOT momentum breakouts; they are stocks in controlled setups with room to run.
+    return f"""You are a RISK SCREENER for a momentum/trend trading system (strategy v8).
+The stocks below ALREADY passed a mechanical filter: uptrend (price > MA50, MA50 rising),
+RSI 50-80, positive 3-month momentum, not over-extended. They are RANKED BY MOMENTUM and
+will be bought mechanically in that order.
 
-YOUR ROLE: Technical filters (RSI, MA20, candle pattern, volume) have already been applied by the screening system. Do NOT re-evaluate or re-score those signals. Your value-add is assessing what the technical screen cannot see:
-  1. News catalysts — is there a fresh fundamental driver supporting the setup?
-  2. Earnings risk — are earnings within 5 days? (gap risk overrides technicals)
-  3. Sector rotation — is this sector seeing inflows or outflows today?
-  4. Fundamental quality — does PE/beta/market-cap profile fit a swing hold of 2-10 days?
-Candle patterns and RSI levels below are provided as context only — use them to understand the setup, not to re-score momentum.
+YOUR ONLY JOB — "排雷" (landmine veto): flag stocks to SKIP for reasons the price/volume
+data CANNOT see. You do NOT rank, score, or select — mechanical momentum already did that.
+Default to NO veto. Only veto when you can name a concrete, specific risk.
+
+Veto categories (set veto=true only if one CLEARLY applies):
+1. earnings_risk — earnings within ~3-5 days (gap risk on a fresh entry)
+2. bad_catalyst — momentum collides with negative news: SEC/lawsuit/probe, guidance cut,
+   dilution/secondary offering, key-exec exit, FDA reject, accounting concern
+3. exhaustion — parabolic blow-off or news-spike likely to fade (sell-the-news); the
+   catalyst is already widely known / fully priced
+4. retail_frenzy — WSB extreme hype or short-squeeze driven (unsustainable, snap-back risk)
+5. one_off — momentum from a one-time event (M&A rumor, single contract), not a durable trend
+6. sector_breakdown — stock strong but its whole sector is rolling over / facing a clear
+   regulatory or macro headwind
 {ctx_section}{bias_section}{notes_section}
 {rows}
 
-Return a JSON array of {len(candidates)} objects. Each object must have exactly these fields:
+Return a JSON array of {len(candidates)} objects, each EXACTLY:
 - "symbol": string
-- "ai_score": integer 1-10 (score based on catalyst quality + fundamental fit + sector tailwind — NOT a re-score of RSI/candle)
-- "signal": one of "STRONG_BUY", "BUY", "HOLD", "SELL"
-- "reason": one sentence on what the company does + one sentence on the NEWS or FUNDAMENTAL driver (not the candle pattern)
-- "entry_note": "at market" | "on pullback to $X" | "wait for consolidation" | "avoid for now"
-- "stop_loss_pct": number (e.g. 5.0 means 5% below current price — use 4-6% range)
-- "target_pct": number (upside %, use 0 for SELL)
-- "timeframe": "intraday" | "swing_2_5d" | "positional_1_2w" | "n/a"
+- "veto": boolean (true = skip this momentum stock despite its rank)
+- "veto_category": one of the 6 names above, or "" if no veto
+- "veto_reason": ONE short sentence naming the specific risk (or "" if no veto)
+- "ai_score": integer 1-10 — advisory confidence the trend CONTINUES (reference only, NOT
+  used for buying; momentum rank decides buys)
+- "reason": one short sentence on what the company does + the key driver
 
-ai_score rubric — PRIMARY TASK: distinguish "healthy pullback within uptrend" from "downtrend trap":
-
-STEP 1 — Trend context (mom_3m + vs_ma50):
-- UPTREND setup (ai_score 7-10 range): vs_ma50 > 0% AND mom_3m > -10%. Stock is above its 50d MA and only modestly off 3-month highs — short-term pullback within intact trend. Catalyst adds 1-2 pts.
-- NEUTRAL zone (ai_score 4-7 range): vs_ma50 between -8% and 0% OR mom_3m between -25% and -10%. Recovering but structure uncertain. Requires a clear catalyst to score above 6.
-- DOWNTREND TRAP (ai_score 1-4 hard cap): vs_ma50 < -8% AND mom_3m < -20%. Stock in structural decline; short-term bounces typically fail. Even with good candle/RSI, cap at 4 — this is dead-cat-bounce risk.
-
-STEP 2 — Signal guidelines (calibrated against 6-month backtest, 835 trades):
-- STRONG_BUY: UPTREND setup + candle🕯️+2 (bullish_engulf or strong_bull) + confirmed external catalyst (news, sector tailwind, MACD cross). Without a catalyst, max BUY.
-- BUY: UPTREND setup + candle🕯️+2 with neutral catalyst, OR UPTREND setup + candle🕯️-2 showing strong_bear (NOT bearish_engulf) — high-volume selloff near MA20 in uptrend often recovers. RSI must be 35-60.
-- HOLD: NEUTRAL zone stocks (structure not confirmed), OR candle🕯️+1 (hammer/pullback_bull — backtest shows NOT reliable alone). Do NOT enter without a catalyst.
-- SELL: DOWNTREND TRAP stocks (vs_ma50 < -8% AND mom_3m < -20%), OR candle🕯️-1 (mild bearish — 24% WR in backtest), OR bearish_engulf (Exp -1.4%). Avoid.
-- ALWAYS downgrade to HOLD if candle is doji🕯️— backtest Exp -1.2% regardless of other signals
-- ALWAYS downgrade one level if earnings within 5 days (gap risk)
-- ALWAYS downgrade one level if sector is underperforming and no independent catalyst
-- WSB hype=extreme → ALWAYS downgrade one level (retail frenzy = likely near top; late-entry risk)
-- WSB hype=moderate → ai_score may be +1 if technical setup is already strong (retail tailwind, not yet peaked)
-- WSB hype=high → neutral (monitor; neither boost nor downgrade)
-
+Be CONSERVATIVE: when unsure, veto=false (a wrong veto kills a good momentum winner).
 Output raw JSON array only. No markdown, no explanation."""
 
 
@@ -226,11 +217,15 @@ def _validate_and_fill(item: dict, tech: dict) -> dict:
 
     stop_pct = round((price - stop_price) / price * 100, 2) if (price and stop_price) else 5.0
 
+    veto = bool(item.get("veto", False))
     return {
         **tech,
         **item,
         "signal":       signal,
         "ai_score":     ai_score,
+        "veto":         veto,
+        "veto_category": str(item.get("veto_category") or "") if veto else "",
+        "veto_reason":  str(item.get("veto_reason") or "") if veto else "",
         "reason":       item.get("reason") or "",
         "entry_note":   item.get("entry_note") or "at market",
         "timeframe":    item.get("timeframe") or "n/a",
