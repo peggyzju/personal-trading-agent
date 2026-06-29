@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-26T03:28:20.847923+00:00",
+  "generated_at": "2026-06-29T12:00:22.578595+00:00",
   "horizon_days": 7,
   "count": 2,
   "holdings_reporting": 0,
@@ -11,7 +11,7 @@
       "eps_estimate": 3.2744,
       "in_portfolio": false,
       "importance": "",
-      "days_until": 4
+      "days_until": 1
     },
     {
       "symbol": "FDS",
@@ -20,7 +20,7 @@
       "eps_estimate": 4.4964,
       "in_portfolio": false,
       "importance": "",
-      "days_until": 5
+      "days_until": 2
     }
   ]
 }
