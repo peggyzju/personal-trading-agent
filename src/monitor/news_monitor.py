@@ -4,32 +4,43 @@ from datetime import datetime, timezone
 
 
 def get_news(symbol: str, limit: int = 8) -> list[dict]:
-    ticker = yf.Ticker(symbol)
-    raw = ticker.news or []
+    """近 14 天公司新闻 — 走 Finnhub company-news(根治 yfinance 限流)。失败返回 []。"""
+    import json
+    import urllib.parse
+    import urllib.request
+    from datetime import date, timedelta
+    from src.config import get_finnhub_key
+
+    key = get_finnhub_key()
+    if not key:
+        return []
+    today = date.today()
+    params = {"symbol": symbol, "from": (today - timedelta(days=14)).isoformat(),
+              "to": today.isoformat(), "token": key}
+    url = f"https://finnhub.io/api/v1/company-news?{urllib.parse.urlencode(params)}"
+    try:
+        with urllib.request.urlopen(url, timeout=15) as r:
+            raw = json.loads(r.read())
+    except Exception:
+        return []
+    if not isinstance(raw, list):
+        return []
+
     results = []
     for item in raw[:limit]:
-        content = item.get("content", {})
-        pub_raw = content.get("pubDate") or item.get("providerPublishTime")
-        if isinstance(pub_raw, int):
-            pub_dt = datetime.fromtimestamp(pub_raw, tz=timezone.utc)
-            published = pub_dt.isoformat()
-        elif isinstance(pub_raw, str):
-            published = pub_raw
-        else:
-            published = ""
-
-        title = content.get("title") or item.get("title", "")
-        summary = content.get("summary") or item.get("summary", "")
-        url = (content.get("canonicalUrl") or {}).get("url") or item.get("link", "")
-
-        if title:
-            results.append({
-                "title": title,
-                "summary": summary[:300] if summary else "",
-                "published": published,
-                "url": url,
-                "source": (content.get("provider") or {}).get("displayName", ""),
-            })
+        title = item.get("headline") or ""
+        if not title:
+            continue
+        ts = item.get("datetime")
+        published = (datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+                     if isinstance(ts, (int, float)) and ts else "")
+        results.append({
+            "title": title,
+            "summary": (item.get("summary") or "")[:300],
+            "published": published,
+            "url": item.get("url") or "",
+            "source": item.get("source") or "",
+        })
     return results
 
 

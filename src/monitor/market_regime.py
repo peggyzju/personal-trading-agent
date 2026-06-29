@@ -18,7 +18,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
-import yfinance as yf
 
 _CACHE_FILE = Path(__file__).parent.parent.parent / "data" / "regime_cache.json"
 _CACHE_TTL_SECONDS  = 900  # re-check every 15 minutes
@@ -80,14 +79,17 @@ def get_market_regime(force_refresh: bool = False) -> dict:
             return cached
 
     try:
-        df = yf.download("SPY", period="60d", interval="1d",
-                         auto_adjust=True, progress=False)
-        if df.empty or len(df) < 20:
+        # SPY 日线走 Alpaca(feed=iex),根治 yfinance 限流导致的 regime/account 偶发 500
+        from src.trader.alpaca_trader import get_client
+        from datetime import datetime as _dt, timedelta as _td
+        bars = get_client().get_bars(
+            "SPY", "1Day",
+            start=(_dt.now() - _td(days=90)).date().isoformat(),
+            feed="iex",
+        ).df
+        if bars is None or len(bars) < 20:
             return _fallback("SPY data unavailable")
-
-        closes = df["Close"].dropna()
-        if isinstance(closes, pd.DataFrame):
-            closes = closes.iloc[:, 0]
+        closes = bars["close"].dropna()
         spy_price = float(closes.iloc[-1])
         spy_prev  = float(closes.iloc[-2]) if len(closes) >= 2 else spy_price
         spy_change_pct = (spy_price - spy_prev) / spy_prev * 100

@@ -1683,7 +1683,7 @@
   },
   {
     "date": "2026-06-29",
-    "recorded_at": "2026-06-29T07:13:50.132664+00:00",
+    "recorded_at": "2026-06-29T07:42:29.657003+00:00",
     "scan_quality": {
       "total_candidates": 25,
       "rsi_mean": 62.0,
@@ -1705,16 +1705,16 @@
       "signal_counts": {
         "HOLD": 25
       },
-      "ai_score_mean": 5.3,
+      "ai_score_mean": 5.1,
       "quality_score": 41.6
     },
     "portfolio": {
-      "equity": 97404.0,
+      "equity": 97414.0,
       "cash": 73871.0,
-      "invested": 23532.0,
+      "invested": 23542.0,
       "alloc_pct": 24.2,
-      "float_pnl": 67.0,
-      "float_pct": 0.07,
+      "float_pnl": 77.0,
+      "float_pct": 0.08,
       "positions": 6
     },
     "trades_today": {
@@ -1725,6 +1725,6 @@
     "tech_passed": 25,
     "quality_gate_removed": 0,
     "ai_scored": 15,
-    "market_regime": "BEAR"
+    "market_regime": "CAUTION"
   }
 ]
