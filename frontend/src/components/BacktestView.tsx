@@ -91,7 +91,7 @@ export function BacktestView({ backendOnline }: Props) {
           {years.length > 0 && (
             <div className="pm-tier-card">
               <div className="pm-tier-title">分年收益</div>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>
                 <thead>
                   <tr style={{ color: "var(--muted)" }}>
                     <th style={{ textAlign: "left", padding: "5px 6px", fontWeight: 400 }}>策略</th>
