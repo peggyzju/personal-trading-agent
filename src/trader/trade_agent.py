@@ -346,6 +346,18 @@ def approve_trade(trade_id: str) -> dict:
     from src.trader.alpaca_trader import place_order, close_position
 
     try:
+        if trade["side"] == "sell":
+            # 主动卖出前,先取消该股挂着的保护止损/任何 sell 单,释放被占用的股数,
+            # 否则 close_position / 卖单会被 Alpaca 拒("insufficient qty available")。
+            try:
+                from src.trader.alpaca_trader import get_client as _gc, cancel_order as _cxl
+                for _o in _gc().list_orders(status="open"):
+                    if _o.symbol == trade["symbol"] and _o.side == "sell":
+                        _cxl(_o.id)
+                        print(f"[agent] cancelled resting sell order {_o.id} for {trade['symbol']} before close")
+            except Exception as _ce:
+                print(f"[agent] cancel-before-sell failed for {trade['symbol']}: {_ce}")
+
         if trade["side"] == "sell" and trade["qty"] is None:
             order = close_position(trade["symbol"])
         elif (
@@ -539,7 +551,16 @@ def run_agent(
                       f"— {len(alpaca_positions)} open, {slots_remaining} slots remaining")
             # Track symbols with open sell orders to avoid duplicate submissions
             open_orders = client.list_orders(status="open")
-            alpaca_open_sell_symbols = {o.symbol for o in open_orders if o.side == "sell"}
+
+            def _is_protective_stop(o) -> bool:
+                ot = str(getattr(o, "order_type", None) or getattr(o, "type", None) or "").lower()
+                return ot in ("stop", "stop_limit")
+
+            # 只把"真正的市价/限价平仓单"算作正在卖;入场挂的 -8% 保护止损(stop)不算 ——
+            # 否则它会永久挡住 MA20破位/追踪止盈/hard-stop 的主动卖出(close_position 前会先取消止损)。
+            alpaca_open_sell_symbols = {
+                o.symbol for o in open_orders if o.side == "sell" and not _is_protective_stop(o)
+            }
             _open_orders_fetched = True
             if alpaca_open_sell_symbols:
                 print(f"[agent] Open sell orders in Alpaca: {alpaca_open_sell_symbols}")
