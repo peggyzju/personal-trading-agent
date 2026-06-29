@@ -111,9 +111,9 @@ def get_market_regime(force_refresh: bool = False) -> dict:
             max_positions = 0     # no new positions; manage existing stops only
             reason = f"SPY {vs_ma50:.1f}% below MA50 — crash mode, all buys blocked"
 
-        elif vs_ma20 < 0 and vs_ma50 < 0:
-            # Below BOTH MA20 and MA50 — mid-term trend genuinely broken, stop new buys.
-            # (A1) 只破 MA20、MA50 仍在 = 上升趋势里的回调，不算熊 → 落到下面 CAUTION（减档但不封锁）。
+        elif vs_ma20 < 0 and vs_ma50 < -1.0:
+            # 真正破位:跌破 MA20 且 MA50 破超 1%(缓冲带)— 中期趋势确实转坏,全停新买。
+            # (A1) MA50 仅贴线浅破(-1%~0)= 上升趋势里的回调,不算熊 → 落到下面 CAUTION(半仓不封锁)。
             regime        = "BEAR"
             block_buys    = True
             size_factor   = 0.0
@@ -121,15 +121,16 @@ def get_market_regime(force_refresh: bool = False) -> dict:
             max_positions = 3     # keep existing positions for stop management
             reason = f"SPY {vs_ma20:.1f}% below MA20 & {vs_ma50:.1f}% below MA50 — new buys blocked, manage stops only"
 
-        elif vs_ma5 < 0 or spy_change_pct < -1.5:
-            # Below 5-day MA or sharp intraday drop — yellow alert
+        elif vs_ma20 < 0 or vs_ma5 < 0 or spy_change_pct < -1.5:
+            # 浅破回调(破MA20 但 MA50 仍在 -1% 缓冲带内)/ 破MA5 / 盘中急跌 — 黄色预警,减档但继续半仓买。
             regime        = "CAUTION"
             block_buys    = False
             size_factor   = 0.5
             min_ai_score  = 8
             max_positions = 5     # compress from 10 → 5
             reason = (
-                f"SPY {vs_ma5:.1f}% below MA5" if vs_ma5 < 0
+                f"SPY {vs_ma20:.1f}% below MA20 (MA50 {vs_ma50:+.1f}%, 缓冲带内)" if vs_ma20 < 0
+                else f"SPY {vs_ma5:.1f}% below MA5" if vs_ma5 < 0
                 else f"SPY down {abs(spy_change_pct):.1f}% today"
             ) + " — half sizing, max 5 positions, score ≥ 8"
 
