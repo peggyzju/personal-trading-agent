@@ -1281,6 +1281,18 @@ def run_agent(background_tasks: BackgroundTasks):
     return {"status": "started"}
 
 
+# ── K 线分析(v8 核心指标解读 + AI 一句话点评)─────────────────────────────────
+
+@app.get("/api/analyze/kline/{symbol}")
+def analyze_kline(symbol: str):
+    """单只股票的 K 线分析:蜡烛 + MA20/MA50/RSI + 4个v8趋势门 + 量能参考 + AI点评。"""
+    from src.analysis.kline_analysis import build_kline_analysis
+    sp = _scan_cache.get("sp500", {})
+    cands = sp.get("candidates", []) if isinstance(sp, dict) else []
+    name = next((c.get("name", "") for c in cands if c.get("symbol") == symbol.upper()), "")
+    return _sanitize_floats(build_kline_analysis(symbol, candidates=cands, name=name))
+
+
 # ── Auto-approve config ───────────────────────────────────────────────────────
 
 @app.get("/api/agent/auto-approve")

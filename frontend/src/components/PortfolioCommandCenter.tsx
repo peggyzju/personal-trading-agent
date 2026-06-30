@@ -9,6 +9,7 @@ import type {
 import { TradeModal } from "./TradeModal";
 import EarningsRadar from "./EarningsRadar";
 import { CandleChart } from "./CandleChart";
+import { KlineGatePanel } from "./KlineGatePanel";
 import { DecisionChain, type DecisionInput } from "./DecisionChain";
 import type { PortfolioHistory } from "../api/client";
 
@@ -437,7 +438,7 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
         <div className="pcc-modal-backdrop" onClick={() => setDetail(null)}>
           <div className="pcc-modal" onClick={e => e.stopPropagation()}>
             <div className="pcc-modal-head">
-              <span className="pcc-modal-title">{detail.symbol} · K 线 + 决策</span>
+              <span className="pcc-modal-title">{detail.symbol} · K 线分析</span>
               <button className="pcc-modal-close" onClick={() => setDetail(null)}>✕</button>
             </div>
             <CandleChart
@@ -446,6 +447,7 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
               stopLoss={detail.stop_loss}
               targetPrice={detail.target_price}
             />
+            <KlineGatePanel symbol={detail.symbol} />
             <DecisionChain
               d={detail}
               regime={data.pipeline?.market_context?.regime ?? null}

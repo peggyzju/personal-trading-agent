@@ -8,6 +8,7 @@ import type { ScanCandidate, ScanResult, BudgetAllocation } from "../api/client"
 import { TradeModal } from "./TradeModal";
 import { StockDebatePanel } from "./StrategyReview";
 import { CandleChart } from "./CandleChart";
+import { KlineGatePanel } from "./KlineGatePanel";
 
 interface Props { backendOnline: boolean }
 
@@ -328,7 +329,7 @@ function AllSignalsView({
 
 // ── Big signal card ───────────────────────────────────────────────────────────
 
-type CardSection = "ai" | "sentiment" | "debate" | "kline" | null;
+type CardSection = "ai" | "sentiment" | "debate" | null;
 
 function SignalCard({
   rank, candidate: c, budget, backendOnline, inWatchlist, onAddToWatchlist,
@@ -341,6 +342,7 @@ function SignalCard({
   onAddToWatchlist: () => void;
 }) {
   const [showModal, setShowModal] = useState(false);
+  const [klineOpen, setKlineOpen] = useState(false);
   const [section, setSection]     = useState<CardSection>(null);
   const [aiResult, setAiResult]   = useState<import("../api/client").Analysis | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -515,10 +517,10 @@ function SignalCard({
           📰 舆情
         </button>
         <button
-          className={`sc-action-btn${section === "kline" ? " active" : ""}`}
-          onClick={() => setSection(s => s === "kline" ? null : "kline")}
+          className={`sc-action-btn${klineOpen ? " active" : ""}`}
+          onClick={() => setKlineOpen(true)}
         >
-          📈 K线
+          📈 K线分析
         </button>
         <button
           className={`sc-action-btn${section === "debate" ? " active" : ""}`}
@@ -537,10 +539,17 @@ function SignalCard({
         </button>
       </div>
 
-      {/* ── Expand: K线 ── */}
-      {section === "kline" && (
-        <div className="sc-expand-panel">
-          <CandleChart symbol={c.symbol} stopLoss={c.price ? Math.round(c.price * 0.92 * 100) / 100 : null} />
+      {/* ── K线分析弹窗（与持仓页同一套：K线 + 核心指标门控 + AI 点评）── */}
+      {klineOpen && (
+        <div className="pcc-modal-backdrop" onClick={() => setKlineOpen(false)}>
+          <div className="pcc-modal" onClick={e => e.stopPropagation()}>
+            <div className="pcc-modal-head">
+              <span className="pcc-modal-title">{c.symbol} · K 线分析</span>
+              <button className="pcc-modal-close" onClick={() => setKlineOpen(false)}>✕</button>
+            </div>
+            <CandleChart symbol={c.symbol} stopLoss={c.price ? Math.round(c.price * 0.92 * 100) / 100 : null} />
+            <KlineGatePanel symbol={c.symbol} />
+          </div>
         </div>
       )}
 
