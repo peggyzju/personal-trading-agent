@@ -1,5 +1,4 @@
 from __future__ import annotations
-import yfinance as yf
 from datetime import datetime, timezone
 
 
@@ -45,63 +44,63 @@ def get_news(symbol: str, limit: int = 8) -> list[dict]:
 
 
 def get_earnings_calendar(symbol: str) -> dict | None:
-    ticker = yf.Ticker(symbol)
+    """下一次财报(未来 ~90 天)。走 Finnhub /calendar/earnings(替代 yfinance)。"""
+    import json
+    import urllib.parse
+    import urllib.request
+    from datetime import date, timedelta
+    from src.config import get_finnhub_key
     try:
-        cal = ticker.calendar
-        if cal is None:
+        key = get_finnhub_key()
+        if not key:
             return None
-        if hasattr(cal, "to_dict"):
-            return cal.to_dict()
-        if isinstance(cal, dict):
-            return {k: str(v) for k, v in cal.items()}
+        today = date.today()
+        qs = urllib.parse.urlencode({
+            "from": today.isoformat(),
+            "to": (today + timedelta(days=90)).isoformat(),
+            "symbol": symbol,
+            "token": key,
+        })
+        url = f"https://finnhub.io/api/v1/calendar/earnings?{qs}"
+        with urllib.request.urlopen(url, timeout=15) as r:
+            data = json.loads(r.read().decode())
+        cal = (data or {}).get("earningsCalendar", []) if isinstance(data, dict) else []
+        nxt = sorted(cal, key=lambda e: e.get("date") or "")
+        return nxt[0] if nxt else None
     except Exception:
-        pass
-    return None
+        return None
 
 
 def earnings_within_days(symbol: str, days: int = 3) -> tuple[bool, str]:
     """
-    Returns (True, date_str) if the stock has earnings within `days` calendar days.
-    Returns (False, "") otherwise.
-
-    Use before queuing a buy trade to avoid holding through earnings surprise.
+    未来 `days` 个日历日内有未公布财报 → (True, date_str),否则 (False, "")。
+    买入前调用,避免持仓穿越财报。数据走 **Finnhub /calendar/earnings**(替代 yfinance)。
+    取数失败/无 key → 保守返回 (False, "") = 不阻塞买入(降级安全)。
     """
+    import json
+    import urllib.parse
+    import urllib.request
     from datetime import date, timedelta
+    from src.config import get_finnhub_key
     try:
-        ticker = yf.Ticker(symbol)
-        cal = ticker.calendar
-        if cal is None:
+        key = get_finnhub_key()
+        if not key:
             return False, ""
-
-        # yfinance returns calendar as dict with "Earnings Date" key
-        # The value can be a list of dates or a single date
-        earnings_date = None
-        if isinstance(cal, dict):
-            ed = cal.get("Earnings Date")
-            if ed is None:
-                ed = cal.get("earningsDate")
-            if isinstance(ed, list) and len(ed) > 0:
-                # Take the nearest upcoming date
-                today = date.today()
-                upcoming = [d for d in ed if hasattr(d, "date") and d.date() >= today]
-                if not upcoming:
-                    upcoming = [d for d in ed if isinstance(d, date) and d >= today]
-                earnings_date = min(upcoming) if upcoming else None
-            elif ed is not None:
-                earnings_date = ed
-
-        if earnings_date is None:
-            return False, ""
-
-        # Normalise to date object
-        if hasattr(earnings_date, "date"):
-            earnings_date = earnings_date.date()
-
         today = date.today()
-        delta = (earnings_date - today).days
-        if 0 <= delta <= days:
-            return True, str(earnings_date)
+        qs = urllib.parse.urlencode({
+            "from": today.isoformat(),
+            "to": (today + timedelta(days=days)).isoformat(),
+            "symbol": symbol,
+            "token": key,
+        })
+        url = f"https://finnhub.io/api/v1/calendar/earnings?{qs}"
+        with urllib.request.urlopen(url, timeout=15) as r:
+            data = json.loads(r.read().decode())
+        cal = (data or {}).get("earningsCalendar", []) if isinstance(data, dict) else []
+        # from/to 已限定窗口;任一条目即表示 days 天内有财报。取最近日期。
+        dates = sorted(e["date"] for e in cal if e.get("date"))
+        if dates:
+            return True, dates[0]
         return False, ""
-
     except Exception:
         return False, ""
