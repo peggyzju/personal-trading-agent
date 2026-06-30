@@ -105,14 +105,6 @@ Dashboard: `http://localhost:5173` (dev) — production build is served by the b
 | `scheduler_heartbeat.json` | Scheduler liveness (watched by the watchdog) |
 | `versions.json` | Strategy version history (v1–v8) |
 
-## Strategy Versions
-
-| Version | Description |
-|---------|-------------|
-| v1–v2 | 单轨选股 + 固定/追踪止盈 |
-| v3–v7 | 双轨选股 + 板块共振 + Gate 门控 + AI 软清仓 + regime |
-| **v8** *(current)* | **纯机械动量**:趋势门 + 动量排名 · 固定 −8% 止损 · 追踪 +6%/−8% · MA20 连续2根破位 · AI 仅排雷/财报/复盘 |
-
 ## Testing & self-check
 
 ```bash
