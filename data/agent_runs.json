@@ -473,18 +473,6 @@
   ],
   "rex": [
     {
-      "ran_at": "2026-06-22T15:03:01.572549+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
-      "ran_at": "2026-06-22T15:03:43.623144+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
       "ran_at": "2026-06-22T15:31:51.630334+00:00",
       "trigger": "auto",
       "result": "success",
@@ -829,6 +817,18 @@
     {
       "ran_at": "2026-06-30T07:01:38.872978+00:00",
       "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-30T07:32:54.399076+00:00",
+      "trigger": "manual",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-30T07:40:06.267103+00:00",
+      "trigger": "manual",
       "result": "success",
       "error": null
     }

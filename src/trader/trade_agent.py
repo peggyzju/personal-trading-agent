@@ -427,7 +427,7 @@ def run_agent(
 
         risk_pct      = _ov.get("risk_pct",        _default_risk)
         max_pos_pct   = _ov.get("max_position_pct", _default_max_pos)
-        stop_loss_pct = _ov.get("stop_loss_pct",    0.03)
+        stop_loss_pct = _ov.get("stop_loss_pct",    0.08)   # v8: 固定 -8%(原默认 0.03 是老值)
         max_notional  = portfolio_value * max_pos_pct
         if _ov:
             print(f"[agent] strategy overrides loaded: risk={risk_pct*100:.1f}% max_pos={max_pos_pct*100:.0f}% sl={stop_loss_pct*100:.1f}% (reason: {_ov.get('reason','')})")

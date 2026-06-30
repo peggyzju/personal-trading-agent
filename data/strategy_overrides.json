@@ -1,5 +1,6 @@
 {
+  "risk_pct": 0.02,
   "max_position_pct": 0.08,
-  "stop_loss_pct": 0.05,
-  "reason": "A+B组合：宽止损5%+严格入场，2026-05-20"
+  "stop_loss_pct": 0.08,
+  "reason": "v8 基线参数(风险2%/单票≤8%/固定止损8%)"
 }
