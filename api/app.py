@@ -1292,13 +1292,12 @@ def get_auto_approve():
 
 class AutoApproveRequest(BaseModel):
     enabled: bool
-    threshold: Optional[float] = 0.80
 
 @app.post("/api/agent/auto-approve")
 def set_auto_approve(req: AutoApproveRequest):
-    """Enable or disable auto-approve with a confidence threshold."""
+    """开/关自动执行(v8 纯开关,无阈值)。"""
     from src.trader.trade_agent import set_auto_approve as _set
-    return _set(req.enabled, req.threshold or 0.80)
+    return _set(req.enabled)
 
 
 @app.get("/api/market/regime")

@@ -898,8 +898,7 @@ def run_agent(
         # ── Auto-approve: execute high-confidence trades from THIS run only ──
         # Only auto-approves trades queued in this run — not stale ones from prior runs.
         # Track running cash spend so we never exceed spendable_cash across batch approvals.
-        auto_threshold = _get_auto_approve_threshold()
-        if auto_threshold is not None and auto_threshold >= 0:
+        if _is_auto_approve_enabled():
             auto_approved = 0
             committed_this_run = 0.0   # cumulative notional approved in this run
             for trade in list(_pending.values()):
@@ -908,35 +907,30 @@ def run_agent(
                 if trade["status"] != "pending":
                     continue
 
-                # v8 审批逻辑:无分数概念。
+                # v8 审批:纯开关,无分数概念(已删 AI-score 时代的阈值逻辑)。
                 #   买入 → 默认自动;只有 AI 排雷(veto=True)才留给人工审核。
-                #   卖出 → 机械退出(止损/追踪/MA20),按有效阈值,保护性退出始终自动。
-                if trade["side"] == "buy":
-                    if trade.get("veto"):
-                        print(f"[agent] {trade['symbol']} 留待人工审核 — AI 排雷: {trade.get('veto_reason','')}")
-                        continue   # 留 pending,等人工批准/拒绝
-                    should_auto = True
-                else:
-                    should_auto = trade["confidence"] >= _effective_auto_threshold(trade, auto_threshold)
+                #   卖出 → 机械保护退出(止损/追踪/MA20),始终自动执行,不挡。
+                if trade["side"] == "buy" and trade.get("veto"):
+                    print(f"[agent] {trade['symbol']} 留待人工审核 — AI 排雷: {trade.get('veto_reason','')}")
+                    continue   # 留 pending,等人工批准/拒绝
 
-                if should_auto:
-                    # Guard: ensure we still have enough spendable cash after prior approvals
+                # Guard: ensure we still have enough spendable cash after prior approvals
+                if trade["side"] == "buy":
+                    notional = trade.get("notional") or 0
+                    if committed_this_run + notional > spendable_cash:
+                        print(f"[agent] Auto-approve SKIP {trade['symbol']} — "
+                              f"would exceed spendable cash "
+                              f"(committed=${committed_this_run:.0f} + ${notional:.0f} > ${spendable_cash:.0f})")
+                        continue
+                try:
+                    approve_trade(trade["id"])
                     if trade["side"] == "buy":
-                        notional = trade.get("notional") or 0
-                        if committed_this_run + notional > spendable_cash:
-                            print(f"[agent] Auto-approve SKIP {trade['symbol']} — "
-                                  f"would exceed spendable cash "
-                                  f"(committed=${committed_this_run:.0f} + ${notional:.0f} > ${spendable_cash:.0f})")
-                            continue
-                    try:
-                        approve_trade(trade["id"])
-                        if trade["side"] == "buy":
-                            committed_this_run += trade.get("notional") or 0
-                        auto_approved += 1
-                        print(f"[agent] Auto-approved {trade['side'].upper()} {trade['symbol']} "
-                              f"(src={trade.get('source')}, committed=${committed_this_run:.0f}/{spendable_cash:.0f})")
-                    except Exception as e:
-                        print(f"[agent] Auto-approve failed for {trade['id']}: {e}")
+                        committed_this_run += trade.get("notional") or 0
+                    auto_approved += 1
+                    print(f"[agent] Auto-approved {trade['side'].upper()} {trade['symbol']} "
+                          f"(src={trade.get('source')}, committed=${committed_this_run:.0f}/{spendable_cash:.0f})")
+                except Exception as e:
+                    print(f"[agent] Auto-approve failed for {trade['id']}: {e}")
             if auto_approved:
                 summary["auto_approved"] = auto_approved
 
@@ -961,52 +955,32 @@ def run_agent(
 _AUTO_APPROVE_FILE = Path(__file__).parent.parent.parent / "data" / "auto_approve.json"
 
 # 保护性卖出比买入更易自动放行（减风险要果断、买入要谨慎）：
-SELL_AUTO_THRESHOLD = 0.5   # 机械卖出(holdings)的自动执行门槛（买入维持 _get_auto_approve_threshold）
-
-
-def _effective_auto_threshold(trade: dict, base: float) -> float:
-    """按 side+source 计算单笔的有效自动执行门槛。
-    - 机械止损（hard_stop / trail_stop）：0.0，始终自动执行；
-    - 机械卖出（source=holdings,-8%/追踪/MA20破位）：min(base, SELL_AUTO_THRESHOLD),比买入低;
-    - 买入：维持 base。
-    """
-    if trade.get("side") == "sell":
-        if trade.get("source") in ("hard_stop", "trail_stop"):
-            return 0.0
-        return min(base, SELL_AUTO_THRESHOLD)
-    return base
-
-
-def _get_auto_approve_threshold() -> Optional[float]:
-    """
-    Returns the auto-approve confidence threshold, or None if autonomous mode is off.
-    Default: autonomous (threshold=0.0 — execute all trades).
-    """
+def _is_auto_approve_enabled() -> bool:
+    """v8 自动执行 = 纯开关,无分数概念。默认开。"""
     try:
         if _AUTO_APPROVE_FILE.exists():
             cfg = json.loads(_AUTO_APPROVE_FILE.read_text())
-            if not cfg.get("enabled", True):
-                return None   # manually disabled
-            return float(cfg.get("threshold", 0.0))
+            return bool(cfg.get("enabled", True))
     except Exception:
         pass
-    return 0.0   # default: autonomous, execute all trades
+    return True   # default: autonomous
 
 
-def set_auto_approve(enabled: bool, threshold: float = 0.0) -> dict:
-    """Enable or disable autonomous execution. Persisted to disk."""
-    cfg = {"enabled": enabled, "threshold": round(threshold, 2)}
+def set_auto_approve(enabled: bool) -> dict:
+    """开/关自动执行,持久化到磁盘(纯布尔,无阈值)。"""
+    cfg = {"enabled": bool(enabled)}
     _AUTO_APPROVE_FILE.parent.mkdir(exist_ok=True)
     _AUTO_APPROVE_FILE.write_text(json.dumps(cfg))
-    print(f"[agent] Autonomous execution {'ENABLED' if enabled else 'DISABLED'} (threshold={threshold})")
+    print(f"[agent] Autonomous execution {'ENABLED' if enabled else 'DISABLED'}")
     return cfg
 
 
 def get_auto_approve_config() -> dict:
-    """Return current autonomous execution config."""
+    """返回当前自动执行配置(纯开关)。"""
     try:
         if _AUTO_APPROVE_FILE.exists():
-            return json.loads(_AUTO_APPROVE_FILE.read_text())
+            cfg = json.loads(_AUTO_APPROVE_FILE.read_text())
+            return {"enabled": bool(cfg.get("enabled", True))}
     except Exception:
         pass
-    return {"enabled": True, "threshold": 0.0}   # default: autonomous
+    return {"enabled": True}   # default: autonomous

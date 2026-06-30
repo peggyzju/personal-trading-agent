@@ -15,7 +15,7 @@ import type { PortfolioHistory } from "../api/client";
 interface Props {
   backendOnline: boolean;
   onPendingCountChange?: (n: number) => void;
-  autoApprove?: { enabled: boolean; threshold: number };
+  autoApprove?: { enabled: boolean };
 }
 
 // ── Data loader ───────────────────────────────────────────────────────────────
@@ -241,7 +241,7 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
                 <span style={{ fontWeight: 600 }}>{autoApprove?.enabled ? "自主模式运行中" : "暂无待审批"}</span>
                 <span style={{ fontSize: 10, color: "var(--muted)" }}>
                   {autoApprove?.enabled
-                    ? `≥${Math.round(autoApprove.threshold * 100)}% 自动执行`
+                    ? "买入自动执行 · AI排雷转人工"
                     : "Rex 生成信号后出现在这里"}
                 </span>
               </div>

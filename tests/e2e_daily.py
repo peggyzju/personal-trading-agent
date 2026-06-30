@@ -292,43 +292,24 @@ def test_strategy_notes():
 def test_autonomous_mode():
     print("\n[6/8] 自主执行模式")
     try:
-        from src.trader.trade_agent import get_auto_approve_config, _get_auto_approve_threshold
+        from src.trader.trade_agent import get_auto_approve_config, _is_auto_approve_enabled
         cfg = get_auto_approve_config()
-        threshold = _get_auto_approve_threshold()
-        enabled = cfg.get("enabled", False)
+        enabled = _is_auto_approve_enabled()
 
-        if enabled and threshold == 0.0:
-            ok("Auto-execute", f"自主模式 ON — threshold={threshold} (执行所有信号)")
-        elif enabled:
-            ok("Auto-execute", f"自主模式 ON — threshold={threshold:.0%}")
+        if enabled:
+            ok("Auto-execute", "自主模式 ON — 买入自动执行,AI排雷(veto)转人工,卖出机械全自动")
         else:
             warn("Auto-execute", "自主模式 OFF — 交易需要人工审批")
 
-        # Verify default returns 0.0 when no file
+        # v8 纯开关:配置只含 enabled,无 threshold 字段
+        if "threshold" in cfg:
+            fail("Config schema", f"配置仍含废弃的 threshold 字段: {cfg}")
+        else:
+            ok("Config schema", f"纯开关配置 enabled={cfg.get('enabled')}（无 threshold）✓")
+
         auto_file = Path("data/auto_approve.json")
         if not auto_file.exists():
             ok("Default config", "无配置文件，默认自主模式")
-        else:
-            ok("Config file", f"enabled={cfg['enabled']}, threshold={cfg['threshold']}")
-
-        # 买卖分级门槛（方案A）：保护性卖出比买入更易自动放行
-        from src.trader.trade_agent import _effective_auto_threshold, SELL_AUTO_THRESHOLD
-        base = 0.7
-        reduce_eff = _effective_auto_threshold({"side": "sell", "source": "holdings"}, base)
-        stop_eff   = _effective_auto_threshold({"side": "sell", "source": "trail_stop"}, base)
-        buy_eff    = _effective_auto_threshold({"side": "buy",  "source": "scanner"}, base)
-        if reduce_eff == min(base, SELL_AUTO_THRESHOLD) and reduce_eff <= 0.5:
-            ok("Sell tier — holdings", f"机械卖出门槛={reduce_eff}（保护性卖出更易放行）✓")
-        else:
-            fail("Sell tier — holdings", f"期望 ≤0.5，实际 {reduce_eff}")
-        if stop_eff == 0.0:
-            ok("Sell tier — stop", "机械止损门槛=0 始终执行 ✓")
-        else:
-            fail("Sell tier — stop", f"期望 0.0，实际 {stop_eff}")
-        if buy_eff == base:
-            ok("Buy tier", f"买入门槛维持 {buy_eff}（谨慎）✓")
-        else:
-            fail("Buy tier", f"期望 {base}，实际 {buy_eff}")
     except Exception as e:
         fail("Auto-execute", str(e))
 
@@ -1009,16 +990,15 @@ def test_scheduler_design():
     except Exception as e:
         fail("Maya aggression", str(e))
 
-    # 9. auto_approve threshold ≤ 75%（门槛过高会卡住有效信号）
+    # 9. auto_approve 纯开关:配置不应再含废弃的 threshold 字段
     try:
         cfg = json.load(open("data/auto_approve.json"))
-        threshold = cfg.get("threshold", 1.0)
-        if threshold <= 0.75:
-            ok("Auto threshold", f"threshold={threshold:.0%} ≤ 75% ✓")
+        if "threshold" in cfg:
+            fail("Auto-approve schema", f"配置仍含废弃 threshold: {cfg}")
         else:
-            fail("Auto threshold", f"threshold={threshold:.0%} 过高 — 建议 ≤ 70%")
+            ok("Auto-approve schema", f"纯开关 enabled={cfg.get('enabled')}（无 threshold）✓")
     except Exception as e:
-        fail("Auto threshold", str(e))
+        fail("Auto-approve schema", str(e))
 
 
 # ── Report ────────────────────────────────────────────────────────────────────
