@@ -4263,7 +4263,11 @@ body {
   gap: 6px;
   margin-bottom: 4px;
 }
-.agent-run-emoji { font-size: 14px; }
+.agent-run-emoji {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 50%;
+  font-size: 15px; line-height: 1; border: 1.5px solid; flex-shrink: 0;
+}
 .agent-run-name { font-size: 14px; font-weight: 600; }
 .agent-run-trigger {
   margin-left: auto;

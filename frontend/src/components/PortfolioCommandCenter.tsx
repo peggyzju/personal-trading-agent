@@ -1032,7 +1032,7 @@ export function CompactHeatmap({ days }: { days: PortfolioDay[] }) {
 }
 
 // ── Agent 运行记录：调度时间 + 健康检查 + 手动/自动标记 ────────────────────────
-const AGENT_EMOJI: Record<string, string> = { maya: "🧠", scout: "🔍", rex: "⚡" };
+const AGENT_EMOJI: Record<string, string> = { maya: "🦉", scout: "🦊", rex: "🦖", vera: "🐢" };
 const AGENT_COLOR: Record<string, string> = { maya: "#6366f1", scout: "#06b6d4", rex: "#f59e0b" };
 const RUN_STATUS_COLOR: Record<string, string> = {
   ok: "#22c55e", waiting: "#64748b", missed: "#ef4444", idle: "#475569", never: "#ef4444",
@@ -1083,7 +1083,7 @@ function AgentRunsPanel({ status }: { status: AgentsStatus | null }) {
         {status.agents.map((a: AgentRunStatus) => (
           <div key={a.id} className={`agent-run-card run-${a.status}`}>
             <div className="agent-run-top">
-              <span className="agent-run-emoji">{AGENT_EMOJI[a.id] ?? "🤖"}</span>
+              <span className="agent-run-emoji" style={{ borderColor: AGENT_COLOR[a.id] ?? "var(--border)", background: `${AGENT_COLOR[a.id] ?? "#888"}1f` }}>{AGENT_EMOJI[a.id] ?? "🤖"}</span>
               <span className="agent-run-name" style={{ color: AGENT_COLOR[a.id] ?? "var(--text)" }}>
                 {a.name}
               </span>
