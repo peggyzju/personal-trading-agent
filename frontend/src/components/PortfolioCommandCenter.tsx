@@ -1080,67 +1080,30 @@ function AgentRunsPanel({ status }: { status: AgentsStatus | null }) {
         </span>
       </div>
       <div className="agent-runs-grid">
-        {status.agents.map((a: AgentRunStatus) => (
-          <div key={a.id} className={`agent-run-card run-${a.status}`}>
-            <div className="agent-run-top">
-              <span className="agent-run-emoji" style={{ borderColor: AGENT_COLOR[a.id] ?? "var(--border)", background: `${AGENT_COLOR[a.id] ?? "#888"}1f` }}>{AGENT_EMOJI[a.id] ?? "🤖"}</span>
-              <span className="agent-run-name" style={{ color: AGENT_COLOR[a.id] ?? "var(--text)" }}>
-                {a.name}
-              </span>
-              {a.trigger && (
-                <span className={`agent-run-trigger trigger-${a.trigger}`}>
-                  {a.trigger === "manual" ? "👤 手动" : "🤖 自动"}
+        {status.agents.map((a: AgentRunStatus) => {
+          const dayHist = latestDayHistory(a.history);
+          const fails = dayHist.filter((h) => h.result === "fail").length;
+          return (
+            <div key={a.id} className={`agent-run-card run-${a.status}`}
+                 title={`${a.role}\n调度 ${a.scheduled_times_et.join(" / ")} ET${a.cadence_note ? "（" + a.cadence_note + "）" : ""}`}>
+              <div className="agent-run-top">
+                <span className="agent-run-emoji" style={{ borderColor: AGENT_COLOR[a.id] ?? "var(--border)", background: `${AGENT_COLOR[a.id] ?? "#888"}1f` }}>{AGENT_EMOJI[a.id] ?? "🤖"}</span>
+                <span className="agent-run-name" style={{ color: AGENT_COLOR[a.id] ?? "var(--text)" }}>{a.name}</span>
+                <span className="agent-run-health" style={{ marginLeft: "auto", color: RUN_STATUS_COLOR[a.status] ?? "var(--text)" }}>
+                  {a.status_label}
                 </span>
-              )}
+              </div>
+              <div className="agent-run-line2">
+                {a.last_run_at ? `最近 ${fmtEtTime(a.last_run_at)} · ${a.age ?? ""}` : "今日未运行"}
+                {dayHist.length > 0 && (
+                  <span className="agent-run-count">
+                    {" · 今日 "}{dayHist.length} 次{fails > 0 ? ` · ⚠️ ${fails} 失败` : ""}
+                  </span>
+                )}
+              </div>
             </div>
-            <div className="agent-run-role">{a.role}</div>
-            <div className="agent-run-meta">
-              <span className="agent-run-sched">🕐 {a.scheduled_times_et.join(" / ")} ET</span>
-              {a.cadence_note && <span className="agent-run-cadence">{a.cadence_note}</span>}
-            </div>
-            <div className="agent-run-status-row">
-              <span className="agent-run-health" style={{ color: RUN_STATUS_COLOR[a.status] ?? "var(--text)" }}>
-                {a.status_label}
-              </span>
-              <span className="agent-run-age">
-                {a.last_run_at ? `${fmtEtTime(a.last_run_at)} · ${a.age ?? ""}` : (a.age ?? "—")}
-              </span>
-            </div>
-            <div className="agent-run-history">
-              {(() => {
-                const dayHist = latestDayHistory(a.history);
-                const dayLabel = dayHist.length ? (etDateOf(dayHist[0].ran_at) ?? "").slice(5) : "";
-                return (
-                  <>
-                    <div className="agent-run-history-title">
-                      运行历史{dayLabel ? ` · ${dayLabel}（最近交易日）` : ""}
-                    </div>
-                    {dayHist.length === 0 ? (
-                      <div className="agent-run-history-empty">暂无记录</div>
-                    ) : (
-                      dayHist.map((h: AgentRunHistoryEntry, i: number) => (
-                        <div key={i} className="agent-run-history-row" title={h.error ?? undefined}>
-                          <span className="agent-run-history-time">{fmtEtTime(h.ran_at)}</span>
-                          <span className="agent-run-history-age">{h.age ?? "—"}</span>
-                          {h.trigger && (
-                            <span className={`agent-run-tag tag-${h.trigger}`}>
-                              {h.trigger === "manual" ? "👤 手动" : "🤖 自动"}
-                            </span>
-                          )}
-                          {h.result && (
-                            <span className={`agent-run-tag result-${h.result}`}>
-                              {h.result === "success" ? "✓ 成功" : "✗ 失败"}
-                            </span>
-                          )}
-                        </div>
-                      ))
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
