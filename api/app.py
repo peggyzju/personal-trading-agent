@@ -986,7 +986,7 @@ def get_position_size(symbol: str, stop_loss: float = 0):
     try:
         q = _get_quote(symbol.upper())
         price = q["price"]
-        sl = stop_loss if stop_loss > 0 else price * 0.97
+        sl = stop_loss if stop_loss > 0 else price * 0.92
         try:
             from src.trader.alpaca_trader import get_account as _get_acct
             portfolio_value = float(_get_acct().portfolio_value)
@@ -2071,7 +2071,7 @@ def get_strategy_overrides():
         "risk_pct":          overrides.get("risk_pct",          DEFAULT_RISK_PCT),
         "max_position_pct":  overrides.get("max_position_pct",  DEFAULT_MAX_PCT),
         "min_ai_score":      overrides.get("min_ai_score",       None),
-        "stop_loss_pct":     overrides.get("stop_loss_pct",      0.03),
+        "stop_loss_pct":     overrides.get("stop_loss_pct",      0.08),
         "updated_at":        overrides.get("updated_at"),
         "reason":            overrides.get("reason"),
     }
@@ -2286,7 +2286,7 @@ async def extract_strategy_params(body: dict):
     cur_risk     = ov.get("risk_pct",         DEFAULT_RISK_PCT)
     cur_max_pos  = ov.get("max_position_pct",  DEFAULT_MAX_PCT)
     cur_min_ai   = ov.get("min_ai_score",      None)   # None = regime-determined
-    cur_sl_pct   = ov.get("stop_loss_pct",     0.03)
+    cur_sl_pct   = ov.get("stop_loss_pct",     0.08)
 
     prompt = f"""You are a quant trading system that maps natural-language strategy suggestions to concrete parameter changes.
 

@@ -627,27 +627,18 @@ def test_hard_stop_logic():
 def test_v3_strategy():
     print("\n[11b] v4 策略 — 双轨选股 / 止损 / 市场时间门 / 价格漂移 / 财报过滤")
 
-    # ── 1. compute_structured_stop 使用 2×ATR ────────────────────────────────
+    # ── 1. v8 固定 -8% 止损(_validate_and_fill)────────────────────────────────
     try:
-        from src.analysis.position_sizer import compute_structured_stop
-        entry, atr, ma20 = 100.0, 3.0, 96.0
-        stop = compute_structured_stop(entry, atr, ma20)
-        # 2×ATR candidate = 100 - 6 = 94; MA20×0.99 = 94.97 → max(92, min(94.97, 97)) = 94.97
-        # Either way, stop must be below entry and above floor (entry×0.92=92)
-        floor, ceiling = entry * 0.92, entry * 0.97
-        if floor <= stop <= ceiling:
-            ok("2×ATR stop", f"entry={entry}, atr={atr} → stop={stop} ∈ [{floor},{ceiling}] ✓")
+        from src.analysis.stock_screener import _validate_and_fill
+        row = _validate_and_fill({"symbol": "TST", "ai_score": 7, "signal": "BUY", "reason": "x"},
+                                 {"price": 100.0})
+        stop = row.get("stop_loss")
+        if stop == 92.0:   # 100 × 0.92 = -8% 固定
+            ok("v8 固定 -8% 止损", f"price=100 → stop={stop}(-8%)✓")
         else:
-            fail("2×ATR stop", f"stop={stop} 超出 [{floor},{ceiling}] 范围")
-
-        # Verify 2×ATR is in the candidate pool: entry - 2*atr = 94.0 should influence result
-        stop_1atr = compute_structured_stop(entry, atr=10.0, ma20=50.0)
-        if stop_1atr == floor:  # 100 - 20 = 80 < floor(92) → clamped to floor
-            ok("2×ATR floor clamp", f"2×ATR=80 < floor=92 → clamped to {floor} ✓")
-        else:
-            fail("2×ATR floor clamp", f"期望 {floor}，实际 {stop_1atr}")
+            fail("v8 固定 -8% 止损", f"期望 92.0(-8%),实际 {stop}")
     except Exception as e:
-        fail("2×ATR stop", str(e))
+        fail("v8 固定 -8% 止损", str(e))
 
     # ── 2. 市场时间门 _is_market_hours ───────────────────────────────────────
     try:

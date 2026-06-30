@@ -332,7 +332,7 @@ def ai_score_candidates(
                     "reason":       "",
                     "entry_note":   "",
                     "timeframe":    "n/a",
-                    "stop_loss":    round(c["price"] * 0.97, 2) if c.get("price") else None,
+                    "stop_loss":    round(c["price"] * 0.92, 2) if c.get("price") else None,
                     "target_price": None,
                 })
 
@@ -357,7 +357,7 @@ def ai_score_candidates(
             "reason":       "AI scoring unavailable",
             "entry_note":   "",
             "timeframe":    "n/a",
-            "stop_loss":    round(c["price"] * 0.97, 2) if c.get("price") else None,
+            "stop_loss":    round(c["price"] * 0.92, 2) if c.get("price") else None,
             "target_price": None,
         })
     return fallback

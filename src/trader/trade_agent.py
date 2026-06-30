@@ -272,8 +272,8 @@ def approve_trade(trade_id: str) -> dict:
     # ── Price drift check for buys ────────────────────────────────────────────
     if trade["side"] == "buy" and trade.get("price"):
         try:
-            import yfinance as yf
-            live_price = yf.Ticker(trade["symbol"]).fast_info.last_price or 0
+            from src.monitor.price_monitor import get_quote as _gq
+            live_price = (_gq(trade["symbol"]) or {}).get("price") or 0   # Alpaca(替代 yfinance)
             scan_price = trade["price"]
             if live_price > 0 and scan_price > 0:
                 drift = (live_price - scan_price) / scan_price

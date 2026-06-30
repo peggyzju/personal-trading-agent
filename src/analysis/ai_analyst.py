@@ -19,7 +19,7 @@ def analyze(symbol: str, ohlcv: pd.DataFrame, quote: dict, news: list[dict] | No
     # ATR-based stop loss (2×ATR); fall back to 3% if ATR not available
     price = quote["price"]
     atr_stop = indicators.get("stop_2atr")
-    default_stop = round(price * 0.97, 2)
+    default_stop = round(price * 0.92, 2)
     suggested_stop = atr_stop if atr_stop and atr_stop > 0 else default_stop
 
     recent = ohlcv.tail(10)[["Open", "High", "Low", "Close", "Volume"]].to_string()
@@ -101,7 +101,7 @@ Respond in JSON with these exact fields:
     if tp is not None and tp <= price:
         result["target_price"] = round(price * 1.08, 2)
     if sl is not None and sl >= price:
-        result["stop_loss"] = round(price * 0.97, 2)
+        result["stop_loss"] = round(price * 0.92, 2)
 
     # Attach computed indicators so callers can use them
     result["indicators"] = indicators
