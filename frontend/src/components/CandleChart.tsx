@@ -47,8 +47,8 @@ export function CandleChart({ symbol, entryPrice, stopLoss, targetPrice }: {
           height: 320,
           layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#8b93a2", fontSize: 11 },
           grid: { vertLines: { color: "#1e2128" }, horzLines: { color: "#1e2128" } },
-          rightPriceScale: { borderColor: "#262a33" },
-          timeScale: { borderColor: "#262a33" },
+          rightPriceScale: { borderColor: "#262a33", scaleMargins: { top: 0.08, bottom: 0.25 } },
+          timeScale: { borderColor: "#262a33", rightOffset: 12, barSpacing: 6 },
           crosshair: { mode: 0 },
         });
 
@@ -73,16 +73,20 @@ export function CandleChart({ symbol, entryPrice, stopLoss, targetPrice }: {
         vol.setData(bars.map(b => ({ time: b.t, value: b.v, color: b.c >= b.o ? "#22c55e44" : "#ef444444" })));
         chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
 
+        // axisLabelVisible:false —— 买入/止损/止盈 的右轴价格标签会堆叠盖住最新蜡烛;
+        // 图例 + 横向虚线已能表达,右轴只保留现价标签。
         const addLine = (price: number | null | undefined, color: string, title: string) => {
           if (price != null && price > 0) {
-            candle.createPriceLine({ price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title });
+            candle.createPriceLine({ price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title });
           }
         };
         addLine(entryPrice, "#60a5fa", "买入");
         addLine(stopLoss, "#ef4444", "止损");
         addLine(targetPrice, "#22c55e", "止盈");
 
-        chart.timeScale().fitContent();
+        // 不用 fitContent —— 它会把最新蜡烛贴死右轴、被价格标签盖住;
+        // 改用 rightOffset 给最新数据右侧留白,展示最近 ~100 根。
+        chart.timeScale().scrollToPosition(0, false);
         setLoading(false);
 
         const onResize = () => { if (ref.current && chart) chart.applyOptions({ width: ref.current.clientWidth }); };
