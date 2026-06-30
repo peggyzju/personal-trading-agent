@@ -843,7 +843,10 @@ def run_agent(
                     symbol=c["symbol"], side="buy",
                     notional=notional, qty=None,
                     signal=signal,
-                    confidence=c.get("ai_score", 7) / 10,
+                    # v8: 买入纯机械(过趋势门+动量排名),置信度固定高值,不再用 ai_score ——
+                    # 否则 AI 评分会通过"confidence→自动审批阈值"这条后门挡买入,违背"AI 撤出买入决策"。
+                    # AI ai_score 仍随 trade 保留作参考(排雷 veto 以后单独走否决标志,不走 confidence)。
+                    confidence=0.8,
                     reason=c.get("reason", "Top S&P 500 scanner pick"),
                     source="scanner",
                     stop_loss=stop,

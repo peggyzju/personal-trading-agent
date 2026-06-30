@@ -111,12 +111,6 @@
   ],
   "scout": [
     {
-      "ran_at": "2026-06-08T18:32:58.811591+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
       "ran_at": "2026-06-09T12:45:07.471241+00:00",
       "trigger": "auto",
       "result": "success",
@@ -469,27 +463,15 @@
       "trigger": "manual",
       "result": "success",
       "error": null
+    },
+    {
+      "ran_at": "2026-06-30T02:13:47.189324+00:00",
+      "trigger": "manual",
+      "result": "success",
+      "error": null
     }
   ],
   "rex": [
-    {
-      "ran_at": "2026-06-19T19:30:15.838220+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
-      "ran_at": "2026-06-22T13:35:22.311310+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
-      "ran_at": "2026-06-22T14:14:29.299012+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
     {
       "ran_at": "2026-06-22T14:31:37.711289+00:00",
       "trigger": "auto",
@@ -831,6 +813,24 @@
       "trigger": "auto",
       "result": "fail",
       "error": "unsupported operand type(s) for /: 'NoneType' and 'int'"
+    },
+    {
+      "ran_at": "2026-06-30T00:51:07.737720+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-30T02:06:34.443705+00:00",
+      "trigger": "manual",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-30T02:14:13.837373+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
     }
   ]
 }
