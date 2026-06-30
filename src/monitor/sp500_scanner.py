@@ -64,9 +64,6 @@ SECTOR_MAP: dict[str, str] = {
     "VERV":"BIOTECH","EDIT":"BIOTECH","FATE":"BIOTECH","NVCR":"BIOTECH",
 }
 
-SECTOR_RESONANCE_THRESHOLD = 3   # ≥N today_bull in sector → hot
-SECTOR_RSI_BOOST           = 10  # Track1 RSI ceiling: 75 → 85 for hot sectors
-
 
 # ── Stock Universe ────────────────────────────────────────────────────────────
 
@@ -574,17 +571,7 @@ def quick_screen(
     if progress_cb:
         progress_cb("screening_done", total, total)
 
-    # Phase 2: detect hot sectors (≥SECTOR_RESONANCE_THRESHOLD today_bull in same sector)
-    sector_bull_counts = Counter(
-        r["sector"] for r in raw_results
-        if r.get("today_bull") and r["sector"] != "OTHER"
-    )
-    hot_sectors = {s for s, cnt in sector_bull_counts.items() if cnt >= SECTOR_RESONANCE_THRESHOLD}
-    if hot_sectors:
-        detail = {s: sector_bull_counts[s] for s in hot_sectors}
-        print(f"[scanner] sector resonance detected: {detail} → RSI ceiling boosted to {75 + SECTOR_RSI_BOOST}")
-
-    # Phase 3: apply dual-track filter with sector-adjusted RSI ceiling
+    # v8: 单一趋势门(无双轨、无板块 RSI boost —— 那些没被回测验证过)
     all_results: list[dict] = []
     for r in raw_results:
         symbol      = r["symbol"]

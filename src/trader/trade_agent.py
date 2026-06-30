@@ -1,20 +1,14 @@
 """
-Trade Agent — autonomous signal detection + persistent pending trade queue.
+Trade Agent (Rex) — v8 纯机械执行 + 持久化待执行队列。
 
-Signal sources:
-  1. S&P 500 scan  →  STRONG_BUY + ai_score >= 7
-  2. Watchlist AI analysis  →  BUY + confidence >= 0.7  (uses cache, no extra API call)
-  3. Holdings monitor  →  SELL / REDUCE signal
+买入:扫描候选(已过趋势门 + 按动量排名)→ 财报门 + 止损门(-8%,+0.5%容差)→
+       固定 confidence 0.8 自动执行(无 AI 分门、无 Track1/2、无自选特殊路径)。
+卖出:holdings_monitor 的机械 SELL(-8%止损 / 追踪止盈 +6%/-8% / MA20破位);
+       主动卖出前先取消保护止损单再平仓。无 REDUCE/AI 软清仓。
+仓位:regime 决定上限 + size_factor 缩放;入场价格漂移门在执行端。
 
-Fixes vs original:
-  - Pending queue persisted to disk (trades.json) — survives restarts
-  - Existing position check before queuing buy
-  - Buying power + slot capacity check before queuing
-  - Watchlist uses _analysis_cache instead of re-calling Claude
-  - Market hours guard — skip watchlist analysis outside 9:25–16:05 ET
-  - REDUCE qty uses max(1, floor) to avoid 0-share orders
-  - approve_trade places a bracket order (entry + stop-loss + take-profit) when levels available
-  - "error" trades auto-cleared after 24 h to keep queue clean
+基础设施:待执行队列落盘(trades.json,重启不丢);已持仓去重;现金/槽位校验;
+       bracket 单(入场+止损);error 单 24h 自动清理。
 """
 from __future__ import annotations
 
@@ -89,23 +83,6 @@ def _save_log(log: list[dict]):
 _pending: dict[str, dict] = _load_from_disk()
 _run_log: list[dict] = _load_log()
 _agent_running: bool = False
-_reduce_today:   dict[str, str] = {}   # symbol -> date string; prevents repeat REDUCE same day
-_REDUCE_STREAK_FILE = Path(__file__).parent.parent.parent / "data" / "reduce_streak.json"
-
-
-def _load_reduce_streak() -> dict:
-    try:
-        return json.loads(_REDUCE_STREAK_FILE.read_text())
-    except Exception:
-        return {}
-
-
-def _save_reduce_streak(data: dict):
-    try:
-        _REDUCE_STREAK_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _REDUCE_STREAK_FILE.write_text(json.dumps(data, indent=2))
-    except Exception:
-        pass
 _sell_hold_count: dict[str, int] = {}  # symbol -> consecutive HOLD count; cancel only after >= 2
 
 ERROR_TTL_HOURS    = 24   # auto-clear error trades after 24 h
@@ -160,34 +137,6 @@ def _is_market_hours() -> bool:
     if now_et.weekday() >= 5:   # Saturday / Sunday
         return False
     return dtime(9, 31) <= now_et.time() <= dtime(16, 5)
-
-
-# ── SPY trend gate ────────────────────────────────────────────────────────────
-
-_spy_trend_cache: dict = {}   # {"trend": "bull"|"bear", "ts": float}
-_SPY_CACHE_TTL = 4 * 3600    # refresh every 4 hours
-
-def _get_spy_trend() -> str:
-    """Return 'bull' if SPY > 20-day MA, else 'bear'. Cached for 4 h."""
-    import time
-    now = time.time()
-    if _spy_trend_cache and now - _spy_trend_cache.get("ts", 0) < _SPY_CACHE_TTL:
-        return _spy_trend_cache["trend"]
-    try:
-        import yfinance as yf
-        df = yf.Ticker("SPY").history(period="60d", auto_adjust=True)
-        if df.empty or len(df) < 20:
-            return "bull"   # conservative: don't block if data unavailable
-        close = df["Close"].iloc[-1]
-        ma20  = df["Close"].rolling(20).mean().iloc[-1]
-        trend = "bull" if close > ma20 else "bear"
-        _spy_trend_cache["trend"] = trend
-        _spy_trend_cache["ts"]    = now
-        print(f"[agent] SPY trend: {trend} (close={close:.2f} MA20={ma20:.2f})")
-        return trend
-    except Exception as e:
-        print(f"[agent] SPY trend check failed: {e} — defaulting to bull")
-        return "bull"
 
 
 # ── Trade construction ────────────────────────────────────────────────────────
@@ -437,8 +386,7 @@ def run_agent(
     portfolio_value: float,
     analysis_cache: Optional[dict] = None,        # pass _analysis_cache from app.py
     analysis_timestamps: Optional[dict] = None,   # pass _analysis_timestamps from app.py
-    min_ai_score_override: Optional[int] = None,  # from market_context aggression
-    size_scale_override: Optional[float] = None,  # from market_context aggression
+    size_scale_override: Optional[float] = None,  # from market_context aggression(仅缩放仓位)
 ) -> dict:
     """
     Scan all signal sources and queue pending trades.
@@ -492,41 +440,12 @@ def run_agent(
         summary["regime"] = regime["regime"]
         summary["regime_reason"] = regime["reason"]
 
-        min_ai_score = regime["min_ai_score"]
         size_factor  = regime["size_factor"]
 
-        # ── Market context overrides (from goal progress + aggression) ────────
-        if min_ai_score_override is not None:
-            # Take the stricter of regime vs goal-based threshold
-            min_ai_score = max(min_ai_score, min_ai_score_override) if regime["regime"] in ("BEAR", "CAUTION") \
-                           else min_ai_score_override
-            print(f"[agent] min_ai_score overridden to {min_ai_score} (aggression-based)")
+        # ── Market context size override (aggression-based) — v8 仅按 regime 缩放仓位,不用 AI 分门 ──
         if size_scale_override is not None:
             size_factor = size_factor * size_scale_override
             print(f"[agent] size_factor scaled to {size_factor:.2f} (aggression-based)")
-
-        # Apply user-adopted min_ai_score override (take the stricter value)
-        if _ov.get("min_ai_score") is not None:
-            min_ai_score = max(min_ai_score, float(_ov["min_ai_score"]))
-            print(f"[agent] min_ai_score={min_ai_score} (user override)")
-
-        # ── Cash deployment pressure: lower threshold when cash is excessive ──
-        # Count only market-hours runs (9:25–16:05 ET) that produced no trades
-        def _was_market_hours_run(r: dict) -> bool:
-            try:
-                import zoneinfo
-                et = zoneinfo.ZoneInfo("America/New_York")
-            except ImportError:
-                et = timezone(timedelta(hours=-4))
-            from datetime import time as dtime
-            ts = datetime.fromisoformat(r["run_at"]).astimezone(et)
-            return ts.weekday() < 5 and dtime(9, 25) <= ts.time() <= dtime(16, 5)
-
-        recent_runs = _run_log[-6:] if _run_log else []
-        dry_runs = sum(
-            1 for r in recent_runs
-            if r.get("trades_queued", 0) == 0 and r.get("status") == "ok" and _was_market_hours_run(r)
-        )
 
         if regime["block_buys"]:
             print(f"[agent] Buys BLOCKED by regime — {regime['reason']}")
@@ -657,20 +576,8 @@ def run_agent(
             and not breaker.get("triggered", False)
         )
 
-        # ── Cash pressure: lower threshold when cash is piling up ────────────
-        # Trigger 1: >30% cash AND 2+ consecutive dry runs → relax by 1 point
-        # Trigger 2: >50% cash regardless of dry runs → relax by 1 point
         cash_pct = cash / portfolio_value if portfolio_value > 0 else 0
-        if can_buy and regime["regime"] != "BEAR":
-            relaxed = max(5, min_ai_score - 1)
-            if cash_pct > 0.50:
-                print(f"[agent] High cash ({cash_pct:.0%}) → relaxing min_ai_score {min_ai_score}→{relaxed}")
-                min_ai_score = relaxed
-            elif cash_pct > 0.30 and dry_runs >= 2:
-                print(f"[agent] Cash pressure: {cash_pct:.0%} cash, {dry_runs} dry runs → relaxing min_ai_score {min_ai_score}→{relaxed}")
-                min_ai_score = relaxed
         summary["cash_pct"] = round(cash_pct * 100, 1)
-        summary["min_ai_score_used"] = min_ai_score
 
         MIN_ORDER_NOTIONAL = max(10.0, portfolio_value * 0.005)  # at least 0.5% of portfolio or $10
 
@@ -681,81 +588,18 @@ def run_agent(
             raw = min(round(shares * price, 2), max_notional, spendable_cash * 0.95)
             return round(max(raw * size_factor, MIN_ORDER_NOTIONAL), 2)
 
-        # ── Problem 4: earnings check helper ─────────────────────────────────
+        # ── 财报门:今/明天有财报未公布 → 跳过(已公布的盘后动量允许) ──────────
         from src.monitor.news_monitor import earnings_within_days
-        from src.monitor.sector_checker import check_sector_limit
-
-        # Reuse already-fetched positions list for sector check
-        current_positions = [
-            {"symbol": p.symbol, "market_value": float(p.market_value)}
-            for p in alpaca_positions
-        ] if can_buy else []
 
         def _earnings_safe(symbol: str) -> bool:
-            """Return True if it's safe to buy.
-            Block only if earnings are TODAY or TOMORROW (未公布).
-            Post-earnings momentum (昨天及之前已公布) is allowed — often the best entry.
-            """
             has_earnings, earn_date = earnings_within_days(symbol, days=1)
             if has_earnings:
                 print(f"[agent] Skip {symbol} — earnings on {earn_date} (too close)")
             return not has_earnings
 
-        def _sector_safe(symbol: str) -> bool:
-            """Return True if adding this symbol won't breach sector limits."""
-            allowed, reason = check_sector_limit(symbol, current_positions, portfolio_value)
-            if not allowed:
-                print(f"[agent] Skip {symbol} — sector limit: {reason}")
-            return allowed
+        HARD_STOP_PCT_T1 = 0.08  # v8 固定 -8% 止损上限(+容差,见下)
 
-        def _strict_entry_ok(c: dict, hot_sectors: set | None = None) -> bool:
-            """
-            Track-aware entry filter — Track 1 (momentum) and Track 2 (compression)
-            have fundamentally different entry DNA and must NOT share the same gate.
-
-            Track 1 (动能突破): RSI ≤ 75 (80 if hot sector), vs_ma20 ≤ 10%
-              - Scanner already pre-filtered RSI 50–75/85; Rex aligns with that range.
-              - Hot-sector resonance grants +5 RSI allowance (same logic as Scout).
-
-            Track 2 (盘整蓄力) / Watchlist: strict RSI < 60, vs_ma20 ≤ 5%
-              - Compression coil is conservative by nature; strict gate stays.
-            """
-            rsi    = c.get("rsi")
-            vs_ma20 = c.get("vs_ma20_pct")
-            signal  = c.get("signal", "")
-            # screen_track = "momentum" (Track1) or "compression" (Track2)
-            track   = c.get("screen_track", "compression")
-            sector  = c.get("sector", "")
-            in_hot  = bool(hot_sectors and sector in hot_sectors)
-
-            if track == "momentum":
-                # Track 1: release the throttle — momentum stocks need room to breathe
-                rsi_limit = 80 if in_hot else 75
-                if rsi is not None and rsi > rsi_limit:
-                    print(f"[agent] Skip {c['symbol']}: RSI={rsi:.0f} > {rsi_limit} (Track1 entry, hot={in_hot})")
-                    return False
-                if signal != "STRONG_BUY" and vs_ma20 is not None and vs_ma20 > 10.0:
-                    print(f"[agent] Skip {c['symbol']}: vs_MA20={vs_ma20:+.1f}% > 10% (Track1 entry)")
-                    return False
-            else:
-                # Track 2 / Watchlist: keep strict gate
-                if rsi is not None and rsi >= 60:
-                    print(f"[agent] Skip {c['symbol']}: RSI={rsi:.0f} ≥ 60 (strict entry)")
-                    return False
-                if signal != "STRONG_BUY" and vs_ma20 is not None and vs_ma20 > 5.0:
-                    print(f"[agent] Skip {c['symbol']}: vs_MA20={vs_ma20:+.1f}% > 5% (chasing, strict entry)")
-                    return False
-            return True
-
-        # Constants used by Gate A and Gate B in both scanner and watchlist sections
-        TRAIL_TRIGGER   = 0.10   # used for R:R denominator (target gain)
-        RR_MIN          = 1.5    # minimum reward:risk ratio (Track 2 / watchlist)
-        HARD_STOP_PCT_T1 = 0.08  # Track 1 max stop: up to -8% (position sizing handles risk)
-
-        # ── 1. S&P 500 Scanner: quality gate (ai_score) + Rex execution rules ──
-        # Scout (AI) owns quality scoring; Rex owns execution decision.
-        # Gate: ai_score >= min_ai_score (quality) AND signal != SELL (Scout flagged danger).
-        # signal type only controls MA20 exemption in _strict_entry_ok below.
+        # ── v8 选股:扫描候选(已过趋势门 + 按动量排名)→ 机械买入 ──────────────
         scan = scan_cache.get("sp500", {})
 
         # Stale-signal guard: reject scan from a previous trading day
@@ -776,59 +620,23 @@ def run_agent(
         if scan.get("status") == "done" and can_buy and _scan_fresh_today:
             scanner_added = 0
 
-            # Derive hot sectors from today's scan candidates (mirrors Scout logic)
-            from collections import Counter as _Counter
-            _sector_bull = _Counter(
-                c.get("sector", "") for c in scan.get("candidates", [])
-                if c.get("today_bull") and c.get("sector", "")
-            )
-            _hot_sectors: set = {s for s, cnt in _sector_bull.items() if cnt >= 3}
-            if _hot_sectors:
-                print(f"[agent] Hot sectors (sector resonance): {_hot_sectors}")
-
             for c in list(scan.get("candidates", [])):
-                signal   = c.get("signal", "HOLD")
-                ai_score = c.get("ai_score") or 0
-                # v8: 选股=机械动量(scanner 已过趋势门 + 按动量排序)。AI 信号/分数降为参考,
-                # 不再挡买入 —— 原 SELL/HOLD 跳过 + min_ai_score 门已移除(AI 重新上岗需先 A/B 验证)。
-
-                # v8: 入场门即 scanner 的趋势门(RSI50-80 + 动量 + 不过高),选股时已套用。
-                # 不再叠加 v7 的 _strict_entry_ok(其 RSI≤75/vs_ma20≤10 会过度收紧 v8、偏离回测)。
-                # Problem 4: skip if earnings this week
+                # v8: 选股=机械动量(scanner 已过趋势门 + 按动量排名)。AI 信号/分数仅作参考、
+                # 不挡买入。入场门 = 财报门 + 止损门(+价格漂移门在执行端)。
                 if not _earnings_safe(c["symbol"]):
                     summary["signals_found"] += 1   # found but skipped
                     continue
-                # Problem 5: skip if sector concentration limit reached
-                if not _sector_safe(c["symbol"]):
-                    summary["signals_found"] += 1
-                    continue
                 price = c.get("price", 0)
                 stop = c.get("stop_loss") or (price * (1 - stop_loss_pct) if price else None)
-                track = c.get("screen_track", "compression")   # "momentum" or "compression"
 
-                # v8: SPY 大势保护交给 Maya regime(BEAR → block_buys),不再叠加 Gate A
-                # (回测未对 SPY 趋势设独立门;regime 门控已覆盖极端市况)。
-
-                # Gate B: R:R pre-screen(保留:风险门,与 v8 的 -8% 止损一致)
-                # Track 1: high-vol stocks allowed up to -8% stop — position sizing naturally
-                #          reduces shares (portfolio×2%÷stop), no extra hard cap needed.
-                # Track 2: keep strict R:R ≥ 1.5 (compression coil = conservative entry)
+                # 止损门:v8 固定 -8% = round(price*0.92,2),取整后距离常微超 8%。加 0.5% 容差,
+                # 标准 -8% 放行;真正过宽(>8.5%)才挡。
                 if price and stop and stop < price:
                     risk_pct_actual = (price - stop) / price
-                    if track == "momentum":
-                        # v8 固定 -8% 止损 = round(price*0.92,2),取整后距离常微超 8%(如 8.00x%)。
-                        # 加 0.5% 容差,避免标准 -8% 止损被这道门误挡 —— 否则 MU 等头部候选几乎全被
-                        # 跳过,买入落到恰好取整≤8% 的低排名票,导致"买入与动量排名不一致"。
-                        if risk_pct_actual > HARD_STOP_PCT_T1 + 0.005:
-                            print(f"[agent] {c['symbol']} skip — stop {risk_pct_actual:.1%} > 8% hard limit (Track1)")
-                            summary["signals_found"] += 1
-                            continue
-                    else:
-                        rr = TRAIL_TRIGGER / risk_pct_actual if risk_pct_actual > 0 else 0
-                        if rr < RR_MIN:
-                            print(f"[agent] {c['symbol']} skip — R:R {rr:.2f}x < {RR_MIN} (Track2 stop too wide)")
-                            summary["signals_found"] += 1
-                            continue
+                    if risk_pct_actual > HARD_STOP_PCT_T1 + 0.005:
+                        print(f"[agent] {c['symbol']} skip — stop {risk_pct_actual:.1%} > 8% 上限")
+                        summary["signals_found"] += 1
+                        continue
 
                 notional = _size(price, stop) if (price and stop and stop < price) else \
                            min(portfolio_value * risk_pct * 3 * size_factor, max_notional)
@@ -842,11 +650,8 @@ def run_agent(
                 trade = _make_trade(
                     symbol=c["symbol"], side="buy",
                     notional=notional, qty=None,
-                    signal=signal,
-                    # v8: 买入纯机械(过趋势门+动量排名),置信度固定高值,不再用 ai_score ——
-                    # 否则 AI 评分会通过"confidence→自动审批阈值"这条后门挡买入,违背"AI 撤出买入决策"。
-                    # AI ai_score 仍随 trade 保留作参考(排雷 veto 以后单独走否决标志,不走 confidence)。
-                    confidence=0.8,
+                    signal=c.get("signal", "HOLD"),
+                    confidence=0.8,   # v8 机械买入:固定高置信,不用 ai_score(避免 AI 借自动审批挡买入)
                     reason=c.get("reason", "Top S&P 500 scanner pick"),
                     source="scanner",
                     stop_loss=stop,
@@ -857,16 +662,9 @@ def run_agent(
                     volume_ratio=c.get("volume_ratio"),
                     near_breakout=c.get("near_breakout"),
                     universe=c.get("universe"),
-                    screen_track=track,
+                    screen_track="momentum",
                 )
-                # Allow adding to existing position when cash is very high and signal is strong,
-                # but only if the combined position stays within max_pos_pct of portfolio.
-                allow_add = False
-                if cash_pct > 0.50 and (c.get("ai_score") or 0) >= 8:
-                    cur_mv = next((float(p.market_value) for p in alpaca_positions if p.symbol == c["symbol"]), 0.0)
-                    new_total = cur_mv + (trade["notional"] or 0)
-                    allow_add = new_total <= max_notional
-                if _add_trade(trade, owned_symbols, allow_add_to_position=allow_add):
+                if _add_trade(trade, owned_symbols):
                     summary["signals_found"] += 1
                     summary["trades_queued"] += 1
                     scanner_added += 1
@@ -874,87 +672,10 @@ def run_agent(
             if scanner_added:
                 summary["sources"].append("scanner")
 
-        # ── 2. Watchlist: Scout score first, rules_engine fallback, no AI calls ──
-        # Stocks already in Scout's scan_cache are handled in section 1 above.
-        # This section covers watchlist symbols outside Scout's scan universe.
-        if can_buy and _scan_fresh_today and watchlist:
-            scan_scored_syms = {
-                c["symbol"]
-                for c in (scan_cache.get("sp500") or {}).get("candidates", [])
-            }
-            wl_added = 0
-
-            for wl_sym in watchlist:
-                # Already evaluated by Scout — section 1 handled it (or correctly filtered it)
-                if wl_sym in scan_scored_syms:
-                    continue
-
-                # Not in scan universe → pure Python rules, zero API cost
-                try:
-                    from src.analysis.rules_engine import rules_signal
-                    cached = rules_signal(wl_sym)
-                except Exception as e:
-                    print(f"[agent] watchlist {wl_sym} rules error: {e}")
-                    continue
-
-                if cached is None:
-                    continue
-
-                sig  = cached.get("signal", "HOLD")
-                conf = cached.get("confidence", 0)
-                wl_min_conf = 0.75 if regime.get("regime") == "CAUTION" else 0.70
-                if sig == "BUY" and conf >= wl_min_conf:
-                    # Watchlist: always strict entry (Track 2 conservative gate)
-                    if not _strict_entry_ok(cached, hot_sectors=None):
-                        summary["signals_found"] += 1
-                        continue
-                    # Problem 4: skip if earnings this week
-                    if not _earnings_safe(wl_sym):
-                        summary["signals_found"] += 1
-                        continue
-                    # Problem 5: skip if sector concentration limit reached
-                    if not _sector_safe(wl_sym):
-                        summary["signals_found"] += 1
-                        continue
-                    price = cached.get("price") or 0
-                    stop  = cached.get("stop_loss") or (price * (1 - stop_loss_pct) if price else None)
-
-                    # Gate A: SPY trend (watchlist uses track1 by default)
-                    if _get_spy_trend() == "bear":
-                        print(f"[agent] {wl_sym} skip — SPY bear trend (watchlist blocked)")
-                        summary["signals_found"] += 1
-                        continue
-
-                    # Gate B: R:R pre-screen
-                    if price and stop and stop < price:
-                        risk_pct_actual = (price - stop) / price
-                        rr = TRAIL_TRIGGER / risk_pct_actual if risk_pct_actual > 0 else 0
-                        if rr < RR_MIN:
-                            print(f"[agent] {wl_sym} skip — R:R {rr:.2f}x < {RR_MIN} (stop {risk_pct_actual:.1%} too wide)")
-                            summary["signals_found"] += 1
-                            continue
-
-                    notional = _size(price, stop) if (price and stop and stop < price) else \
-                               min(portfolio_value * risk_pct * 3 * size_factor, max_notional)
-
-                    trade = _make_trade(
-                        symbol=wl_sym, side="buy",
-                        notional=notional, qty=None,
-                        signal="BUY", confidence=conf,
-                        reason=cached.get("reasoning", "Watchlist AI signal"),
-                        source="watchlist",
-                        stop_loss=stop,
-                        target_price=cached.get("target_price"),
-                        price=price,
-                        screen_track="watchlist",
-                    )
-                    if _add_trade(trade, owned_symbols):
-                        summary["signals_found"] += 1
-                        summary["trades_queued"] += 1
-                        wl_added += 1
-                        _new_trade_ids.add(trade["id"])
-            if wl_added:
-                summary["sources"].append("watchlist")
+        # ── v8: 自选不搞特殊 ──────────────────────────────────────────────────
+        # 自选股(watchlist)作为 force_symbols 已并入 scanner 候选,走同一道趋势门 +
+        # 动量排名 + 上面的机械买入路径。v7 那条独立的「AI信号门+严格入场+Gate A/B」
+        # 自选路径已删除 —— 它正是新老策略混杂、买入与排名不一致的根源。
 
         # ── 0. Over-allocation rebalance ─────────────────────────────────────
         # If total invested > 95% of equity (margin territory), sell weakest positions
@@ -1093,16 +814,9 @@ def run_agent(
         if _trades_dirty:
             _save_to_disk(all_trades)
 
-        # Second pass: AI sell signals from holdings cache (skip already handled)
-        today_str = _now().strftime("%Y-%m-%d")
-        # Purge stale entries from prior days
-        for k in list(_reduce_today.keys()):
-            if _reduce_today[k] != today_str:
-                del _reduce_today[k]
-
+        # Second pass: 机械卖出信号(holdings_monitor 只发 SELL/HOLD,v8 无 REDUCE/软清仓)
         for pos in holdings_cache.get("positions", []):
-            sell_signal = pos.get("sell_signal")
-            if sell_signal not in ("SELL", "REDUCE"):
+            if pos.get("sell_signal") != "SELL":
                 continue
             if pos["symbol"] not in owned_symbols:
                 print(f"[agent] skip {pos['symbol']} sell — position already closed")
@@ -1112,63 +826,16 @@ def run_agent(
             if pos["symbol"] in _overalloc_symbols:
                 continue   # already queued by over-allocation rebalance
             if pos["symbol"] in alpaca_open_sell_symbols:
-                print(f"[agent] skip {pos['symbol']} {sell_signal} — open sell order already in Alpaca")
-                continue
-            if sell_signal == "REDUCE" and _reduce_today.get(pos["symbol"]) == today_str:
-                print(f"[agent] skip {pos['symbol']} REDUCE — already reduced today")
+                print(f"[agent] skip {pos['symbol']} SELL — open sell order already in Alpaca")
                 continue
 
-            # v8: 趋势过滤器已移除 —— AI 软清仓撤掉后不再有 REDUCE 信号,无需压制。
-            # 让赢家跑 = 追踪止盈(+6%激活/-8%回撤);退出全由机械规则管理。
-
-            # ── REDUCE streak escalation ───────────────────────────────────────
-            # If the same position has been REDUCE'd 2+ times → escalate to full SELL
-            _streak = _load_reduce_streak()
-            streak  = _streak.get(pos["symbol"], 0)
-            effective_signal = sell_signal
-            effective_conf   = 0.8 if sell_signal == "SELL" else 0.6
-            effective_reason = pos.get("reason", "Holdings monitor sell signal")
-
-            if sell_signal == "REDUCE" and streak >= 2:
-                effective_signal = "SELL"
-                effective_conf   = 0.85
-                effective_reason = (
-                    f"[Auto-escalated REDUCE×{streak+1}→SELL] {effective_reason}"
-                )
-                print(f"[agent] {pos['symbol']} REDUCE×{streak+1} → escalated to full SELL")
-                _streak.pop(pos["symbol"], None)
-                _save_reduce_streak(_streak)
-
-            qty = float(pos.get("qty", 0))
-            pos_mv    = float(pos.get("market_value") or 0)
-            cur_price = float(pos.get("current_price") or 0)
-            MIN_REMNANT = max(500.0, portfolio_value * 0.003)   # min $500 or 0.3% of portfolio
-
-            # ── Tiny-position guard: if already a fragment, sell the whole thing ──
-            if effective_signal == "REDUCE" and pos_mv < MIN_REMNANT * 2:
-                effective_signal = "SELL"
-                print(f"[agent] {pos['symbol']} REDUCE → full SELL (tiny position ${pos_mv:.0f} < ${MIN_REMNANT*2:.0f})")
-
-            if effective_signal == "REDUCE":
-                half_qty = max(1, math.floor(qty * 0.5))
-                remaining_value = (qty - half_qty) * cur_price if cur_price else 0
-                # If selling half would leave a tiny remnant, sell the whole thing
-                if remaining_value < MIN_REMNANT:
-                    effective_signal = "SELL"
-                    print(f"[agent] {pos['symbol']} REDUCE → full SELL "
-                          f"(remnant ${remaining_value:.0f} < ${MIN_REMNANT:.0f})")
-                    close_qty = None
-                else:
-                    close_qty = half_qty
-            else:
-                close_qty = None
             trade = _make_trade(
                 symbol=pos["symbol"], side="sell",
                 notional=None,
-                qty=close_qty,
-                signal=effective_signal,
-                confidence=effective_conf,
-                reason=effective_reason,
+                qty=None,   # 全部平仓
+                signal="SELL",
+                confidence=0.8,
+                reason=pos.get("reason", "Holdings monitor sell signal"),
                 source="holdings",
                 price=pos.get("current_price"),
             )
@@ -1177,14 +844,6 @@ def run_agent(
                 summary["trades_queued"] += 1
                 holdings_added += 1
                 _new_trade_ids.add(trade["id"])
-                if effective_signal == "REDUCE":
-                    _reduce_today[pos["symbol"]] = today_str
-                    _streak[pos["symbol"]] = streak + 1
-                    _save_reduce_streak(_streak)
-                else:
-                    # Full SELL — reset streak
-                    _streak.pop(pos["symbol"], None)
-                    _save_reduce_streak(_streak)
 
         if holdings_added:
             summary["sources"].append("holdings")
@@ -1243,16 +902,15 @@ def run_agent(
 
 _AUTO_APPROVE_FILE = Path(__file__).parent.parent.parent / "data" / "auto_approve.json"
 
-# 保护性卖出比买入更易自动放行（减风险要果断、加仓要谨慎）：
-SELL_AUTO_THRESHOLD = 0.5   # AI 减仓/软清仓卖出的自动执行门槛（买入维持 _get_auto_approve_threshold）
+# 保护性卖出比买入更易自动放行（减风险要果断、买入要谨慎）：
+SELL_AUTO_THRESHOLD = 0.5   # 机械卖出(holdings)的自动执行门槛（买入维持 _get_auto_approve_threshold）
 
 
 def _effective_auto_threshold(trade: dict, base: float) -> float:
     """按 side+source 计算单笔的有效自动执行门槛。
     - 机械止损（hard_stop / trail_stop）：0.0，始终自动执行；
-    - AI 减仓/软清仓（source=holdings 等卖出）：min(base, SELL_AUTO_THRESHOLD)，比买入低；
-    - 买入：维持 base（谨慎）。
-    背景：REDUCE 信号固定 conf≈0.6，旧逻辑用买入的 0.7 一刀切 → 永远不自动执行、挂到过期。
+    - 机械卖出（source=holdings,-8%/追踪/MA20破位）：min(base, SELL_AUTO_THRESHOLD),比买入低;
+    - 买入：维持 base。
     """
     if trade.get("side") == "sell":
         if trade.get("source") in ("hard_stop", "trail_stop"):

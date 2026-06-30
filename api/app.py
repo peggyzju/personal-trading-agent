@@ -1255,7 +1255,6 @@ def _run_agent_internal():
         portfolio_value=portfolio_value,
         analysis_cache=_analysis_cache,
         analysis_timestamps=_analysis_timestamps,
-        min_ai_score_override=ctx.get("min_ai_score"),
         size_scale_override=ctx.get("size_scale"),
     )
     _refresh_holdings()

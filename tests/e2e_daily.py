@@ -318,9 +318,9 @@ def test_autonomous_mode():
         stop_eff   = _effective_auto_threshold({"side": "sell", "source": "trail_stop"}, base)
         buy_eff    = _effective_auto_threshold({"side": "buy",  "source": "scanner"}, base)
         if reduce_eff == min(base, SELL_AUTO_THRESHOLD) and reduce_eff <= 0.5:
-            ok("Sell tier — REDUCE", f"AI 减仓门槛={reduce_eff}（conf0.6 可自动执行）✓")
+            ok("Sell tier — holdings", f"机械卖出门槛={reduce_eff}（保护性卖出更易放行）✓")
         else:
-            fail("Sell tier — REDUCE", f"期望 ≤0.5，实际 {reduce_eff}")
+            fail("Sell tier — holdings", f"期望 ≤0.5，实际 {reduce_eff}")
         if stop_eff == 0.0:
             ok("Sell tier — stop", "机械止损门槛=0 始终执行 ✓")
         else:
@@ -466,21 +466,12 @@ def test_rex_logic():
         else:
             fail("hold_count cooldown", f"预期 count=2, 实际={ta._sell_hold_count[sym]}")
 
-        # signal reverts to SELL/REDUCE → reset
+        # signal reverts to SELL → reset
         ta._sell_hold_count[sym] = 0
         if ta._sell_hold_count[sym] == 0:
-            ok("hold_count reset", "SELL/REDUCE 信号 → count 重置 ✓")
+            ok("hold_count reset", "SELL 信号 → count 重置 ✓")
         else:
             fail("hold_count reset", "count 未重置")
-
-        # 9b. _reduce_today dedup: same symbol blocked same day
-        ta._reduce_today.clear()
-        today = datetime.utcnow().strftime("%Y-%m-%d")
-        ta._reduce_today["AAPL"] = today
-        if ta._reduce_today.get("AAPL") == today:
-            ok("reduce_today dedup", "同日重复 REDUCE 已拦截 ✓")
-        else:
-            fail("reduce_today dedup", "_reduce_today 未记录")
 
         # 9c. _next_session_close returns a future datetime
         close_dt = ta._next_session_close()
@@ -508,50 +499,7 @@ def test_rex_logic():
             fail("no-dup buy", "重复买入未被拦截")
 
         ta._pending.clear()
-        ta._reduce_today.clear()
         ta._sell_hold_count.clear()
-
-        # 9e. REDUCE streak: 2 consecutive REDUCEs → escalate to SELL
-        from src.trader.trade_agent import _load_reduce_streak, _save_reduce_streak
-        import tempfile, os
-        from unittest.mock import patch
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tf:
-            streak_path = tf.name
-            tf.write("{}")
-
-        try:
-            with patch("src.trader.trade_agent._REDUCE_STREAK_FILE",
-                       __import__("pathlib").Path(streak_path)):
-                # First REDUCE: streak → 1, signal stays REDUCE
-                streak_data = _load_reduce_streak()
-                streak_data["TESTX"] = 0
-                _save_reduce_streak(streak_data)
-                streak_data["TESTX"] += 1
-                _save_reduce_streak(streak_data)
-                if _load_reduce_streak().get("TESTX") == 1:
-                    ok("REDUCE streak +1", "첫 REDUCE → streak=1, 신호 유지 ✓")
-                else:
-                    fail("REDUCE streak +1", "streak 未增加到 1")
-
-                # Second REDUCE: streak >= 2 → should escalate
-                streak_data["TESTX"] += 1
-                _save_reduce_streak(streak_data)
-                loaded = _load_reduce_streak()
-                if loaded.get("TESTX") >= 2:
-                    ok("REDUCE streak escalate", "streak=2 → 应升级为 SELL ✓")
-                else:
-                    fail("REDUCE streak escalate", f"streak={loaded.get('TESTX')} 未达到 2")
-
-                # Reset after escalation
-                streak_data.pop("TESTX", None)
-                _save_reduce_streak(streak_data)
-                if "TESTX" not in _load_reduce_streak():
-                    ok("REDUCE streak reset", "升级后 streak 重置 ✓")
-                else:
-                    fail("REDUCE streak reset", "升级后 streak 未清除")
-        finally:
-            os.unlink(streak_path)
 
     except Exception as e:
         fail("Rex 逻辑", str(e))
