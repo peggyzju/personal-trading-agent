@@ -7,6 +7,7 @@ import { api } from "../api/client";
 import type { ScanCandidate, ScanResult, BudgetAllocation } from "../api/client";
 import { TradeModal } from "./TradeModal";
 import { StockDebatePanel } from "./StrategyReview";
+import { CandleChart } from "./CandleChart";
 
 interface Props { backendOnline: boolean }
 
@@ -327,7 +328,7 @@ function AllSignalsView({
 
 // ── Big signal card ───────────────────────────────────────────────────────────
 
-type CardSection = "ai" | "sentiment" | "debate" | null;
+type CardSection = "ai" | "sentiment" | "debate" | "kline" | null;
 
 function SignalCard({
   rank, candidate: c, budget, backendOnline, inWatchlist, onAddToWatchlist,
@@ -514,6 +515,12 @@ function SignalCard({
           📰 舆情
         </button>
         <button
+          className={`sc-action-btn${section === "kline" ? " active" : ""}`}
+          onClick={() => setSection(s => s === "kline" ? null : "kline")}
+        >
+          📈 K线
+        </button>
+        <button
           className={`sc-action-btn${section === "debate" ? " active" : ""}`}
           onClick={() => setSection(s => s === "debate" ? null : "debate")}
           disabled={!backendOnline}
@@ -529,6 +536,13 @@ function SignalCard({
           {addedToWl ? "✓ 已自选" : "+ 自选"}
         </button>
       </div>
+
+      {/* ── Expand: K线 ── */}
+      {section === "kline" && (
+        <div className="sc-expand-panel">
+          <CandleChart symbol={c.symbol} stopLoss={c.price ? Math.round(c.price * 0.92 * 100) / 100 : null} />
+        </div>
+      )}
 
       {/* ── Expand: AI analysis ── */}
       {section === "ai" && (

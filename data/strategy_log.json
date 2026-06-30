@@ -1734,38 +1734,38 @@
   },
   {
     "date": "2026-06-30",
-    "recorded_at": "2026-06-30T09:34:36.106774+00:00",
+    "recorded_at": "2026-06-30T13:32:38.913102+00:00",
     "scan_quality": {
       "total_candidates": 25,
-      "rsi_mean": 64.7,
+      "rsi_mean": 62.5,
       "rsi_dist": {
         "rsi_below40": 0,
-        "rsi_40_55": 1,
-        "rsi_55_60": 7,
-        "rsi_60_65": 4,
-        "rsi_above65": 13
+        "rsi_40_55": 4,
+        "rsi_55_60": 8,
+        "rsi_60_65": 3,
+        "rsi_above65": 10
       },
-      "vma20_mean": 7.8,
+      "vma20_mean": 6.5,
       "vma20_dist": {
-        "vma20_neg": 0,
+        "vma20_neg": 3,
         "vma20_0_3": 1,
         "vma20_3_5": 5,
-        "vma20_5_8": 7,
-        "vma20_above8": 12
+        "vma20_5_8": 8,
+        "vma20_above8": 8
       },
       "signal_counts": {
         "HOLD": 25
       },
-      "ai_score_mean": 5.9,
-      "quality_score": 31.2
+      "ai_score_mean": 5.7,
+      "quality_score": 40.8
     },
     "portfolio": {
-      "equity": 97340.0,
-      "cash": 75606.0,
-      "invested": 21734.0,
+      "equity": 97292.0,
+      "cash": 75607.0,
+      "invested": 21685.0,
       "alloc_pct": 22.3,
-      "float_pnl": 258.0,
-      "float_pct": 0.26,
+      "float_pnl": 209.0,
+      "float_pct": 0.21,
       "positions": 6
     },
     "trades_today": {
