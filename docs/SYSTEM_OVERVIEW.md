@@ -33,7 +33,9 @@
 | **Rex** | 执行：扫描后 cascade 买入 + 持仓监控卖出 | 买：扫描后 / 卖：≥9:31 起每 30 分钟 |
 | **Vera** | 收盘复盘（手动 trigger POST /api/strategy/review） | — |
 
-## 选股（Scout）v7 — 双轨制解耦 + 板块共振
+> ⚠️ **以下 Part 1（选股/买入/卖出细则）是 v7 历史描述,已被 v8 取代 —— 现行策略以本文件顶部「v8 重大重构」声明为准。** 保留此段仅作版本演进参考(双轨/Gate A·B/AI软清仓/min_ai_score/追踪10%-5% 在 v8 均已移除,止损固定 -8%)。
+
+## 选股（Scout）v7【历史】 — 双轨制解耦 + 板块共振
 - **Track 1 动能突破**：RSI 50–75（热板块 85）+ today_bull + mom5d>0 + vs_ma20≤15% + vol_ratio≥1.2
 - **Track 2 盘整蓄力**：RSI<55 + vol_ratio<0.8 + mom5d>−3% + ma20_slope>0 + vs_ma20≥−3%
 - 板块共振：同板块 ≥3 只 today_bull → 该板块 RSI 上限 75→85

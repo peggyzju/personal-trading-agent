@@ -40,19 +40,18 @@
 
 > v1–v7 历史见 `data/versions.json`。v7 双轨(Track1 动能 + Track2 盘整 + 板块共振)已被 v8 取代。
 
-**买入（Rex）** — Entry Gate（任一不通过则跳过）
+**买入（Rex）— v8 纯机械** — Entry Gate（任一不通过则跳过）
 
+- 候选 = 扫描结果按 **3 月动量排名**(自选 force_symbols 同门,不搞特殊)
 - 非市场时间（9:25–16:05 ET Mon–Fri）→ 跳过
 - 扫描信号非当日 → 跳过
-- 价格漂移 > 1.5% → 拒单
+- 价格漂移 > 1.5%（PRICE_DRIFT_THRESHOLD,现价走 Alpaca）→ 拒单
 - 财报今天 / 明天未公布 → 跳过（已公布放行）
-- 止损：`max(MA20×0.99, entry − 2×ATR)`，钳位 −3% 至 −8%
-- **Gate A（v5）**：Track1 入场需 SPY > MA20；Track2 盘整蓄力豁免
-- **Gate B（v6 放宽）**：止损距离 ≤ 8%（v5 原为 R:R ≥ 1.5，止损超 6.7% 拒绝）
-- **市场环境门控（v7）**：Maya 给出 regime → 决定买入激进度
-  - `NEUTRAL`（无趋势）：min_ai_score 6 → **8**、aggression 封顶 normal（禁止 aggressive 买入）、size_scale **0.75**
-  - `BEAR`：aggression = conservative；`CAUTION`：aggression 封顶 normal
-  - conservative tier：min_ai_score 6 → 8（与 BEAR 一致）
+- **止损：固定 −8%**（`round(price×0.92, 2)`;止损门容差 8.5%,真正过宽才挡）
+- **regime 门控（Maya）**：BEAR → block_buys 全停;CAUTION 等 → 只缩放 `size_factor`、压缩 `max_positions`。**不再有 AI 分门（min_ai_score）、Gate A、Gate B/R:R**。
+- **自动 / 人工**：默认**自动执行**(confidence 固定 0.8,无分数概念);唯一例外 = **AI 排雷 veto=True → 进人工审核队列**(你批准/拒绝)。
+
+> v5 的 Gate A(SPY>MA20)、Gate B(R:R≥1.5)、v7 的 min_ai_score 门控 / 2×ATR 结构化止损 均已在 v8 移除。
 
 **卖出（Rex）— v8 纯机械退出（无 AI 卖出，对齐回测）**
 
@@ -110,7 +109,7 @@ kill -9 $(lsof -ti:8000 -sTCP:LISTEN)
 
 | 层级 | 机制 | 触发阈值 | 执行方 |
 |------|------|---------|--------|
-| 主止损 | Alpaca Bracket GTC | 入场时计算，−3% 至 −8% | Alpaca 服务器，毫秒级，无需轮询 |
+| 主止损 | Alpaca Bracket GTC | 固定 −8%（`price×0.92`）| Alpaca 服务器，毫秒级，无需轮询 |
 | 兜底止损 | Holdings Monitor `HARD_STOP_PCT` | −8.0% | holdings refresh，每 30 分钟 |
 
 > e2e 测试 holdings monitor hard stop 必须用 ≤ −8% 场景（如 −9%），用 −3% 测不会触发。
@@ -139,4 +138,4 @@ python3 tests/e2e_daily.py --smoke
 python3 tests/e2e_daily.py
 ```
 
-测试覆盖范围：环境 / 账户 / Rex 核心逻辑 / Hard Stop + Trailing Stop / Market Regime / Scanner / Strategy Notes / 自主执行模式 / Vera 复盘 / 数据契约 / 调度器架构 / **v3 策略（双轨选股 + 板块共振 + 2×ATR止损 + 市场时间门）**
+测试覆盖范围：环境 / 账户 / Rex 核心逻辑 / Hard Stop + Trailing Stop / Market Regime / Scanner / Strategy Notes / 自主执行模式 / Vera 复盘 / 数据契约 / 调度器架构 / **v8 策略（机械动量选股 + 固定 −8% 止损 + 追踪 +6%/−8% + MA20 破位 + veto 人工审核 + 价格漂移门）**
