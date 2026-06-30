@@ -70,7 +70,7 @@ export function KlineGatePanel({ symbol }: { symbol: string }) {
         background: "#60a5fa14", border: "1px solid #60a5fa33", borderRadius: 8, marginBottom: 10,
       }}>
         <span style={{ fontSize: 13 }}>🤖</span>
-        <span style={{ fontSize: 12, lineHeight: 1.5, color: "#93c5fd" }}>{data.ai_comment}</span>
+        <span style={{ fontSize: 12, lineHeight: 1.65, color: "#93c5fd", whiteSpace: "pre-line" }}>{data.ai_comment}</span>
       </div>
 
       {/* RSI 迷你图 */}

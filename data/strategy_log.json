@@ -1734,59 +1734,60 @@
   },
   {
     "date": "2026-06-30",
-    "recorded_at": "2026-06-30T14:17:35.690824+00:00",
+    "recorded_at": "2026-06-30T15:02:11.880136+00:00",
     "scan_quality": {
       "total_candidates": 25,
-      "rsi_mean": 62.8,
+      "rsi_mean": 62.3,
       "rsi_dist": {
         "rsi_below40": 0,
-        "rsi_40_55": 3,
-        "rsi_55_60": 7,
-        "rsi_60_65": 5,
-        "rsi_above65": 10
+        "rsi_40_55": 4,
+        "rsi_55_60": 5,
+        "rsi_60_65": 7,
+        "rsi_above65": 9
       },
       "vma20_mean": 6.6,
       "vma20_dist": {
-        "vma20_neg": 3,
-        "vma20_0_3": 2,
-        "vma20_3_5": 3,
-        "vma20_5_8": 3,
-        "vma20_above8": 14
+        "vma20_neg": 2,
+        "vma20_0_3": 4,
+        "vma20_3_5": 2,
+        "vma20_5_8": 4,
+        "vma20_above8": 13
       },
       "signal_counts": {
         "HOLD": 25
       },
-      "ai_score_mean": 6.2,
-      "quality_score": 36.8
+      "ai_score_mean": 6.1,
+      "quality_score": 40.8
     },
     "portfolio": {
-      "equity": 97352.0,
-      "cash": 82432.0,
-      "invested": 14921.0,
-      "alloc_pct": 15.3,
-      "float_pnl": 291.0,
-      "float_pct": 0.3,
-      "positions": 5
+      "equity": 97365.0,
+      "cash": 60075.0,
+      "invested": 37290.0,
+      "alloc_pct": 38.3,
+      "float_pnl": 206.0,
+      "float_pct": 0.21,
+      "positions": 8
     },
     "trades_today": {
-      "closed_trades_today": 25,
+      "closed_trades_today": 27,
       "symbols_closed": [
-        "ILMN",
-        "PM",
-        "HOOD",
         "ARM",
-        "OKTA",
-        "FORM",
-        "CAT",
-        "MRVL",
-        "V",
-        "KO",
-        "TSLA",
-        "BEAM",
         "AFRM",
-        "UNH",
+        "TSLA",
+        "PM",
+        "KO",
+        "CAT",
+        "OKTA",
+        "ILMN",
+        "V",
+        "BROS",
+        "FORM",
+        "HOOD",
         "SNOW",
-        "BROS"
+        "UNH",
+        "MRVL",
+        "BEAM",
+        "AEHR"
       ]
     },
     "closed_pnl_pct": null,
