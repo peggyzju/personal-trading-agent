@@ -795,7 +795,7 @@
     "fill_status": "canceled",
     "fill_qty": 0.0,
     "fill_price": null,
-    "fill_checked_at": "2026-06-29T15:40:01.350179+00:00"
+    "fill_checked_at": "2026-06-30T13:00:01.468402+00:00"
   },
   "03d7b2db": {
     "id": "03d7b2db",
@@ -2321,7 +2321,12 @@
     "expires_at": "2026-06-29T20:30:00+00:00",
     "executed_order_id": "94d4f135-967e-4e6a-b8f3-96c31f6aaf97",
     "error": null,
-    "high_water_price": 418.37
+    "high_water_price": 418.37,
+    "fill_status": "filled",
+    "fill_qty": 7.0,
+    "fill_price": 410.3,
+    "fill_checked_at": "2026-06-30T13:00:01.751118+00:00",
+    "fill_note": "Filled 7.0 shares @ $410.30"
   },
   "393cab8d": {
     "id": "393cab8d",
@@ -2347,7 +2352,12 @@
     "expires_at": "2026-06-29T20:30:00+00:00",
     "executed_order_id": "ec125544-eca6-4797-9b1f-8d1c0bef3942",
     "error": null,
-    "high_water_price": 747.98
+    "high_water_price": 747.98,
+    "fill_status": "filled",
+    "fill_qty": 3.0,
+    "fill_price": 747.85,
+    "fill_checked_at": "2026-06-30T13:00:02.048131+00:00",
+    "fill_note": "Filled 3.0 shares @ $747.85"
   },
   "f1e8b18e": {
     "id": "f1e8b18e",
@@ -2372,7 +2382,11 @@
     "created_at": "2026-06-29T15:33:26.933688+00:00",
     "expires_at": "2026-06-29T20:30:00+00:00",
     "executed_order_id": "54959cfb-4db7-42ee-bdf7-8e31337da67b",
-    "error": null
+    "error": null,
+    "fill_status": "new",
+    "fill_qty": 0.0,
+    "fill_price": null,
+    "fill_checked_at": "2026-06-30T13:00:02.358408+00:00"
   },
   "322f6f8d": {
     "id": "322f6f8d",
