@@ -410,6 +410,27 @@ def run_agent(
     }
     _new_trade_ids: set[str] = set()   # track only trades queued in THIS run
 
+    # ── 剪枝:跨日孤儿 pending 买单 ────────────────────────────────────────────
+    # 崩溃中途 queue 的买单会以 pending 永久滞留(本轮 _new_trade_ids 丢失 → 永不自动批,
+    # 但会膨胀待审队列、且可能被误执行)。把"非当日 ET 排的 pending 买单"直接作废,
+    # 避免积压→某轮槽位算错时一次性涌入(6-30 实盘暴冲根因之一)。
+    try:
+        import zoneinfo as _zi_p
+        _et_p = _zi_p.ZoneInfo("America/New_York")
+        _today_p = _now().astimezone(_et_p).date()
+        _stale_ids = [
+            t["id"] for t in _pending.values()
+            if t.get("side") == "buy" and t.get("status") == "pending"
+            and datetime.fromisoformat(t["created_at"]).astimezone(_et_p).date() != _today_p
+        ]
+        for _sid in _stale_ids:
+            _pending[_sid]["status"] = "expired"
+        if _stale_ids:
+            _save_to_disk(_pending)
+            print(f"[agent] 剪掉 {len(_stale_ids)} 个跨日孤儿 pending 买单(作废)")
+    except Exception as _pe:
+        print(f"[agent] orphan-prune skipped: {_pe}")
+
     try:
         # ── Load user-adopted strategy overrides ──────────────────────────────
         _ov           = _load_strategy_overrides()
@@ -496,7 +517,12 @@ def run_agent(
                       f"equity=${equity:,.0f}, positions=${positions_market_value:,.0f} "
                       f"→ true_cash=${cash:,.0f}")
             regime_max_pos  = regime.get("max_positions", 10)
-            slots_remaining = max(0, regime_max_pos - len(alpaca_positions))
+            # 已 pending 的买单也占用槽位 —— 否则两次扫描各自填满 cap,叠加暴冲(6-30 根因)
+            _pending_buy_syms = {t["symbol"] for t in _pending.values()
+                                 if t.get("side") == "buy" and t.get("status") == "pending"}
+            slots_remaining = max(0, regime_max_pos - len(alpaca_positions) - len(_pending_buy_syms))
+            if _pending_buy_syms:
+                print(f"[agent] {len(_pending_buy_syms)} 个待审买单占用槽位 → 实际可买 {slots_remaining}")
             if regime_max_pos < 10:
                 print(f"[agent] Macro filter: max_positions={regime_max_pos} ({regime['regime']}) "
                       f"— {len(alpaca_positions)} open, {slots_remaining} slots remaining")
@@ -630,6 +656,11 @@ def run_agent(
             scanner_added = 0
 
             for c in list(scan.get("candidates", [])):
+                # 槽位上限硬约束:已 queue 满 slots_remaining 就停,绝不超过 regime 仓位 cap。
+                # (此前缺这行 → 剩 N 槽却把所有候选全 queue 全自动批 = 6-30 暴冲根因)
+                if scanner_added >= slots_remaining:
+                    print(f"[agent] 槽位已满(本轮已 queue {scanner_added}/{slots_remaining})— 停止 queue 买单")
+                    break
                 # v8: 选股=机械动量(scanner 已过趋势门 + 按动量排名)。AI 信号/分数仅作参考、
                 # 不挡买入。入场门 = 财报门 + 止损门(+价格漂移门在执行端)。
                 if not _earnings_safe(c["symbol"]):

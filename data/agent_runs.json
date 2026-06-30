@@ -479,12 +479,6 @@
   ],
   "rex": [
     {
-      "ran_at": "2026-06-22T17:30:52.315157+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
       "ran_at": "2026-06-22T18:02:52.208176+00:00",
       "trigger": "auto",
       "result": "success",
@@ -835,6 +829,12 @@
     {
       "ran_at": "2026-06-30T13:45:44.996202+00:00",
       "trigger": "manual",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-30T14:01:42.323935+00:00",
+      "trigger": "auto",
       "result": "success",
       "error": null
     }
