@@ -166,8 +166,25 @@ def detect_reactions(gap_trigger: float = GAP_TRIGGER_PCT) -> list[dict]:
         return []
     cal = json.loads(_CALENDAR_FILE.read_text())
     today = date.today()
-    candidates = [r for r in cal.get("rows", [])
-                  if date.fromisoformat(r["date"]) <= today]
+    from datetime import time as _dtime
+    try:
+        from zoneinfo import ZoneInfo
+        now_et = datetime.now(ZoneInfo("America/New_York"))
+    except Exception:
+        now_et = datetime.now()
+
+    def _reaction_ready(r: dict) -> bool:
+        """财报后跳空是否已可测:隔日(任意时段)/ 当日盘前已开盘。
+        当日盘后(AMC)还没出 / 盘前未到 9:30 → 不算(避免把盘前价当成财报后跳空)。"""
+        ed = date.fromisoformat(r["date"])
+        nd = now_et.date()
+        if ed < nd:
+            return True
+        if ed == nd and (r.get("session") == "BMO") and now_et.time() >= _dtime(9, 30):
+            return True
+        return False
+
+    candidates = [r for r in cal.get("rows", []) if _reaction_ready(r)]
     if not candidates:
         return []
     from src.trader.alpaca_trader import get_client

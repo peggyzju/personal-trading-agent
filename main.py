@@ -148,20 +148,20 @@ def run_earnings_scan():
     """财报雷达 Part B:检测当日财报名单的显著价格反应 → AI 研判 → 桌面通知。
     人工决策,不自动下单。结果写 data/earnings_analysis.json。"""
     import json as _json
-    from pathlib import Path as _Path
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
     print("[scheduler] 财报反应扫描…")
     try:
         from src.monitor.earnings_radar import detect_reactions, analyze_earnings, _ANALYSIS_FILE
-        triggered = detect_reactions()
-        if not triggered:
-            return
+        # 载入现有,先剪掉 3 天前的旧研判(避免陈旧 / 误含的票一直挂在"已出财报")
         existing = {}
         if _ANALYSIS_FILE.exists():
             try:
-                existing = {a["symbol"]: a for a in _json.loads(_ANALYSIS_FILE.read_text())}
+                _cut = (_dt.now(_tz.utc) - _td(days=3)).isoformat()
+                existing = {a["symbol"]: a for a in _json.loads(_ANALYSIS_FILE.read_text())
+                            if (a.get("analyzed_at") or "") >= _cut}
             except Exception:
                 existing = {}
-        for t in triggered:
+        for t in detect_reactions():
             sym = t["symbol"]
             res = analyze_earnings(sym, gap_pct=t.get("gap_pct"), vol_ratio=t.get("vol_ratio"))
             existing[sym] = res
@@ -169,6 +169,7 @@ def run_earnings_scan():
             _desktop_notify(f"财报研判 {sym} {t.get('gap_pct'):+}%",
                             f"{a.get('verdict','')} · {a.get('summary','')[:60]}")
             print(f"[scheduler] 财报研判 {sym}: {a.get('verdict')} (跳空 {t.get('gap_pct')}%)")
+        # 即使本次无新触发也回写(让剪枝生效,自清理陈旧研判)
         _ANALYSIS_FILE.write_text(_json.dumps(list(existing.values()), indent=2, ensure_ascii=False))
     except Exception as e:
         print(f"[scheduler] 财报反应扫描失败: {e}")
