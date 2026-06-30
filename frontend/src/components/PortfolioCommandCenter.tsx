@@ -536,10 +536,8 @@ function PendingCard({
   const expiresIn = Math.max(0, Math.round((new Date(t.expires_at).getTime() - Date.now()) / 60000));
   const portfolioValue = budget?.portfolio_value ?? 100_000;
 
-  // Risk/reward calc
+  // v8: 仅算风险敞口($);R:R 比率已移除
   const risk   = t.price && t.stop_loss   ? (t.price - t.stop_loss) * (t.notional ? t.notional / t.price : (t.qty ?? 0)) : null;
-  const reward = t.price && t.target_price ? (t.target_price - t.price) * (t.notional ? t.notional / t.price : (t.qty ?? 0)) : null;
-  const rrRatio = risk && reward && risk > 0 ? (reward / risk) : null;
 
   // Price drift check
   const driftPct = t.price_drift_pct ?? 0;
@@ -664,22 +662,10 @@ function PendingCard({
         </div>
       )}
 
-      {/* Layer 5: Risk/Reward bar */}
-      {rrRatio != null && risk != null && reward != null && (
+      {/* v8: 风险敞口($)。R:R 比率门控已移除(v8 不按 R:R 入场,固定 -8% 止损) */}
+      {risk != null && (
         <div className="pending-rr-wrap">
-          <div className="pending-rr-bar-row">
-            <span style={{ color: "#ef4444", fontSize: 11 }}>风险 ${Math.abs(risk).toFixed(0)}</span>
-            <div className="pending-rr-bar">
-              <div className="pending-rr-loss" style={{ width: `${Math.min(50, 50 / rrRatio)}%` }} />
-              <div className="pending-rr-gain" style={{ width: `${Math.min(50, 50 * (rrRatio > 1 ? 1 : rrRatio))}%` }} />
-            </div>
-            <span style={{ color: "#22c55e", fontSize: 11 }}>收益 ${Math.abs(reward).toFixed(0)}</span>
-          </div>
-          <div className="pending-rr-ratio">
-            <span style={{ color: rrRatio >= 2 ? "#22c55e" : rrRatio >= 1.5 ? "#f59e0b" : "#ef4444", fontWeight: 700 }}>
-              R:R = 1 : {rrRatio.toFixed(1)}
-            </span>
-          </div>
+          <span style={{ color: "#ef4444", fontSize: 11 }}>风险 ${Math.abs(risk).toFixed(0)}(固定 -8% 止损）</span>
         </div>
       )}
 

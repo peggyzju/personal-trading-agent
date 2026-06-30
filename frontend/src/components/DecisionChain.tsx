@@ -17,8 +17,8 @@ export interface DecisionInput {
 }
 
 const TRACK_LABEL: Record<string, string> = {
-  momentum: "Track 1 · 动能突破",
-  compression: "Track 2 · 盘整蓄力",
+  momentum: "动量趋势",   // v8: 单一机械动量(无双轨 Track1/2)
+  compression: "动量趋势",
   watchlist: "自选股",
 };
 const REGIME_LABEL: Record<string, string> = {
