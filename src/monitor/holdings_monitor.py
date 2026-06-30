@@ -159,11 +159,19 @@ def _enrich_with_technicals(positions: list[dict]) -> list[dict]:
                     (float(closes.iloc[-1]) - float(closes.iloc[-6])) / float(closes.iloc[-6]) * 100
                     if len(closes) >= 6 else 0
                 )
+                # v8: 连续 2 根日线收盘都 < 各自 MA20 = 确认破位(过滤单根假破位/健康回调)
+                ma20_below_2d = None
+                if len(closes) >= 21:
+                    ma20s = closes.rolling(20).mean()
+                    ma20_below_2d = bool(
+                        closes.iloc[-1] < ma20s.iloc[-1] and closes.iloc[-2] < ma20s.iloc[-2]
+                    )
                 tech = {
                     "rsi": indicators.get("rsi"),
                     "macd_bullish": indicators.get("macd_bullish_cross", False),
                     "macd_bearish": indicators.get("macd_bearish_cross", False),
                     "vs_ma20_pct": indicators.get("vs_ma20_pct"),
+                    "ma20_below_2d": ma20_below_2d,
                     "mom5d_pct": round(mom5, 2),
                     "atr_pct": indicators.get("atr_pct"),
                     "stop_2atr": indicators.get("stop_2atr"),
@@ -263,11 +271,13 @@ def analyze_sell_signals(positions: list[dict]) -> list[dict]:
                     "reason": f"Trailing stop hit: ${price:.2f} ≤ ${ts:.2f} "
                               f"({drawdown:.1f}% from high of ${wm:.2f})"}
 
-        # 3. v8 趋势破位:收盘价跌破 MA20 → 趋势结束,退出(= 回测的 price<MA20 退出)
-        vs_ma20 = (p.get("_tech", {}) or {}).get("vs_ma20_pct")
-        if vs_ma20 is not None and vs_ma20 < 0:
+        # 3. v8 趋势破位:**连续 2 根日线收盘都 < MA20** 才退出(回测验证优于单根:
+        #    收益+7pt、卖出次数-39%、回撤持平 —— 过滤单根假破位/健康回调,避免卖飞)。
+        _tech = p.get("_tech", {}) or {}
+        if _tech.get("ma20_below_2d") is True:
+            vs_ma20 = _tech.get("vs_ma20_pct")
             return {"sell_signal": "SELL", "urgency": "MEDIUM",
-                    "reason": f"趋势破位:跌破 MA20(vs_MA20 {vs_ma20:+.1f}%)"}
+                    "reason": f"趋势破位:连续2根收盘跌破 MA20(vs_MA20 {vs_ma20:+.1f}%)"}
 
         return None
 
