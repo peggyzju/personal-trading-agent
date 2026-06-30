@@ -1,77 +1,66 @@
 # Personal Trading Agent
 
-An autonomous AI-powered trading system that scans the market, generates buy/sell signals, and executes trades on Alpaca — with a React dashboard for monitoring and control.
+An autonomous AI-assisted trading system that scans the US market, ranks stocks by momentum, and executes trades on Alpaca — with a React dashboard for monitoring and control. Currently runs in **paper trading** mode.
+
+> **Strategy v8 (2026-06-29):** unified to a single **mechanical momentum** thesis. Stock selection and entry/exit are rule-based (no AI in the buy/sell decision). AI is demoted to an advisory role — landmine veto (→ manual review), post-earnings judgment, and end-of-day review. Backtest + robustness: 9/9 parameter combos beat SPY.
 
 ## Agents
 
-Four AI agents work together on a daily pipeline:
+Four AI agents coordinated by a single APScheduler (America/New_York):
 
-| Agent | Role | Schedule |
-|-------|------|----------|
-| **Maya** | Reads market regime (bull/bear/sideways), sets aggression level and sector bias | 8:00 AM ET |
-| **Scout** | 9:00 AM: finds stocks outside the regular universe with unusual volume or momentum (via Finviz), adds up to 30 novel tickers to today's scan universe. 9:31 AM + 12:30 PM: scans S&P 500 + Nasdaq-100 + 65 mid-cap growth stocks + Scout picks, scores candidates with Claude AI | 9:00 AM + 9:31 AM + 12:30 PM ET |
-| **Rex** | Reads Scout's scan results → executes buys; reads holdings signals → executes sells | After each scan (buy) · every 30 min (sell) |
-| **Vera** | Generates end-of-day strategy review and extracts lessons injected into future scans | 4:15 PM ET |
+| Agent | Role | Schedule (ET) |
+|-------|------|---------------|
+| **Maya** | Reads market regime (BULL/NEUTRAL/CAUTION/BEAR/CRASH) → sets position cap, size factor, buy block | 8:00 AM |
+| **Scout** | Pre-market dynamic discovery (Finviz) + full-universe scan + mechanical momentum ranking (+ AI landmine veto) | 8:45 (discovery) · 9:31 / 11:00 / 12:30 / 14:30 (scan) |
+| **Rex** | Reads scan candidates → executes buys (momentum order); monitors holdings → executes mechanical sells | After each scan (buy) · every 30 min (sell) |
+| **Vera** | End-of-day strategy review, extracts lessons | Manual trigger (`POST /api/strategy/review`) |
 
 ## Architecture
 
 ```
-main.py (APScheduler — single scheduler)
-  ├── 8:00 AM   Maya  — market context
-  ├── 9:00 AM   Scout — dynamic ticker discovery (Finviz)
-  ├── 9:31 AM   Scout scan → Rex buy cascade
-  ├── 12:30 PM  Scout scan → Rex buy cascade
-  ├── every 30 min  Holdings refresh → Rex sell cascade
-  ├── every 5 min   Fill sync
-  └── 4:15 PM   Vera  — daily review
+main.py (APScheduler — single source of truth, US/Eastern)
+  ├── 8:00 AM            Maya  — market regime
+  ├── 8:45 AM            Scout — dynamic discovery (Finviz)
+  ├── 9:31/11:00/12:30/14:30  Scout scan → Rex buy cascade
+  ├── every 30 min       Holdings refresh → Rex sell cascade
+  ├── every 15 min       Earnings radar (post-report AI judgment)
+  └── heartbeat + independent watchdog LaunchAgent (auto-restart on freeze)
 
-api/app.py (FastAPI)         frontend/ (React + Vite)
-  └── REST endpoints   ←→    └── Portfolio Command Center
+api/app.py (FastAPI :8000)        frontend/ (React + Vite)
+  └── REST endpoints   ←→         └── Portfolio Command Center
 ```
 
-## Strategy (v3)
+## Strategy (v8 — mechanical momentum)
 
-### 1. 选股 — Dual-Track Filter + Sector Resonance
+### 1. Selection (Scout) — single trend gate, ranked by momentum
+A stock passes the gate only if **all** hold (no dual-track, no AI score gate, no sector boost):
+- price **> MA50** and **MA50 rising** (5-day slope > 0)
+- **RSI 50–80** (strength zone)
+- **3-month momentum > 0**
+- **vs MA20 ≤ 15%** (not over-extended)
 
-Scout runs a two-track screen on ~700 tickers (S&P 500 + Nasdaq-100 + mid-cap layer + dynamic picks):
+Passing stocks are ranked by **3-month momentum**; the top N (by regime cap) are the candidates. Watchlist symbols go through the same gate (no special treatment).
 
-| Track | Condition | Logic |
-|-------|-----------|-------|
-| **Track 1 — Momentum Breakout** | RSI 50–75 (85 if sector hot) + `today_bull` + mom5d > 0% + vs_MA20 ≤ 15% | High-RSI stocks breaking out with momentum |
-| **Track 2 — Compression Coil** | RSI < 55 + vol_ratio < 0.8× + mom5d > −3% | Low-vol consolidation; bypasses `today_bull` requirement |
+### 2. Buy (Rex) — momentum order, auto by default
+- Candidates in momentum order → entry gate: market hours · fresh signal · price drift ≤ 1.5% · no earnings today/tomorrow
+- **Fixed −8% stop** (`price × 0.92`)
+- Position sizing: risk 2% / trade, ≤ 8% per position, scaled by regime `size_factor`
+- **Auto-executes by default** (no AI score gate). The only thing routing a buy to **manual review** is an **AI landmine veto** (`veto=true` — a concrete, named risk).
+- Regime gate: BEAR → all buys blocked; CAUTION → reduced size + smaller position cap.
 
-**Sector Resonance**: if ≥ 3 stocks in the same sector have `today_bull = True`, that sector's Track 1 RSI ceiling rises from 75 → 85 (catching extended momentum moves in hot sectors like SEMIS).
-
-**Watchlist override**: watchlist symbols with `today_bull = True` bypass both tracks; otherwise they fall back to Track 2 conditions only.
-
-### 2. 买入 — Rex Buy Logic
-
-| Gate | Rule |
-|------|------|
-| **Market hours** | Only operates 9:25–16:05 ET Mon–Fri |
-| **Scan freshness** | Scan must be from today (ET date) — yesterday's signals are ignored |
-| **Signal staleness** | Price must be within ±1.5% of scan price — larger drift means the signal is stale |
-| **Earnings filter** | Skip if earnings are today or tomorrow (未公布). Post-earnings momentum (已公布) is allowed |
-| **Stop loss** | `max(MA20 × 0.99, entry − 2×ATR)`, clamped to −3% (tightest) / −8% (widest) |
-| **Position sizing** | ATR-based (risk_pct of portfolio per trade) |
-
-Orders are bracket limit orders (GTC stop-loss placed on Alpaca at time of entry).
-
-### 3. 卖出 — Rex Sell Logic
+### 3. Sell (Rex) — purely mechanical (no AI)
 
 | Mechanism | Rule |
 |-----------|------|
-| **Hard stop** | −3% from entry → bracket GTC order on Alpaca executes automatically (no polling needed) |
-| **Trailing stop** | Activates at **+6%** gain. Tracks high watermark; triggers SELL if price drops **5%** from peak |
-| **AI soft exit** | Claude evaluates each position every 30 min via holdings monitor |
-| **Hold cooldown** | 2 consecutive HOLD signals required to cancel a pending sell (prevents over-trading) |
-| **REDUCE escalation** | 2 consecutive REDUCE signals → escalated to SELL |
+| **Hard stop** | −8% from entry → Alpaca bracket GTC order (server-side, ms-latency) + holdings-monitor fallback |
+| **Trailing stop** | Activates at **+6%** gain; triggers SELL if price falls **8%** from the high watermark |
+| **MA20 break** | **2 consecutive daily closes below MA20** → trend over, exit (single-bar dips are held — avoids whipsaw) |
 
 ## Stack
 
-- **AI**: Claude (Anthropic) — signal scoring, sell analysis, strategy review
+- **AI**: Claude (Anthropic) — landmine veto, post-earnings judgment, strategy review (not buy/sell decisions)
 - **Broker**: Alpaca Paper / Live trading API
-- **Market data**: yfinance, Finviz
+- **Market data**: Alpaca (bars, `feed=iex`) · Finnhub (company news, earnings calendar)
 - **Backend**: FastAPI + APScheduler
 - **Frontend**: React + TypeScript + Vite
 
@@ -83,16 +72,16 @@ pip install -r requirements.txt
 
 # 2. Configure credentials
 cp .env.example .env
-# Fill in: ANTHROPIC_API_KEY, ALPACA_API_KEY, ALPACA_SECRET_KEY
+# Fill in: ANTHROPIC_API_KEY, ALPACA_API_KEY, ALPACA_SECRET_KEY, FINNHUB_API_KEY
 
-# 3. Start backend
+# 3. Start backend (or via LaunchAgent — see notes)
 python main.py
 
 # 4. Start frontend (separate terminal)
 cd frontend && npm install && npm run dev
 ```
 
-Open `http://localhost:5173` for the dashboard, `http://localhost:8000/docs` for the API.
+Dashboard: `http://localhost:5173` (dev) — production build is served by the backend at `http://localhost:8000`. API docs: `http://localhost:8000/docs`.
 
 ## Scan Universe
 
@@ -100,34 +89,39 @@ Open `http://localhost:5173` for the dashboard, `http://localhost:8000/docs` for
 |--------|----------|
 | S&P 500 | ~500 large-cap US stocks |
 | Nasdaq-100 | ~100 tech/growth stocks |
-| Layer2 | 65 hand-picked mid-cap growth stocks (SaaS, biotech, EV, quantum, Chinese ADRs, etc.) |
-| Scout dynamic | Up to 30 novel tickers discovered each morning via Finviz |
+| Layer 2 | hand-picked mid-cap growth stocks |
+| Scout dynamic | novel tickers discovered each morning via Finviz |
 
-## Configuration
-
-`data/` stores runtime state — all auto-generated on first run:
+## Runtime data (`data/` — auto-generated)
 
 | File | Purpose |
 |------|---------|
-| `scan_cache.json` | Latest Scout scan results with AI scores |
+| `scan_cache.json` | Latest Scout scan (momentum-ranked candidates + AI veto) |
 | `dynamic_tickers.json` | Today's Scout-discovered tickers (TTL: 1 trading day) |
-| `strategy_notes.json` | Lessons extracted by Vera, injected into future scans |
-| `auto_approve.json` | Autonomous execution config (enabled, confidence threshold) |
-| `market_context.json` | Current regime, aggression level, sector bias |
-| `trailing_stops.json` | Live high-watermarks and trailing stop prices per position |
-| `versions.json` | Strategy version history for backtest comparison (v_prev vs v_current) |
+| `auto_approve.json` | Autonomous execution config (enabled + threshold) |
+| `market_context.json` | Current regime, size factor, position cap |
+| `trailing_stops.json` | Per-position high-watermarks + trailing stop prices |
+| `earnings_calendar.json` / `earnings_analysis.json` | Earnings radar (upcoming + post-report AI judgment) |
+| `scheduler_heartbeat.json` | Scheduler liveness (watched by the watchdog) |
+| `versions.json` | Strategy version history (v1–v8) |
 
 ## Strategy Versions
 
 | Version | Description |
 |---------|-------------|
-| v1 | 单轨选股 (RSI<60 + MA20≤8%) + 固定止盈 8% |
-| v2 | 单轨选股 + 追踪止盈 (+12% 激活, 8% 回落) |
-| v3 *(current)* | 双轨选股 + 板块共振 + 追踪止盈 (+6% 激活, 5% 回落) + 2×ATR 止损 |
+| v1–v2 | 单轨选股 + 固定/追踪止盈 |
+| v3–v7 | 双轨选股 + 板块共振 + Gate 门控 + AI 软清仓 + regime |
+| **v8** *(current)* | **纯机械动量**:趋势门 + 动量排名 · 固定 −8% 止损 · 追踪 +6%/−8% · MA20 连续2根破位 · AI 仅排雷/财报/复盘 |
 
-## Testing
+## Testing & self-check
 
 ```bash
-python tests/e2e_daily.py          # full test suite
-python tests/e2e_daily.py --smoke  # smoke only (env + account + logic)
+python tests/e2e_daily.py             # full suite
+python tests/e2e_daily.py --smoke     # smoke only (env + account + core logic)
+PYTHONPATH=. python scripts/mock_pipeline.py   # 全链路 mock: Maya→Scout→Rex(只读,不下单)
 ```
+
+Backtest scripts (offline, survivorship-biased universe — relative comparison is reliable):
+`scripts/v8_backtest.py`, `scripts/v8_robustness.py`, `scripts/v8_ma20_exit_test.py`, `scripts/v8_ma20_volume_test.py`.
+
+> Full strategy + product roadmap: `docs/SYSTEM_OVERVIEW.md`. Operating guide: `CLAUDE.md`.
