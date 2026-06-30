@@ -159,6 +159,8 @@ def _make_trade(
     near_breakout: Optional[bool] = None,
     universe: Optional[str] = None,
     screen_track: Optional[str] = None,
+    veto: bool = False,
+    veto_reason: Optional[str] = None,
 ) -> dict:
     now = _now()
     return {
@@ -179,7 +181,9 @@ def _make_trade(
         "volume_ratio": volume_ratio,
         "near_breakout": near_breakout,
         "universe": universe,
-        "screen_track": screen_track,   # "momentum"(Track1) / "compression"(Track2)
+        "screen_track": screen_track,
+        "veto": veto,                 # AI 排雷:True → 走人工审核(不自动执行)
+        "veto_reason": veto_reason,
         "status": "pending",
         "created_at": now.isoformat(),
         "expires_at": _next_session_close().isoformat(),
@@ -647,12 +651,16 @@ def run_agent(
                     notional = round(notional * 0.5, 2)
                     print(f"[agent] {c['symbol']} WSB extreme hype — position halved to ${notional:.0f}")
 
+                _veto = bool(c.get("veto"))
+                _base_reason = c.get("reason", "Top S&P 500 scanner pick")
+                _buy_reason = (f"🚫 AI 排雷(需人工确认): {c.get('veto_reason','')} | {_base_reason}"
+                               if _veto else _base_reason)
                 trade = _make_trade(
                     symbol=c["symbol"], side="buy",
                     notional=notional, qty=None,
                     signal=c.get("signal", "HOLD"),
-                    confidence=0.8,   # v8 机械买入:固定高置信,不用 ai_score(避免 AI 借自动审批挡买入)
-                    reason=c.get("reason", "Top S&P 500 scanner pick"),
+                    confidence=0.8,   # v8 机械买入:无分数概念,置信固定;自动/人工只看 veto
+                    reason=_buy_reason,
                     source="scanner",
                     stop_loss=stop,
                     target_price=c.get("target_price"),
@@ -663,7 +671,11 @@ def run_agent(
                     near_breakout=c.get("near_breakout"),
                     universe=c.get("universe"),
                     screen_track="momentum",
+                    veto=_veto,
+                    veto_reason=c.get("veto_reason") if _veto else None,
                 )
+                if _veto:
+                    print(f"[agent] {c['symbol']} AI 排雷 → 人工审核队列: {c.get('veto_reason','')}")
                 if _add_trade(trade, owned_symbols):
                     summary["signals_found"] += 1
                     summary["trades_queued"] += 1
@@ -859,8 +871,19 @@ def run_agent(
                     continue   # only act on trades queued this run
                 if trade["status"] != "pending":
                     continue
-                eff_threshold = _effective_auto_threshold(trade, auto_threshold)
-                if trade["confidence"] >= eff_threshold:
+
+                # v8 审批逻辑:无分数概念。
+                #   买入 → 默认自动;只有 AI 排雷(veto=True)才留给人工审核。
+                #   卖出 → 机械退出(止损/追踪/MA20),按有效阈值,保护性退出始终自动。
+                if trade["side"] == "buy":
+                    if trade.get("veto"):
+                        print(f"[agent] {trade['symbol']} 留待人工审核 — AI 排雷: {trade.get('veto_reason','')}")
+                        continue   # 留 pending,等人工批准/拒绝
+                    should_auto = True
+                else:
+                    should_auto = trade["confidence"] >= _effective_auto_threshold(trade, auto_threshold)
+
+                if should_auto:
                     # Guard: ensure we still have enough spendable cash after prior approvals
                     if trade["side"] == "buy":
                         notional = trade.get("notional") or 0
@@ -875,8 +898,7 @@ def run_agent(
                             committed_this_run += trade.get("notional") or 0
                         auto_approved += 1
                         print(f"[agent] Auto-approved {trade['side'].upper()} {trade['symbol']} "
-                              f"(conf={trade['confidence']:.2f} ≥ {eff_threshold}, src={trade.get('source')}, "
-                              f"committed=${committed_this_run:.0f}/{spendable_cash:.0f})")
+                              f"(src={trade.get('source')}, committed=${committed_this_run:.0f}/{spendable_cash:.0f})")
                     except Exception as e:
                         print(f"[agent] Auto-approve failed for {trade['id']}: {e}")
             if auto_approved:
