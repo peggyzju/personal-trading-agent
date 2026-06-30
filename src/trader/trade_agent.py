@@ -476,6 +476,11 @@ def run_agent(
         alpaca_positions: list = []
         alpaca_open_sell_symbols: set[str] = set()
         _open_orders_fetched: bool = False   # track whether list_orders() succeeded
+        # 防御性默认:Alpaca 取数失败(SSL/限流)时这些保持有效值,避免后续 cash/None 崩溃 → 安全跳过买入
+        cash: float = 0.0
+        equity: float = float(portfolio_value or 0)
+        positions_market_value: float = 0.0
+        owned_symbols: set[str] = {p["symbol"] for p in holdings_cache.get("positions", [])}
         try:
             from src.trader.alpaca_trader import get_client, get_account
             acct = get_account()
@@ -907,7 +912,8 @@ def run_agent(
     except Exception as e:
         summary["status"] = "error"
         summary["error"] = str(e)
-        print(f"[agent] run error: {e}")
+        import traceback as _tb
+        print(f"[agent] run error: {e}\n{_tb.format_exc()}")
     finally:
         _agent_running = False
 

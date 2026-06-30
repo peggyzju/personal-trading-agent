@@ -117,12 +117,6 @@
   ],
   "scout": [
     {
-      "ran_at": "2026-06-09T15:06:15.432971+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
       "ran_at": "2026-06-09T16:37:30.349445+00:00",
       "trigger": "auto",
       "result": "success",
@@ -473,6 +467,12 @@
     {
       "ran_at": "2026-06-30T09:34:36.114931+00:00",
       "trigger": "manual",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-30T12:45:06.604318+00:00",
+      "trigger": "auto",
       "result": "success",
       "error": null
     }
