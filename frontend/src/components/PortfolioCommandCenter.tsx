@@ -1069,11 +1069,25 @@ function etDateOf(iso: string | null): string | null {
   }
 }
 
-// 只保留「最近一个交易日(ET)」的运行记录（history 最新在前）
+// 运行是否落在「市场时段窗口」内:ET [8:00, 17:00](盘前~1.5h含Maya 8:00 → 盘后1h)。
+// 窗口外(凌晨/深夜)的手动测试不计入「今日」。
+function inTradingWindow(iso: string | null): boolean {
+  if (!iso) return false;
+  const s = /[Z+]/.test(iso.slice(10)) ? iso : iso + "Z";
+  try {
+    const h = parseInt(new Date(s).toLocaleString("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false }), 10) % 24;
+    return h >= 8 && h < 17;
+  } catch {
+    return false;
+  }
+}
+
+// 「今日」= 最近一个有「窗口内运行」的交易日的窗口内记录(history 最新在前)。
 function latestDayHistory(history: AgentRunHistoryEntry[]): AgentRunHistoryEntry[] {
-  if (!history.length) return [];
-  const day = etDateOf(history[0].ran_at);
-  return day ? history.filter(h => etDateOf(h.ran_at) === day) : history;
+  const inWin = history.filter(h => inTradingWindow(h.ran_at));
+  if (!inWin.length) return [];
+  const day = etDateOf(inWin[0].ran_at);
+  return inWin.filter(h => etDateOf(h.ran_at) === day);
 }
 
 function AgentRunsPanel({ status }: { status: AgentsStatus | null }) {
@@ -1111,7 +1125,7 @@ function AgentRunsPanel({ status }: { status: AgentsStatus | null }) {
                 <span className="agent-pipe-icon">{icon}</span>
               </div>
               <div className="agent-pipe-intro">{title}<span className="agent-pipe-detail">{detail}</span></div>
-              <div className="agent-pipe-when">{a.last_run_at ? `${fmtEtTime(a.last_run_at)} · 今日 ${dayHist.length} 次` : "今日未运行"}</div>
+              <div className="agent-pipe-when">{dayHist.length > 0 ? `${fmtEtTime(dayHist[0].ran_at)} · 今日 ${dayHist.length} 次` : "今日未运行"}</div>
               {reason && <div className="agent-pipe-reason" style={{ color: RUN_STATUS_COLOR[a.status] ?? "#f59e0b" }}>{reason}</div>}
             </div>
           );
