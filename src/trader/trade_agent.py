@@ -762,8 +762,7 @@ def run_agent(
                     all_trades[_sym_trade_id[ap.symbol]]["high_water_price"] = round(high_water, 4)
                     _trades_dirty = True
 
-            # ── Activate trailing stop once target is reached ─────────────────
-            # Track 2 (compression coil) uses lower trigger to protect smaller gains
+            # ── Activate trailing stop once target is reached (v8: 浮盈 +6% 激活) ──
             trail_active = bool(entry_trade.get("trail_active", False))
             if not trail_active and entry_px and current_px >= entry_px * (1 + TRAIL_TRIGGER):
                 trail_active = True
