@@ -1033,7 +1033,14 @@ export function CompactHeatmap({ days }: { days: PortfolioDay[] }) {
 
 // ── Agent 运行记录：调度时间 + 健康检查 + 手动/自动标记 ────────────────────────
 const AGENT_EMOJI: Record<string, string> = { maya: "🦉", scout: "🦊", rex: "🦖", vera: "🐢" };
-const AGENT_COLOR: Record<string, string> = { maya: "#6366f1", scout: "#06b6d4", rex: "#f59e0b" };
+const AGENT_COLOR: Record<string, string> = { maya: "#6366f1", scout: "#06b6d4", rex: "#f59e0b", vera: "#10b981" };
+const AGENT_INTRO: Record<string, [string, string]> = {
+  maya: ["读市场环境", "牛熊判断 → 定仓位上限"],
+  scout: ["选股排名", "趋势门 → 按动量排序"],
+  rex: ["下单执行", "买入 + 机械卖出"],
+  vera: ["收盘复盘", "提取教训反哺策略"],
+};
+const PIPELINE_ARROW: Record<string, string> = { maya: "regime", scout: "候选股" };
 const RUN_STATUS_COLOR: Record<string, string> = {
   ok: "#22c55e", waiting: "#64748b", missed: "#ef4444", idle: "#475569", never: "#ef4444",
 };
@@ -1079,32 +1086,60 @@ function AgentRunsPanel({ status }: { status: AgentsStatus | null }) {
           {status.is_trading_day ? "交易日" : "非交易日"} · 美东时间 单一调度
         </span>
       </div>
-      <div className="agent-runs-grid">
-        {status.agents.map((a: AgentRunStatus) => {
+      {(() => {
+        const pipe = ["maya", "scout", "rex"]
+          .map((id) => status.agents.find((x: AgentRunStatus) => x.id === id))
+          .filter(Boolean) as AgentRunStatus[];
+        const vera = status.agents.find((x: AgentRunStatus) => x.id === "vera");
+
+        const node = (a: AgentRunStatus) => {
           const dayHist = latestDayHistory(a.history);
           const fails = dayHist.filter((h) => h.result === "fail").length;
+          const failErr = dayHist.find((h) => h.result === "fail")?.error;
+          const [title, detail] = AGENT_INTRO[a.id] ?? [a.name, ""];
+          const icon = a.status === "ok" ? "✅" : a.status === "waiting" ? "⏳" : a.status === "idle" ? "⚪" : "⚠️";
+          const reason = a.status !== "ok"
+            ? a.status_label
+            : fails > 0 ? `⚠️ 今日 ${fails} 次失败${failErr ? "：" + failErr.slice(0, 36) : ""}` : null;
           return (
-            <div key={a.id} className={`agent-run-card run-${a.status}`}
-                 title={`${a.role}\n调度 ${a.scheduled_times_et.join(" / ")} ET${a.cadence_note ? "（" + a.cadence_note + "）" : ""}`}>
-              <div className="agent-run-top">
-                <span className="agent-run-emoji" style={{ borderColor: AGENT_COLOR[a.id] ?? "var(--border)", background: `${AGENT_COLOR[a.id] ?? "#888"}1f` }}>{AGENT_EMOJI[a.id] ?? "🤖"}</span>
-                <span className="agent-run-name" style={{ color: AGENT_COLOR[a.id] ?? "var(--text)" }}>{a.name}</span>
-                <span className="agent-run-health" style={{ marginLeft: "auto", color: RUN_STATUS_COLOR[a.status] ?? "var(--text)" }}>
-                  {a.status_label}
-                </span>
+            <div key={a.id} className={`agent-pipe-node run-${a.status}`}
+                 style={{ borderLeftColor: AGENT_COLOR[a.id] ?? "var(--border)" }}
+                 title={`${a.role}\n调度 ${a.scheduled_times_et.join(" / ")} ET`}>
+              <div className="agent-pipe-top">
+                <span className="agent-run-emoji" style={{ borderColor: AGENT_COLOR[a.id], background: `${AGENT_COLOR[a.id]}1f` }}>{AGENT_EMOJI[a.id]}</span>
+                <span className="agent-pipe-name" style={{ color: AGENT_COLOR[a.id] }}>{a.name}</span>
+                <span className="agent-pipe-icon">{icon}</span>
               </div>
-              <div className="agent-run-line2">
-                {a.last_run_at ? `最近 ${fmtEtTime(a.last_run_at)} · ${a.age ?? ""}` : "今日未运行"}
-                {dayHist.length > 0 && (
-                  <span className="agent-run-count">
-                    {" · 今日 "}{dayHist.length} 次{fails > 0 ? ` · ⚠️ ${fails} 失败` : ""}
-                  </span>
-                )}
-              </div>
+              <div className="agent-pipe-intro">{title}<span className="agent-pipe-detail">{detail}</span></div>
+              <div className="agent-pipe-when">{a.last_run_at ? `${fmtEtTime(a.last_run_at)} · 今日 ${dayHist.length} 次` : "今日未运行"}</div>
+              {reason && <div className="agent-pipe-reason" style={{ color: RUN_STATUS_COLOR[a.status] ?? "#f59e0b" }}>{reason}</div>}
             </div>
           );
-        })}
-      </div>
+        };
+
+        return (
+          <>
+            <div className="agent-pipeline">
+              {pipe.flatMap((a, i) =>
+                i < pipe.length - 1
+                  ? [node(a), (
+                      <div key={a.id + "-arr"} className="agent-pipe-arrow">
+                        <span className="agent-pipe-arrow-label">{PIPELINE_ARROW[a.id]}</span>
+                        <span className="agent-pipe-arrow-mark" style={{ color: AGENT_COLOR[a.id] }}>→</span>
+                      </div>
+                    )]
+                  : [node(a)]
+              )}
+            </div>
+            <div className="agent-vera-strip" style={{ borderLeftColor: AGENT_COLOR.vera }} title={vera?.role ?? "收盘复盘,提取策略教训反哺选股"}>
+              <span className="agent-run-emoji" style={{ borderColor: AGENT_COLOR.vera, background: `${AGENT_COLOR.vera}1f` }}>{AGENT_EMOJI.vera}</span>
+              <span className="agent-pipe-name" style={{ color: AGENT_COLOR.vera }}>{vera?.name ?? "Vera"}</span>
+              <span className="agent-vera-intro">{AGENT_INTRO.vera[0]} <span className="agent-pipe-detail" style={{ display: "inline" }}>↻ {AGENT_INTRO.vera[1]}</span></span>
+              <span className="agent-vera-when">{vera?.last_run_at ? fmtEtTime(vera.last_run_at) : "手动触发"}</span>
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }

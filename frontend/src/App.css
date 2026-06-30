@@ -4270,6 +4270,23 @@ body {
 }
 .agent-run-line2 { font-size: 11px; color: var(--muted); margin-top: 6px; }
 .agent-run-count { color: var(--muted); }
+
+/* Agent 流水线视图 */
+.agent-pipeline { display: flex; align-items: stretch; gap: 0; }
+.agent-pipe-node { flex: 1; min-width: 0; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-left-width: 3px; border-radius: 12px; padding: 11px 12px; }
+.agent-pipe-top { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+.agent-pipe-name { font-size: 14px; font-weight: 500; }
+.agent-pipe-icon { margin-left: auto; font-size: 12px; }
+.agent-pipe-intro { font-size: 12px; color: var(--text); line-height: 1.5; margin-bottom: 7px; }
+.agent-pipe-detail { display: block; font-size: 11px; color: var(--muted); }
+.agent-pipe-when { font-size: 11px; color: var(--muted); }
+.agent-pipe-reason { font-size: 11px; margin-top: 4px; line-height: 1.4; }
+.agent-pipe-arrow { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 4px; min-width: 54px; }
+.agent-pipe-arrow-label { font-size: 10px; color: var(--muted); margin-bottom: 2px; white-space: nowrap; }
+.agent-pipe-arrow-mark { font-size: 20px; line-height: 1; }
+.agent-vera-strip { display: flex; align-items: center; gap: 8px; margin-top: 9px; padding: 7px 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-left-width: 3px; border-radius: 10px; }
+.agent-vera-intro { font-size: 12px; color: var(--text); }
+.agent-vera-when { margin-left: auto; font-size: 11px; color: var(--muted); }
 .agent-run-name { font-size: 14px; font-weight: 600; }
 .agent-run-trigger {
   margin-left: auto;
