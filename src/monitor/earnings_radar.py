@@ -159,6 +159,29 @@ def historical_reactions(symbol: str, n: int = 4) -> list[dict]:
 
 
 # ── Part B: 当日财报反应检测 ──────────────────────────────────────────────────
+def reaction_ready(earnings_date: str | None, session: str | None) -> bool:
+    """财报后跳空是否已可测:隔日(任意时段)/ 当日盘前已开盘 → True;
+    当日盘后(AMC)还没出 / 盘前未到 9:30 / 缺日期 → False(避免把盘前价当财报后跳空)。"""
+    if not earnings_date:
+        return False
+    from datetime import time as _dtime
+    try:
+        from zoneinfo import ZoneInfo
+        now_et = datetime.now(ZoneInfo("America/New_York"))
+    except Exception:
+        now_et = datetime.now()
+    try:
+        ed = date.fromisoformat(earnings_date)
+    except Exception:
+        return False
+    nd = now_et.date()
+    if ed < nd:
+        return True
+    if ed == nd and session == "BMO" and now_et.time() >= _dtime(9, 30):
+        return True
+    return False
+
+
 def detect_reactions(gap_trigger: float = GAP_TRIGGER_PCT) -> list[dict]:
     """日历里 date<=今天 的票,检测显著价格反应(最新价 vs 前一日收盘跳空%)。
     返回触发研判的名单。盘后/盘前数据依赖 Alpaca,免费源可能滞后(诚实局限)。"""
@@ -166,25 +189,7 @@ def detect_reactions(gap_trigger: float = GAP_TRIGGER_PCT) -> list[dict]:
         return []
     cal = json.loads(_CALENDAR_FILE.read_text())
     today = date.today()
-    from datetime import time as _dtime
-    try:
-        from zoneinfo import ZoneInfo
-        now_et = datetime.now(ZoneInfo("America/New_York"))
-    except Exception:
-        now_et = datetime.now()
-
-    def _reaction_ready(r: dict) -> bool:
-        """财报后跳空是否已可测:隔日(任意时段)/ 当日盘前已开盘。
-        当日盘后(AMC)还没出 / 盘前未到 9:30 → 不算(避免把盘前价当成财报后跳空)。"""
-        ed = date.fromisoformat(r["date"])
-        nd = now_et.date()
-        if ed < nd:
-            return True
-        if ed == nd and (r.get("session") == "BMO") and now_et.time() >= _dtime(9, 30):
-            return True
-        return False
-
-    candidates = [r for r in cal.get("rows", []) if _reaction_ready(r)]
+    candidates = [r for r in cal.get("rows", []) if reaction_ready(r.get("date"), r.get("session"))]
     if not candidates:
         return []
     from src.trader.alpaca_trader import get_client
@@ -211,7 +216,8 @@ def detect_reactions(gap_trigger: float = GAP_TRIGGER_PCT) -> list[dict]:
 
 # ── Part B: AI 研判 ───────────────────────────────────────────────────────────
 def analyze_earnings(symbol: str, gap_pct: float | None = None,
-                     vol_ratio: float | None = None) -> dict:
+                     vol_ratio: float | None = None,
+                     earnings_date: str | None = None, session: str | None = None) -> dict:
     """组装财报数据 + 历史反应 + 是否持有 → Claude 研判。人工决策,不下单。"""
     from src.config import get_anthropic_client
     holdings = _portfolio_symbols()
@@ -255,6 +261,7 @@ def analyze_earnings(symbol: str, gap_pct: float | None = None,
         "symbol": symbol, "held": held, "gap_pct": gap_pct,
         "vol_ratio": vol_ratio, "surprise_pct": surprise,
         "history": hist, "analysis": data,
+        "earnings_date": earnings_date, "session": session,
         "analyzed_at": datetime.now(timezone.utc).isoformat(),
     }
     return result

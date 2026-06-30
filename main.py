@@ -151,19 +151,21 @@ def run_earnings_scan():
     from datetime import datetime as _dt, timezone as _tz, timedelta as _td
     print("[scheduler] 财报反应扫描…")
     try:
-        from src.monitor.earnings_radar import detect_reactions, analyze_earnings, _ANALYSIS_FILE
-        # 载入现有,先剪掉 3 天前的旧研判(避免陈旧 / 误含的票一直挂在"已出财报")
+        from src.monitor.earnings_radar import detect_reactions, analyze_earnings, reaction_ready, _ANALYSIS_FILE
+        # 载入现有,剪掉:① 已不是"财报后跳空可测"(如当日盘后还没出的票)② 3天前的旧研判
         existing = {}
         if _ANALYSIS_FILE.exists():
             try:
                 _cut = (_dt.now(_tz.utc) - _td(days=3)).isoformat()
                 existing = {a["symbol"]: a for a in _json.loads(_ANALYSIS_FILE.read_text())
-                            if (a.get("analyzed_at") or "") >= _cut}
+                            if reaction_ready(a.get("earnings_date"), a.get("session"))
+                            and (a.get("analyzed_at") or "") >= _cut}
             except Exception:
                 existing = {}
         for t in detect_reactions():
             sym = t["symbol"]
-            res = analyze_earnings(sym, gap_pct=t.get("gap_pct"), vol_ratio=t.get("vol_ratio"))
+            res = analyze_earnings(sym, gap_pct=t.get("gap_pct"), vol_ratio=t.get("vol_ratio"),
+                                   earnings_date=t.get("date"), session=t.get("session"))
             existing[sym] = res
             a = res.get("analysis", {})
             _desktop_notify(f"财报研判 {sym} {t.get('gap_pct'):+}%",
