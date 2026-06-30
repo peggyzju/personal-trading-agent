@@ -1082,12 +1082,10 @@ function inTradingWindow(iso: string | null): boolean {
   }
 }
 
-// 「今日」= 最近一个有「窗口内运行」的交易日的窗口内记录(history 最新在前)。
+// 「今日」= 今天(ET 日期)市场窗口 [8:00,17:00] 内的运行;今天窗口内还没跑就为空(显示"今日未运行")。
 function latestDayHistory(history: AgentRunHistoryEntry[]): AgentRunHistoryEntry[] {
-  const inWin = history.filter(h => inTradingWindow(h.ran_at));
-  if (!inWin.length) return [];
-  const day = etDateOf(inWin[0].ran_at);
-  return inWin.filter(h => etDateOf(h.ran_at) === day);
+  const todayEt = etDateOf(new Date().toISOString());
+  return history.filter(h => inTradingWindow(h.ran_at) && etDateOf(h.ran_at) === todayEt);
 }
 
 function AgentRunsPanel({ status }: { status: AgentsStatus | null }) {
