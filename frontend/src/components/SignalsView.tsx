@@ -282,6 +282,7 @@ function AllSignalsView({
   watchlist: string[];
   onAddToWatchlist: (sym: string) => void;
 }) {
+  const [sel, setSel] = useState<string | null>(null);
   if (candidates.length === 0 && !isRunning) {
     return (
       <div className="brief-empty">
@@ -296,6 +297,9 @@ function AllSignalsView({
       </div>
     );
   }
+
+  const selected = candidates.find(c => c.symbol === sel) ?? candidates[0];
+  const selRank = selected ? candidates.findIndex(c => c.symbol === selected.symbol) + 1 : 1;
 
   return (
     <div className="sc-list">
@@ -312,18 +316,74 @@ function AllSignalsView({
           📦 缓存结果 · {toUTC(scanTime).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} · 点击「立即扫描」刷新
         </div>
       )}
-      {candidates.map((c, i) => (
-        <SignalCard
-          key={c.symbol}
-          rank={i + 1}
-          candidate={c}
-          budget={budget}
-          backendOnline={backendOnline}
-          inWatchlist={watchlist.includes(c.symbol)}
-          onAddToWatchlist={() => onAddToWatchlist(c.symbol)}
-        />
-      ))}
+      <div className="sig-md">
+        {/* 左列：按动量排名的紧凑列表 */}
+        <div className="sig-md-list">
+          {candidates.map((c, i) => (
+            <SignalListRow
+              key={c.symbol}
+              rank={i + 1}
+              c={c}
+              selected={(selected?.symbol ?? "") === c.symbol}
+              inWatchlist={watchlist.includes(c.symbol)}
+              onClick={() => setSel(c.symbol)}
+            />
+          ))}
+        </div>
+        {/* 右侧：选中股的大 K 线 + 门控 + 详情 */}
+        <div className="sig-md-detail">
+          {selected && (
+            <SignalCard
+              key={selected.symbol}
+              inlineChart
+              rank={selRank}
+              candidate={selected}
+              budget={budget}
+              backendOnline={backendOnline}
+              inWatchlist={watchlist.includes(selected.symbol)}
+              onAddToWatchlist={() => onAddToWatchlist(selected.symbol)}
+            />
+          )}
+        </div>
+      </div>
     </div>
+  );
+}
+
+// 左列紧凑行：排名 + 代码 + 信号 + 排雷/自选标 + 一行关键指标
+function SignalListRow({ rank, c, selected, inWatchlist, onClick }: {
+  rank: number;
+  c: TaggedCandidate;
+  selected: boolean;
+  inWatchlist: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button className={`sig-lrow${selected ? " sel" : ""}`} onClick={onClick}>
+      <div className="sig-lrow-top">
+        <span className="sig-lrow-rank">#{rank}</span>
+        <span className="sig-lrow-sym">{c.symbol}</span>
+        <span className="sig-lrow-sig" style={{ background: SIGNAL_BG[c.signal] ?? "#475569" }}>
+          {c.signal?.replace("_", " ")}
+        </span>
+        {c.owned && <span className="sig-lrow-tag">持仓</span>}
+        {inWatchlist && <span className="sig-lrow-tag wl">自选</span>}
+        {c.veto && <span className="sig-lrow-veto" title={c.veto_reason || ""}>🚫排雷</span>}
+      </div>
+      <div className="sig-lrow-metrics">
+        {c.momentum_3m != null && (
+          <span style={{ color: c.momentum_3m >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>
+            动量 {c.momentum_3m >= 0 ? "+" : ""}{c.momentum_3m.toFixed(0)}%
+          </span>
+        )}
+        {c.rsi != null && <span>RSI {c.rsi.toFixed(0)}</span>}
+        {c.vs_ma50_pct != null && (
+          <span style={{ color: c.vs_ma50_pct >= 0 ? "#22c55e" : "#ef4444" }}>
+            MA50 {c.vs_ma50_pct >= 0 ? "+" : ""}{c.vs_ma50_pct.toFixed(0)}%
+          </span>
+        )}
+      </div>
+    </button>
   );
 }
 
@@ -332,7 +392,7 @@ function AllSignalsView({
 type CardSection = "ai" | "sentiment" | "debate" | null;
 
 function SignalCard({
-  rank, candidate: c, budget, backendOnline, inWatchlist, onAddToWatchlist,
+  rank, candidate: c, budget, backendOnline, inWatchlist, onAddToWatchlist, inlineChart = false,
 }: {
   rank: number;
   candidate: TaggedCandidate;
@@ -340,6 +400,7 @@ function SignalCard({
   backendOnline: boolean;
   inWatchlist: boolean;
   onAddToWatchlist: () => void;
+  inlineChart?: boolean;   // 右侧详情区:K线直接内嵌大图,不走小弹窗
 }) {
   const [showModal, setShowModal] = useState(false);
   const [klineOpen, setKlineOpen] = useState(false);
@@ -488,6 +549,14 @@ function SignalCard({
         </div>
       )}
 
+      {/* ── 内嵌大 K 线 + 核心指标门控（右侧详情区专用）── */}
+      {inlineChart && (
+        <div className="sc-inline-chart">
+          <CandleChart symbol={c.symbol} stopLoss={c.price ? Math.round(c.price * 0.92 * 100) / 100 : null} />
+          <KlineGatePanel symbol={c.symbol} />
+        </div>
+      )}
+
       {/* ── Row 5: AI reason (starts with company description) ── */}
       {c.reason && <p className="sc-reason">{c.reason}</p>}
 
@@ -516,12 +585,14 @@ function SignalCard({
         >
           📰 舆情
         </button>
-        <button
-          className={`sc-action-btn${klineOpen ? " active" : ""}`}
-          onClick={() => setKlineOpen(true)}
-        >
-          📈 K线分析
-        </button>
+        {!inlineChart && (
+          <button
+            className={`sc-action-btn${klineOpen ? " active" : ""}`}
+            onClick={() => setKlineOpen(true)}
+          >
+            📈 K线分析
+          </button>
+        )}
         <button
           className={`sc-action-btn${section === "debate" ? " active" : ""}`}
           onClick={() => setSection(s => s === "debate" ? null : "debate")}
