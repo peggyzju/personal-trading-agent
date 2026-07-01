@@ -116,4 +116,4 @@ PYTHONPATH=. python scripts/mock_pipeline.py   # 全链路 mock: Maya→Scout→
 Backtest scripts (offline, survivorship-biased universe — relative comparison is reliable):
 `scripts/v8_backtest.py`, `scripts/v8_robustness.py`, `scripts/v8_ma20_exit_test.py`, `scripts/v8_ma20_volume_test.py`.
 
-> Full strategy + product roadmap: `docs/SYSTEM_OVERVIEW.md`. Operating guide: `CLAUDE.md`.
+> Strategy + operating guide: `CLAUDE.md` (single source of truth). Product roadmap + backlog: `docs/BACKLOG.md`.
