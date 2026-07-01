@@ -7,20 +7,19 @@
 
 ## 1. 目标
 
-用 AI 驱动的自动化系统在美股做**短线波段**（持仓 5–10 天），运行在 **paper trading**（Alpaca）。
-定位：**AI 全自动执行 + 人在环监督/否决**。
+用**机械动量**策略在美股做**短线波段**（持仓 5–10 天），Alpaca **paper trading**。全自动执行，人在环监督/否决。
 
-- **选股**：机械动量，只买“上升趋势中的强势股”
-- **买入**：信号驱动 + 严格入场门 + 默认自动执行（AI 排雷 → 转人工）
-- **卖出**：v8 纯机械退出（−8% 止损 + 追踪止盈 + MA20 破位；**无 AI 卖出**）
-- **复盘**：收盘 AI 分析胜负，提取教训注入下一轮
+- **选股**：机械动量（趋势门 → 按动量排名），无 AI
+- **买入**：机械入场门 + 默认自动执行；唯一 AI 参与 = 买入侧**排雷**层，把高风险票转人工审核
+- **卖出**：纯机械退出（−8% 止损 + 追踪止盈 + MA20 破位）
 
 ---
 
 ## 2. Agent 执行机制 + 每个 Agent 策略
 
 ### 执行机制
-- 单一 APScheduler 调度，四 Agent 协同，全程**美东时间 ET**。
+- 单一 APScheduler 调度，**Maya / Scout / Rex** 三个 Agent 协同，全程**美东时间 ET**。
+- 收盘**复盘为手动触发**（`POST /api/strategy/review`），非自动、当前不影响买卖。
 - **两层止损架构（勿混淆）**：
 
   | 层 | 机制 | 阈值 | 执行方 |
@@ -49,7 +48,7 @@
   - 价 > MA50 且 MA50 上升（5日斜率>0）· RSI 50–80 · 3月动量>0 · vs_ma20 ≤ 15%
   - 过门后按 `momentum_3m`（63 交易日涨幅%）降序取 top N；自选（force_symbols）**走同一道门、不特殊、无买入优先权**
   - **动量窗口 = 3mo 的决策**：稳健性 9/9 赢 SPY；120d 纯回测更高但仍选 3mo（匹配 5–10 天持仓 + 防幸存者偏差）。**要换先做去幸存者偏差重测**
-  - AI **不选股**（仅用于排雷 / 财报 / 复盘）
+  - 选股全机械，AI 不参与（AI 仅在买入侧做排雷 veto，见下）
 
 ### Rex — 买入（v8 纯机械）
 - **数据**：Scout 候选（含扫描价）· Alpaca 实时价（漂移/执行）· Finnhub 财报 · regime · 熔断状态 · 当前持仓 + pending
@@ -73,13 +72,8 @@
   - 主动卖出前先**取消保护止损单**再 `close_position`
   - **超配保护（非策略性卖出）**：持仓市值 > 权益 95% → 卖最差盈亏直到降回 90%（防杠杆）
 
-### Vera — 收盘复盘
-- **数据**：`trade_history` · `versions.json`
-- **时间**：手动 trigger（`POST /api/strategy/review`）
-- **策略**：分析胜负特征 → 定性 notes 注入下一轮 AI context（v8 里 AI 不买卖，只影响排雷/财报语境）
-
 ### 关键参数（勿随意改）
-`MIN_CASH_PCT=0.05` · `risk_pct=0.02` · `max_pos_pct=0.08` · 止损固定 8% · `TRAIL_ACTIVATE_PCT=6.0`/`TRAIL_PCT=8.0`(holdings_monitor) · `PRICE_DRIFT_THRESHOLD=0.015` · veto TTL 2h · `SECTOR_RESONANCE_THRESHOLD=3`
+`MIN_CASH_PCT=0.05` · `risk_pct=0.02` · `max_pos_pct=0.08` · 止损固定 8% · `TRAIL_ACTIVATE_PCT=6.0`/`TRAIL_PCT=8.0`(holdings_monitor) · `PRICE_DRIFT_THRESHOLD=0.015` · veto TTL 2h
 
 ---
 
