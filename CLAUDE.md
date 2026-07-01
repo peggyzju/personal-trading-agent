@@ -87,7 +87,7 @@ python3 tests/e2e_daily.py --smoke   # smoke（必跑，~30s）
 python3 tests/e2e_daily.py           # full（~2min）
 ```
 
-**覆盖**：环境 / 账户 / Market Regime / Scanner / Strategy Notes / 自主模式（纯开关）/ Vera 复盘 / 数据契约 / 调度器 · **v8 机械规则（smoke 也跑，守实盘根因）**：
+**覆盖**：环境 / 账户 / Market Regime / Scanner / Strategy Notes / 自主模式（纯开关）/ 手动复盘 / 数据契约 / 调度器 · **v8 机械规则（smoke 也跑，守实盘根因）**：
 - `test_slot_cap` 槽位上限（防超额，6-30 暴冲）· `test_bracket_gtc` bracket=GTC（防裸奔）
 - `test_ma20_exit` MA20 连续2根破位 · `test_price_drift_gate` 漂移门（涨拒跌放）· `test_veto_ttl` veto 2h
 - `test_hard_stop_logic` 硬止损 + 追踪止盈（hard stop 场景须用 ≤−8%，如 −9%）
