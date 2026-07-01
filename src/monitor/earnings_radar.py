@@ -1,4 +1,4 @@
-"""财报雷达 Earnings Radar — 事件驱动子系统(设计见 docs/EARNINGS_RADAR_PLAN.md)。
+"""财报雷达 Earnings Radar — 事件驱动子系统。
 
 三块:
 1. build_calendar()           — 全市场未来 N 天财报日历(挂 Maya 每日生成),持仓优先,缓存。
