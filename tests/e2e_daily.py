@@ -604,6 +604,129 @@ def test_hard_stop_logic():
         traceback.print_exc()
 
 
+# ── v8 买卖机械规则(2026-07 补齐覆盖)────────────────────────────────────────
+def test_slot_cap():
+    print("\n[v8] 槽位上限(防超额买入 · 6-30 暴冲根因)")
+    try:
+        from src.trader.trade_agent import _slots_remaining
+        cases = [
+            ((10, 7, 1), 2, "BULL cap10 持7 pending1"),
+            ((5, 5, 0),  0, "CAUTION cap5 已满"),
+            ((5, 3, 0),  2, "CAUTION cap5 持3"),
+            ((10, 8, 3), 0, "pending占满 8+3≥10"),
+            ((3, 5, 0),  0, "超配不为负"),
+        ]
+        bad = [f"{d}:期望{e}实际{_slots_remaining(*a)}"
+               for a, e, d in cases if _slots_remaining(*a) != e]
+        if bad:
+            fail("槽位上限", " | ".join(bad))
+        else:
+            ok("槽位上限", "cap−持仓−pending 正确、不为负、pending占位 ✓")
+    except Exception as e:
+        fail("槽位上限", str(e)); traceback.print_exc()
+
+
+def test_bracket_gtc():
+    print("\n[v8] Bracket 止损单 = GTC(防当天过期裸奔)")
+    try:
+        from unittest.mock import patch, MagicMock
+        import src.trader.alpaca_trader as at
+        captured = {}
+        mock_api = MagicMock()
+        mock_api.submit_order.side_effect = lambda **kw: (captured.update(kw), MagicMock())[1]
+        mock_api.get_latest_trade.return_value = MagicMock(price=100.0)
+        with patch.object(at, "get_client", return_value=mock_api):
+            at.place_order(symbol="TESTX", side="buy", notional=1000, stop_loss=92.0)
+        tif = captured.get("time_in_force"); oc = captured.get("order_class")
+        if tif == "gtc" and oc in ("bracket", "oto"):
+            ok("Bracket GTC", f"notional+止损 → tif={tif} order_class={oc} ✓")
+        else:
+            fail("Bracket GTC", f"tif={tif} order_class={oc}(期望 gtc + oto/bracket)")
+    except Exception as e:
+        fail("Bracket GTC", str(e)); traceback.print_exc()
+
+
+def test_ma20_exit():
+    print("\n[v8] MA20 连续2根破位卖出")
+    try:
+        from unittest.mock import patch, MagicMock
+        from src.monitor.holdings_monitor import analyze_sell_signals
+        hold = json.dumps([
+            {"symbol": "BREAKIT", "sell_signal": "HOLD", "urgency": "LOW", "reason": "", "suggested_action": "hold"},
+            {"symbol": "HEALTHY", "sell_signal": "HOLD", "urgency": "LOW", "reason": "", "suggested_action": "hold"},
+        ])
+        mc = MagicMock(); mc.messages.create.return_value = MagicMock(content=[MagicMock(text=hold)])
+        pos = [
+            {"symbol": "BREAKIT", "qty": 5, "avg_entry_price": 100.0, "current_price": 96.0,
+             "market_value": 480, "unrealized_pl": -20, "unrealized_plpc": -4.0, "side": "long"},  # -4%<止损
+            {"symbol": "HEALTHY", "qty": 5, "avg_entry_price": 100.0, "current_price": 98.0,
+             "market_value": 490, "unrealized_pl": -10, "unrealized_plpc": -2.0, "side": "long"},
+        ]
+        def fake_enrich(ps):
+            m = {"BREAKIT": {"ma20_below_2d": True, "vs_ma20_pct": -4.6},
+                 "HEALTHY": {"ma20_below_2d": False, "vs_ma20_pct": 2.0}}
+            return [{**p, "_tech": m[p["symbol"]]} for p in ps]
+        with patch("anthropic.Anthropic", return_value=mc), \
+             patch("src.monitor.holdings_monitor._enrich_with_technicals", side_effect=fake_enrich), \
+             patch("src.monitor.holdings_monitor._update_trailing_stops", return_value={}):
+            res = {r["symbol"]: r for r in analyze_sell_signals(pos)}
+        b = res.get("BREAKIT", {})
+        if b.get("sell_signal") == "SELL" and "MA20" in b.get("reason", ""):
+            ok("MA20 破位", "BREAKIT 连续2根破MA20 → SELL(趋势破位)✓")
+        else:
+            fail("MA20 破位", f"BREAKIT: {b.get('sell_signal')} / {b.get('reason')}")
+        if res.get("HEALTHY", {}).get("sell_signal") == "HOLD":
+            ok("MA20 不误杀", "HEALTHY 未破MA20 → HOLD ✓")
+        else:
+            fail("MA20 不误杀", f"HEALTHY 意外 {res.get('HEALTHY',{}).get('sell_signal')}")
+    except Exception as e:
+        fail("MA20 破位", str(e)); traceback.print_exc()
+
+
+def test_price_drift_gate():
+    print("\n[v8] 价格漂移门(防追高)")
+    try:
+        from src.trader.trade_agent import _price_drift_decision
+        cases = [
+            (100, 102.5, "reject",  "涨+2.5%"),
+            (100, 101.6, "reject",  "涨+1.6%"),
+            (100, 101.0, "proceed", "涨+1%阈内"),
+            (100, 98.0,  "proceed", "跌-2%更好入场"),
+            (100, 100.0, "proceed", "持平"),
+        ]
+        bad = [f"{d}:期望{e}实际{_price_drift_decision(s, l)[0]}"
+               for s, l, e, d in cases if _price_drift_decision(s, l)[0] != e]
+        if bad:
+            fail("价格漂移门", " | ".join(bad))
+        else:
+            ok("价格漂移门", "涨超1.5%拒单、跌/阈内放行 ✓")
+    except Exception as e:
+        fail("价格漂移门", str(e)); traceback.print_exc()
+
+
+def test_veto_ttl():
+    print("\n[v8] veto 待审 2h TTL + 普通单收盘过期")
+    try:
+        from src.trader.trade_agent import _make_trade, _now, _next_session_close
+        from datetime import datetime
+        now = _now()
+        mk = lambda **kw: _make_trade(symbol="X", notional=1000, qty=None, signal="HOLD",
+                                      confidence=0.8, reason="r", source="scanner", **kw)
+        veto = mk(side="buy", veto=True, veto_reason="hype")
+        norm = mk(side="buy", veto=False)
+        hv = (datetime.fromisoformat(veto["expires_at"]) - now).total_seconds() / 3600
+        if 1.8 <= hv <= 2.2:
+            ok("veto 2h TTL", f"veto买单 expires≈{hv:.1f}h ✓")
+        else:
+            fail("veto 2h TTL", f"veto expires {hv:.2f}h(期望~2h)")
+        if norm["expires_at"] == _next_session_close().isoformat():
+            ok("普通单收盘过期", "普通买单 expires=下次收盘(非2h)✓")
+        else:
+            fail("普通单收盘过期", f"普通单 expires={norm['expires_at']}(期望下次收盘)")
+    except Exception as e:
+        fail("veto 2h TTL", str(e)); traceback.print_exc()
+
+
 # ── 11b. v3 策略核心逻辑 ──────────────────────────────────────────────────────
 def test_v3_strategy():
     print("\n[11b] v4 策略 — 双轨选股 / 止损 / 市场时间门 / 价格漂移 / 财报过滤")
@@ -1040,6 +1163,12 @@ if __name__ == "__main__":
     test_account()
     test_rex_logic()
     test_hard_stop_logic()
+    # v8 机械规则(快速纯逻辑/mock,smoke 也跑 —— 守住 6-30 暴冲/裸奔等根因)
+    test_slot_cap()
+    test_bracket_gtc()
+    test_ma20_exit()
+    test_price_drift_gate()
+    test_veto_ttl()
 
     if not SMOKE_ONLY:
         test_market_regime()

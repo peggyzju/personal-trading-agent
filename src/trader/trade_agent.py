@@ -186,7 +186,10 @@ def _make_trade(
         "veto_reason": veto_reason,
         "status": "pending",
         "created_at": now.isoformat(),
-        "expires_at": _next_session_close().isoformat(),
+        # veto 买单(进人工审核队列)只留 2h —— 未处理即作废释放槽位补位(C 方案);
+        # 其他单(自动买入极少滞留、卖出)沿用"下次收盘"过期。
+        "expires_at": ((now + timedelta(hours=2)).isoformat()
+                       if (side == "buy" and veto) else _next_session_close().isoformat()),
         "executed_order_id": None,
         "error": None,
     }
@@ -252,13 +255,31 @@ def _add_trade(trade: dict, existing_symbols: set[str], allow_add_to_position: b
     return True
 
 
+# ── Slot & drift helpers(纯函数,便于单测)──────────────────────────────────
+
+def _slots_remaining(max_positions: int, num_open_positions: int, num_pending_buys: int) -> int:
+    """可买槽位 = 上限 − 持仓 − 已 pending 买单。
+    pending 买单也占位 —— 否则两次扫描各自算"还有空位"叠加填满 → 超额(6-30 暴冲根因)。"""
+    return max(0, max_positions - num_open_positions - num_pending_buys)
+
+
 # ── Approve / Reject ──────────────────────────────────────────────────────────
 
 PRICE_DRIFT_THRESHOLD = 0.015  # 1.5% — if price moved >1.5% from scan, signal is stale
 
+
+def _price_drift_decision(scan_price: float, live_price: float) -> tuple[str, float]:
+    """买入执行前的价格漂移判定。返回 (decision, drift)。
+    - drift > +1.5%(涨太多=追高)→ "reject"(信号失效)
+    - drift ≤ +1.5%(含跌了=更好入场)→ "proceed"
+    drift 为小数(0.025 = +2.5%)。"""
+    drift = (live_price - scan_price) / scan_price
+    return ("reject" if drift > PRICE_DRIFT_THRESHOLD else "proceed"), drift
+
+
 def approve_trade(trade_id: str) -> dict:
     """Approve and execute. Places bracket order when stop/target available.
-    Validates price hasn't drifted >3% from scan entry before executing buys."""
+    买入执行前校验价格漂移 ≤ 1.5%(涨超即拒,信号失效;跌了放行=更好入场)。"""
     trade = _pending.get(trade_id)
     if not trade:
         raise ValueError(f"Trade {trade_id} not found")
@@ -276,15 +297,15 @@ def approve_trade(trade_id: str) -> dict:
             live_price = (_gq(trade["symbol"]) or {}).get("price") or 0   # Alpaca(替代 yfinance)
             scan_price = trade["price"]
             if live_price > 0 and scan_price > 0:
-                drift = (live_price - scan_price) / scan_price
+                decision, drift = _price_drift_decision(scan_price, live_price)
                 trade["price_at_approve"] = round(live_price, 2)
                 trade["price_drift_pct"]  = round(drift * 100, 2)
-                if drift > PRICE_DRIFT_THRESHOLD:
+                if decision == "reject":
                     # Price ran up too much — stale signal, auto-reject
                     trade["status"] = "rejected"
                     trade["error"]  = (
                         f"价格漂移 +{drift*100:.1f}% (扫描价 ${scan_price:.2f} → 现价 ${live_price:.2f})，"
-                        f"超过 {PRICE_DRIFT_THRESHOLD*100:.0f}% 阈值，信号已失效"
+                        f"超过 {PRICE_DRIFT_THRESHOLD*100:.1f}% 阈值，信号已失效"
                     )
                     _save_to_disk(_pending)
                     raise ValueError(trade["error"])
@@ -410,26 +431,31 @@ def run_agent(
     }
     _new_trade_ids: set[str] = set()   # track only trades queued in THIS run
 
-    # ── 剪枝:跨日孤儿 pending 买单 ────────────────────────────────────────────
-    # 崩溃中途 queue 的买单会以 pending 永久滞留(本轮 _new_trade_ids 丢失 → 永不自动批,
-    # 但会膨胀待审队列、且可能被误执行)。把"非当日 ET 排的 pending 买单"直接作废,
-    # 避免积压→某轮槽位算错时一次性涌入(6-30 实盘暴冲根因之一)。
+    # ── 剪枝:过期 / 跨日孤儿 pending 买单 ─────────────────────────────────────
+    # 作废两类 pending 买单,释放其占用的槽位(否则膨胀队列 + 欠配 + 曾致暴冲):
+    #  ① 过期:expires_at 已过 —— 含 veto 买单 2h 未处理(C 方案)、超"下次收盘"的滞留单;
+    #  ② 跨日孤儿:非当日 ET 排的(崩溃中途 queue、_new_trade_ids 丢失、永不自动批)。
+    # 槽位在下面按 status=="pending" 计算,这里先作废 → 本轮买入循环即可补位。
     try:
         import zoneinfo as _zi_p
         _et_p = _zi_p.ZoneInfo("America/New_York")
         _today_p = _now().astimezone(_et_p).date()
+        _now_p = _now()
         _stale_ids = [
             t["id"] for t in _pending.values()
             if t.get("side") == "buy" and t.get("status") == "pending"
-            and datetime.fromisoformat(t["created_at"]).astimezone(_et_p).date() != _today_p
+            and (
+                datetime.fromisoformat(t["expires_at"]) < _now_p                              # ① 过期(含 veto 2h)
+                or datetime.fromisoformat(t["created_at"]).astimezone(_et_p).date() != _today_p  # ② 跨日孤儿
+            )
         ]
         for _sid in _stale_ids:
             _pending[_sid]["status"] = "expired"
         if _stale_ids:
             _save_to_disk(_pending)
-            print(f"[agent] 剪掉 {len(_stale_ids)} 个跨日孤儿 pending 买单(作废)")
+            print(f"[agent] 剪掉 {len(_stale_ids)} 个过期/跨日 pending 买单(作废,含 veto 2h 未处理)→ 释放槽位补位")
     except Exception as _pe:
-        print(f"[agent] orphan-prune skipped: {_pe}")
+        print(f"[agent] pending-prune skipped: {_pe}")
 
     try:
         # ── Load user-adopted strategy overrides ──────────────────────────────
@@ -520,7 +546,7 @@ def run_agent(
             # 已 pending 的买单也占用槽位 —— 否则两次扫描各自填满 cap,叠加暴冲(6-30 根因)
             _pending_buy_syms = {t["symbol"] for t in _pending.values()
                                  if t.get("side") == "buy" and t.get("status") == "pending"}
-            slots_remaining = max(0, regime_max_pos - len(alpaca_positions) - len(_pending_buy_syms))
+            slots_remaining = _slots_remaining(regime_max_pos, len(alpaca_positions), len(_pending_buy_syms))
             if _pending_buy_syms:
                 print(f"[agent] {len(_pending_buy_syms)} 个待审买单占用槽位 → 实际可买 {slots_remaining}")
             if regime_max_pos < 10:

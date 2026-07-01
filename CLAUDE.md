@@ -42,14 +42,18 @@
 
 **买入（Rex）— v8 纯机械** — Entry Gate（任一不通过则跳过）
 
-- 候选 = 扫描结果按 **3 月动量排名**(自选 force_symbols 同门,不搞特殊)
-- 非市场时间（9:25–16:05 ET Mon–Fri）→ 跳过
+- **候选来源 = 扫描 top-N ∪ 自选(watchlist)**，两者都必须过同一道趋势门；自选(force_symbols)唯一特殊 = 过门后不被 top-N 截断，**无买入优先权**（仍按 `momentum_3m` 排名）
+- **槽位上限**：`可买 = max(0, regime.max_positions − 持仓 − 已pending买单)`，买入循环内**逐个递减、满即 break**（`_slots_remaining()`）。已 pending 也占位——否则两次扫描叠加超额（6-30 暴冲根因，勿回退）
+- 非市场时间（9:30–16:00 ET Mon–Fri）→ 跳过
 - 扫描信号非当日 → 跳过
-- 价格漂移 > 1.5%（PRICE_DRIFT_THRESHOLD,现价走 Alpaca）→ 拒单
+- 价格漂移（执行端 `approve_trade` / `_price_drift_decision()`）：现价比扫描价**涨 > 1.5%** → 拒单（追高失效）；**跌了或阈内** → 放行（更好入场）。`PRICE_DRIFT_THRESHOLD=0.015`
 - 财报今天 / 明天未公布 → 跳过（已公布放行）
 - **止损：固定 −8%**（`round(price×0.92, 2)`;止损门容差 8.5%,真正过宽才挡）
 - **regime 门控（Maya）**：BEAR → block_buys 全停;CAUTION 等 → 只缩放 `size_factor`、压缩 `max_positions`。**不再有 AI 分门（min_ai_score）、Gate A、Gate B/R:R**。
-- **自动 / 人工**：默认**自动执行**(confidence 固定 0.8,无分数概念);唯一例外 = **AI 排雷 veto=True → 进人工审核队列**(你批准/拒绝)。
+- **熔断**：单日组合亏损 ≤ −5% → 当天封锁所有买入（只留卖出），次日复位（`circuit_breaker.py`）
+- **WSB 极端热度**：候选 `hype_label=="extreme"` → 仓位砍半（追高保险，只缩仓不改买卖决策）
+- **自动 / 人工**：默认**自动执行**(confidence 固定 0.8,无分数概念;自动审批为**纯开关**,无阈值);唯一例外 = **AI 排雷 veto=True → 进人工审核队列**。**veto 待审 2h 未处理 → 自动作废、释放槽位补位**（`expires_at=created+2h`）
+- **下单**：Alpaca bracket（市价入场 + −8% 止损），**时效 GTC**（子止损单跨日持续有效，勿用 day——会当天 expired 裸奔）
 
 > v5 的 Gate A(SPY>MA20)、Gate B(R:R≥1.5)、v7 的 min_ai_score 门控 / 2×ATR 结构化止损 均已在 v8 移除。
 
@@ -57,12 +61,13 @@
 
 | 层级 | 机制 |
 |------|------|
-| 1 | **初始止损 −8%**：Alpaca Bracket GTC，入场即挂，服务器端自动执行 |
-| 2 | **追踪止盈**：浮盈 +6% 激活，高水位回落 8% 触发（`TRAIL_TRIGGER=0.06, TRAIL_PCT=0.08`）|
-| 3 | **MA20 破位**：收盘跌破 MA20（vs_ma20<0）→ SELL（趋势结束）|
+| 1 | **初始止损 −8%**：Alpaca Bracket **GTC**，入场即挂，服务器端自动执行 + holdings monitor `HARD_STOP_PCT=-8` 每30分钟兜底 |
+| 2 | **追踪止盈**：浮盈高水位 +6% 激活，高水位回落 8% 触发（`TRAIL_ACTIVATE_PCT=6.0, TRAIL_PCT=8.0`，holdings_monitor）|
+| 3 | **MA20 破位**：**连续 2 根**日线收盘 < MA20 → SELL（`ma20_below_2d`；回测验证优于单根：收益+7pt、卖出−39%，过滤单根假破位/健康回调）|
 
-- 三者都是机械规则（holdings_monitor `_rule_based_override`）：硬止损 > 追踪止盈 > MA20 破位。
+- 三者都是机械规则（holdings_monitor `_rule_based_override`）：硬止损 > 追踪止盈 > MA20 破位。主动卖出前先取消保护止损单再 `close_position`。
 - **让赢家跑 = 追踪止盈**（+6% 才激活、回撤 8% 才走);追踪未激活时由 -8% 硬止损兜底。
+- **超配再平衡（保证金保护,非策略性卖出）**：持仓市值 > 权益 95% → 卖最差盈亏直到降回 90%（`OVERALLOC_THRESHOLD=0.95→0.90`）。这是**唯一一条不按上面 3 规则的卖出**,只为防杠杆。
 - **v8 已撤掉 v7 的「AI 软清仓」+「趋势过滤(REDUCE 压制)」死逻辑** —— 回测验证的是纯机械退出,AI/REDUCE 不再参与卖出。
 
 > 完整版本历史见 `data/versions.json`（v1–v7）。注意：v6 → v7 的回测结果必然相同——v7 是 regime/AI-score 实盘门控，机械回测引擎读不到这些参数，只能看实盘 Track 数据。
@@ -138,4 +143,6 @@ python3 tests/e2e_daily.py --smoke
 python3 tests/e2e_daily.py
 ```
 
-测试覆盖范围：环境 / 账户 / Rex 核心逻辑 / Hard Stop + Trailing Stop / Market Regime / Scanner / Strategy Notes / 自主执行模式 / Vera 复盘 / 数据契约 / 调度器架构 / **v8 策略（机械动量选股 + 固定 −8% 止损 + 追踪 +6%/−8% + MA20 破位 + veto 人工审核 + 价格漂移门）**
+测试覆盖范围：环境 / 账户 / Rex 核心逻辑 / Hard Stop + Trailing Stop / Market Regime / Scanner / Strategy Notes / 自主执行模式（纯开关）/ Vera 复盘 / 数据契约 / 调度器架构 / **v8 机械规则(smoke 也跑,守根因)：槽位上限 `_slots_remaining`（防超额）· Bracket 止损 = GTC（防当天过期）· MA20 连续2根破位 · 价格漂移门 `_price_drift_decision`（涨拒跌放）· veto 2h TTL**
+
+> 新增 v8 机械规则测试(`test_slot_cap` / `test_bracket_gtc` / `test_ma20_exit` / `test_price_drift_gate` / `test_veto_ttl`)在 smoke+full 都跑 —— 直接守住 6-30 暴冲、止损裸奔等实盘根因。改买卖逻辑必须先让这些绿。
