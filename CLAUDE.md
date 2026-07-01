@@ -103,7 +103,8 @@ python3 tests/e2e_daily.py           # full（~2min）
 ## 4. Coding 规则
 
 - 回复用**中文**；一律用**美东时间 ET**对话。
-- **交易逻辑 / 信号 / 仓位 / 架构的改动：先出计划等确认，再写代码。** 尤其：**AI-edge 未验证前别调卖出/参数/仓位** —— 三次退出类回测（收紧止损 / stale 死钱 / 放宽追踪）已全否决，退出机制近最优；系统赚不赚钱压在“AI 选股有没有 edge”（周六自动 edge 报告，详见 `docs/BACKLOG.md`）。
+- **交易逻辑 / 信号 / 仓位 / 架构的改动：先出计划等确认，再写代码。**
+- **涉及 UI / UX 的改动：先给设计方案，review 通过后再实现。**
 - 不加用户没要求的功能，不做过度抽象。
 - **直接 commit 到 main**（单人项目，不走分支/PR）；commit 前跑 e2e；❌ 不能 `--no-verify` 跳 hook。
 - **重启后端**：`kill -9 $(lsof -ti:8000 -sTCP:LISTEN)` 后等 ~35s LaunchAgent 自动重启。❌ 不能 `pkill -f "python main.py"`（LaunchAgent 用大写 P Python，匹配不到）。
