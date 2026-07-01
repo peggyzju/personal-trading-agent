@@ -98,6 +98,10 @@ def place_order(
                 take_profit = None
 
         if stop_loss or take_profit:
+            # bracket 止损必须 GTC —— 否则第 59 行按 notional 设的 "day" 会让子止损单
+            # 当天收盘就 expired(每个自动买入的仓位当天丢服务端止损)。此处已转成整股 qty,
+            # 整股单用 gtc(Alpaca 接受市价+gtc),止损单跨日持续有效。
+            kwargs["time_in_force"] = "gtc"
             # bracket requires BOTH legs; oto (one-triggers-other) works with just one
             kwargs["order_class"] = "bracket" if (stop_loss and take_profit) else "oto"
             if stop_loss:

@@ -1796,5 +1796,71 @@
     "quality_gate_removed": 0,
     "ai_scored": 15,
     "market_regime": "CAUTION"
+  },
+  {
+    "date": "2026-07-01",
+    "recorded_at": "2026-06-30T18:34:28.682252+00:00",
+    "scan_quality": {
+      "total_candidates": 25,
+      "rsi_mean": 63.5,
+      "rsi_dist": {
+        "rsi_below40": 0,
+        "rsi_40_55": 3,
+        "rsi_55_60": 5,
+        "rsi_60_65": 6,
+        "rsi_above65": 11
+      },
+      "vma20_mean": 7.8,
+      "vma20_dist": {
+        "vma20_neg": 3,
+        "vma20_0_3": 1,
+        "vma20_3_5": 2,
+        "vma20_5_8": 4,
+        "vma20_above8": 15
+      },
+      "signal_counts": {
+        "HOLD": 25
+      },
+      "ai_score_mean": 6.1,
+      "quality_score": 31.2
+    },
+    "portfolio": {
+      "equity": 97741.0,
+      "cash": 52156.0,
+      "invested": 45585.0,
+      "alloc_pct": 46.6,
+      "float_pnl": 738.0,
+      "float_pct": 0.76,
+      "positions": 9
+    },
+    "trades_today": {
+      "closed_trades_today": 30,
+      "symbols_closed": [
+        "CAT",
+        "WOLF",
+        "HOOD",
+        "PM",
+        "AFRM",
+        "ILMN",
+        "V",
+        "TSLA",
+        "SNOW",
+        "BROS",
+        "BEAM",
+        "FORM",
+        "KO",
+        "UNH",
+        "ARM",
+        "MRVL",
+        "AEHR",
+        "OKTA"
+      ]
+    },
+    "closed_pnl_pct": null,
+    "total_screened": 169,
+    "tech_passed": 25,
+    "quality_gate_removed": 0,
+    "ai_scored": 15,
+    "market_regime": "BULL"
   }
 ]

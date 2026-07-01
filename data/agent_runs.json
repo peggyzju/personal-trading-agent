@@ -117,18 +117,6 @@
   ],
   "scout": [
     {
-      "ran_at": "2026-06-10T18:38:19.642979+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
-      "ran_at": "2026-06-12T14:23:45.008325+00:00",
-      "trigger": "manual",
-      "result": "success",
-      "error": null
-    },
-    {
       "ran_at": "2026-06-12T15:06:03.487654+00:00",
       "trigger": "auto",
       "result": "success",
@@ -475,75 +463,21 @@
       "trigger": "auto",
       "result": "success",
       "error": null
+    },
+    {
+      "ran_at": "2026-06-30T16:35:14.129322+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-30T18:34:28.694276+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
     }
   ],
   "rex": [
-    {
-      "ran_at": "2026-06-22T19:32:25.977773+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
-      "ran_at": "2026-06-23T13:35:13.224189+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
-      "ran_at": "2026-06-23T14:01:39.687696+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
-      "ran_at": "2026-06-23T14:30:12.750787+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
-      "ran_at": "2026-06-23T15:04:47.266593+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
-      "ran_at": "2026-06-23T15:05:48.351693+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
-      "ran_at": "2026-06-23T15:30:10.610776+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
-      "ran_at": "2026-06-23T16:03:11.483090+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
-      "ran_at": "2026-06-23T16:30:30.606155+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
-      "ran_at": "2026-06-23T16:35:29.072533+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
-    {
-      "ran_at": "2026-06-23T17:02:30.758553+00:00",
-      "trigger": "auto",
-      "result": "success",
-      "error": null
-    },
     {
       "ran_at": "2026-06-23T17:30:20.922448+00:00",
       "trigger": "auto",
@@ -834,6 +768,72 @@
     },
     {
       "ran_at": "2026-06-30T15:02:44.967303+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-30T15:30:20.035556+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-30T16:00:23.058393+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-30T16:31:06.221942+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-30T16:36:07.967727+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-30T17:00:56.554114+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-30T17:30:51.884295+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-30T18:00:55.916837+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-30T18:30:41.622512+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-30T18:35:21.262287+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-30T19:00:50.567283+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    },
+    {
+      "ran_at": "2026-06-30T19:30:51.461291+00:00",
       "trigger": "auto",
       "result": "success",
       "error": null
