@@ -1,7 +1,6 @@
 # Personal Trading Agent — Claude Code 指南
 
 > 当前策略版本 **v8（趋势统一，2026-06-29）**。历史版本见 `data/versions.json`。
-> 产品路线 / 策略 backlog 见 `docs/BACKLOG.md`（不自动加载，需要时才看）。
 
 ---
 
