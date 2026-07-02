@@ -53,6 +53,39 @@ def _momentum_rank(symbol: str, candidates: list[dict] | None) -> Optional[int]:
     return None
 
 
+def _scan_snapshot(symbol: str, candidates: list[dict] | None) -> Optional[dict]:
+    """Return the latest scanner snapshot for this symbol, if it was a candidate."""
+    if not candidates:
+        return None
+    cand = next((c for c in candidates if c.get("symbol") == symbol), None)
+    if not cand:
+        return None
+
+    rsi = cand.get("rsi")
+    vs_ma50 = cand.get("vs_ma50_pct")
+    ma50_slope = cand.get("ma50_slope_pct") or 0.0
+    mom_3m = cand.get("momentum_3m") or 0.0
+    vs_ma20 = cand.get("vs_ma20_pct") or 0.0
+
+    gates = {
+        "trend": vs_ma50 is not None and vs_ma50 > 0 and ma50_slope > 0,
+        "rsi": rsi is not None and 50 <= rsi <= 80,
+        "momentum": mom_3m > 0,
+        "extension": vs_ma20 <= 15.0,
+    }
+    passed = sum(1 for ok in gates.values() if ok)
+    return {
+        "price": cand.get("price"),
+        "rsi": rsi,
+        "vs_ma20": vs_ma20,
+        "momentum_3m": mom_3m,
+        "passed": passed,
+        "total": 4,
+        "v8_eligible": passed == 4,
+        "gates": gates,
+    }
+
+
 _ANALYSIS_FRAMEWORK = """\
 你是动量交易的技术分析助手。请按下面的「动量分析框架」对该股做结构化点评。
 
@@ -244,6 +277,7 @@ def build_kline_analysis(symbol: str, candidates: list[dict] | None = None,
         "gates": gates,
         "volume_info": vol_info,
         "summary": summary,
+        "scan_snapshot": _scan_snapshot(symbol, candidates),
         "ai_comment": _ai_comment(symbol, gates, vol_info, {
             "price": price, "ma50": ma50_now, "ma50_slope_pct": ma50_slope,
             "rsi": rsi_now, "momentum_3m": mom_3m, "momentum_1m": mom_1m,

@@ -8,9 +8,24 @@ interface KlineAnalysis {
   gates: Gate[];
   volume_info: { label: string; value: string; is_high: boolean };
   summary: { passed: number; total: number; v8_eligible: boolean };
+  scan_snapshot?: {
+    price?: number | null;
+    rsi?: number | null;
+    vs_ma20?: number | null;
+    momentum_3m?: number | null;
+    passed: number;
+    total: number;
+    v8_eligible: boolean;
+    gates: Record<string, boolean>;
+  } | null;
   ai_comment: string;
   as_of: string;
   error?: string;
+}
+
+function num(v: number | null | undefined, suffix = "", digits = 1): string {
+  if (v == null || Number.isNaN(v)) return "-";
+  return `${Number(v).toFixed(digits)}${suffix}`;
 }
 
 // RSI 迷你折线（SVG sparkline，标 50/80 参考线）
@@ -62,6 +77,10 @@ export function KlineGatePanel({ symbol }: { symbol: string }) {
   if (!data) return <div className="kgp" style={{ color: "var(--muted)", fontSize: 12 }}>指标分析加载中…</div>;
 
   const elig = data.summary.v8_eligible;
+  const snap = data.scan_snapshot;
+  const curRsi = data.indicators?.rsi;
+  const scanRsi = snap?.rsi;
+  const changed = snap && snap.v8_eligible !== elig;
   return (
     <div className="kgp">
       {/* AI 一句话点评 */}
@@ -72,6 +91,32 @@ export function KlineGatePanel({ symbol }: { symbol: string }) {
         <span style={{ fontSize: 13 }}>🤖</span>
         <span style={{ fontSize: 12, lineHeight: 1.65, color: "#93c5fd", whiteSpace: "pre-line" }}>{data.ai_comment}</span>
       </div>
+
+      {snap && (
+        <div style={{
+          display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6,
+          marginBottom: 10,
+        }}>
+          <div style={{
+            border: "1px solid #262a33", borderRadius: 6, padding: "6px 9px",
+            background: snap.v8_eligible ? "#22c55e12" : "#ef444412",
+          }}>
+            <div style={{ fontSize: 10, color: "var(--muted)", marginBottom: 2 }}>扫描时</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: snap.v8_eligible ? "#22c55e" : "#ef4444" }}>
+              RSI {num(scanRsi, "", 0)} · {snap.passed}/{snap.total} 通过
+            </div>
+          </div>
+          <div style={{
+            border: `1px solid ${changed ? "#f59e0b66" : "#262a33"}`, borderRadius: 6, padding: "6px 9px",
+            background: changed ? "#f59e0b12" : (elig ? "#22c55e12" : "#ef444412"),
+          }}>
+            <div style={{ fontSize: 10, color: "var(--muted)", marginBottom: 2 }}>当前</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: elig ? "#22c55e" : "#ef4444" }}>
+              RSI {num(curRsi, "", 0)} · {data.summary.passed}/{data.summary.total} 通过
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* RSI 迷你图 */}
       <div style={{ marginBottom: 10 }}><RsiSpark rsi={data.rsi} /></div>

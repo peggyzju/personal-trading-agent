@@ -831,11 +831,15 @@ def test_v3_strategy():
             # 过 v8: 价在MA50上(+10%)、MA50升、RSI62、3月动量+20%、不过高(vs_ma20=5%)
             {"symbol": "V8OK", "rsi": 62, "today_bull": True, "momentum_5d": 2.0,
              "momentum_3m": 20.0, "vs_ma20_pct": 5.0, "vs_ma50_pct": 10.0,
+             "daily_momentum_3m": 20.0, "daily_vs_ma50_pct": 10.0,
+             "rank_momentum_3m": 20.0,
              "ma50_slope_pct": 2.0, "volume_ratio": 1.3, "sector": "SEMIS",
              "price": 100, "ma20": 95, "tech_score": 50.0, "ma20_slope_pct": 0.5},
             # 更高动量(+40%),排名应在 V8OK 前
             {"symbol": "V8TOP", "rsi": 60, "today_bull": True, "momentum_5d": 3.0,
-             "momentum_3m": 40.0, "vs_ma20_pct": 8.0, "vs_ma50_pct": 18.0,
+             "momentum_3m": 35.0, "vs_ma20_pct": 8.0, "vs_ma50_pct": 18.0,
+             "daily_momentum_3m": 40.0, "daily_vs_ma50_pct": 18.0,
+             "rank_momentum_3m": 40.0,
              "ma50_slope_pct": 4.0, "volume_ratio": 1.5, "sector": "SEMIS",
              "price": 100, "ma20": 95, "tech_score": 55.0, "ma20_slope_pct": 0.6},
             # 下跌趋势:价在MA50下(-5%)→ 拦截
@@ -848,13 +852,20 @@ def test_v3_strategy():
              "momentum_3m": 50.0, "vs_ma20_pct": 20.0, "vs_ma50_pct": 30.0,
              "ma50_slope_pct": 5.0, "volume_ratio": 2.0, "sector": "OTHER",
              "price": 100, "ma20": 83, "tech_score": 60.0, "ma20_slope_pct": 1.0},
+            # 上日结构过门,但盘中 RSI 跌破 50 → 拦截
+            {"symbol": "INTRADAYFAIL", "rsi": 49, "today_bull": False, "momentum_5d": -2.0,
+             "momentum_3m": 18.0, "vs_ma20_pct": 3.0, "vs_ma50_pct": 8.0,
+             "daily_momentum_3m": 25.0, "daily_vs_ma50_pct": 12.0,
+             "rank_momentum_3m": 25.0,
+             "ma50_slope_pct": 3.0, "volume_ratio": 1.0, "sector": "SEMIS",
+             "price": 96, "ma20": 93, "tech_score": 45.0, "ma20_slope_pct": 0.4},
         ]
 
         from unittest.mock import patch as _patch
         _mock_map = {r["symbol"]: r for r in mock_raws}
         with _patch("src.monitor.sp500_scanner._fetch_raw", side_effect=lambda sym, *a, **k: _mock_map.get(sym)), \
              _patch("src.monitor.sp500_scanner.fetch_bars_batch", return_value={}):
-            results_q = quick_screen(["V8TOP", "V8OK", "DOWN", "OVEREXT"], force_symbols=set())
+            results_q = quick_screen(["V8TOP", "V8OK", "DOWN", "OVEREXT", "INTRADAYFAIL"], force_symbols=set())
 
         syms = [r["symbol"] for r in results_q]
         if "V8OK" in syms and "V8TOP" in syms:
@@ -872,7 +883,12 @@ def test_v3_strategy():
         else:
             fail("v8 拦追高", "OVEREXT 不应通过")
 
-        # 动量排名:V8TOP(+40%) 应排在 V8OK(+20%) 前
+        if "INTRADAYFAIL" not in syms:
+            ok("v10 盘中确认门", "上日过门但盘中 RSI<50 正确拦截 ✓")
+        else:
+            fail("v10 盘中确认门", "INTRADAYFAIL 不应通过")
+
+        # 动量排名:按上日 rank_momentum_3m 排名,V8TOP(+40%) 应排在 V8OK(+20%) 前
         if syms and syms[0] == "V8TOP":
             ok("v8 动量排名", "高动量 V8TOP 排第一 ✓")
         else:

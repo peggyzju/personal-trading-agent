@@ -183,5 +183,25 @@
       "ma20_exit": "2d_confirm",
       "note": "见 scripts/v8_exit_ab_backtest.py --grid"
     }
+  },
+  {
+    "version": "v10",
+    "label": "v10 — 盘中确认扫描",
+    "created_at": "2026-07-02",
+    "description": "保持 v9 卖出端 BE5/trail5 不变,调整 Scout 盘中扫描口径:上日完成日线用于趋势结构和动量排名,盘中最新价用于当前 RSI、MA20/MA50 位置和 3月动量确认。目标是让 11:00/12:30/14:30 扫描真正反映盘中走弱/走强,避免昨日合格但盘中已失效的候选继续进入 Rex 买入队列。",
+    "changes": [
+      "Scanner 同时拉取上日完成日线和包含今日未完成日线的 Alpaca bars",
+      "结构门使用上日完成日线:上日收盘 > MA50、MA50 上升、上日 3月动量 > 0",
+      "盘中确认门使用当前价:当前价 > 上日 MA50、当前 RSI 50-80、当前 3月动量 > 0、当前 vs_ma20 ≤ 15%",
+      "候选主排序仍按上日 rank_momentum_3m,避免盘中涨幅导致追高排序",
+      "候选 price 更新为盘中当前价,让 Rex 仓位、止损和价格漂移门使用同一当前口径"
+    ],
+    "backtest_params": {
+      "entry_mode": "v10_daily_structure_intraday_confirmation",
+      "inherits_exit": "v9_BE5_trail5",
+      "rank_basis": "previous_completed_daily_momentum_3m",
+      "intraday_confirmation": ["price_gt_prev_ma50", "rsi_50_80", "momentum_3m_gt_0", "vs_prev_ma20_lte_15"],
+      "note": "盘中确认属于实盘执行口径修复;完成日线结构仍保留 v8/v9 趋势 thesis"
+    }
   }
 ]

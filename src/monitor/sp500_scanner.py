@@ -462,12 +462,14 @@ def enrich_with_fundamentals(candidates: list[dict]) -> list[dict]:
 
 
 def fetch_bars_batch(tickers, days: int = 95, feed: str = "iex",
-                     progress_cb=None, chunk_size: int = 100) -> dict:
+                     progress_cb=None, chunk_size: int = 100,
+                     include_incomplete_today: bool = False) -> dict:
     """批量拉日线 OHLCV（Alpaca data API），返回 {symbol: DataFrame(Open/High/Low/Close/Volume)}。
 
     用 Alpaca 一次取多 symbol 替代逐个 yfinance —— 把 169 个请求压到几个，根治 yfinance rate limit。
     注意：免费 IEX feed 的 volume 是 IEX-only（非全市场），vol_ratio 为近似值。
     取数窗口 ~90 日历日，与原 yfinance period="90d" 一致，避免技术指标漂移。
+    默认 end=today 排除当天未完成日线；include_incomplete_today=True 时用于盘中确认。
     一个无效 symbol 会让整批 API 失败 → 分块 + 剔除无效 symbol 重试。
     """
     import datetime as _dt
@@ -487,8 +489,10 @@ def fetch_bars_batch(tickers, days: int = 95, feed: str = "iex",
         while chunk and attempts < 6:
             attempts += 1
             try:
-                df = api.get_bars(chunk, "1Day", start=start.isoformat(),
-                                  end=end.isoformat(), feed=feed).df
+                kwargs = {"start": start.isoformat(), "feed": feed}
+                if not include_incomplete_today:
+                    kwargs["end"] = end.isoformat()
+                df = api.get_bars(chunk, "1Day", **kwargs).df
                 break
             except Exception as e:
                 m = _re.search(r"invalid symbol:\s*([A-Za-z0-9._-]+)", str(e))
@@ -514,7 +518,55 @@ def fetch_bars_batch(tickers, days: int = 95, feed: str = "iex",
     return out
 
 
-def _fetch_raw(symbol: str, bars_by_sym: dict | None = None) -> dict | None:
+def _with_intraday_confirmation(base: dict, completed_df: pd.DataFrame,
+                                intraday_df: pd.DataFrame | None) -> dict:
+    """Merge completed-day structure with current intraday entry-confirmation fields."""
+    closes = completed_df["Close"].dropna()
+    if intraday_df is None or intraday_df.empty or len(closes) < 63:
+        return {**base, "rank_momentum_3m": base.get("momentum_3m"),
+                "scan_price_source": "completed_daily"}
+
+    intraday_closes = intraday_df["Close"].dropna()
+    if intraday_closes.empty:
+        return {**base, "rank_momentum_3m": base.get("momentum_3m"),
+                "scan_price_source": "completed_daily"}
+
+    current_price = float(intraday_closes.iloc[-1])
+    ma20_prev = float(closes.rolling(20).mean().iloc[-1]) if len(closes) >= 20 else None
+    ma50_prev = float(closes.rolling(50).mean().iloc[-1]) if len(closes) >= 50 else None
+    price_3m = float(closes.iloc[-63])
+
+    intraday_tech = compute_technicals(intraday_df) or {}
+    current_rsi = intraday_tech.get("rsi", base.get("rsi"))
+    current_mom_3m = (current_price - price_3m) / price_3m * 100 if price_3m else base.get("momentum_3m", 0)
+    current_vs_ma20 = (current_price - ma20_prev) / ma20_prev * 100 if ma20_prev else base.get("vs_ma20_pct")
+    current_vs_ma50 = (current_price - ma50_prev) / ma50_prev * 100 if ma50_prev else base.get("vs_ma50_pct")
+
+    out = {
+        **base,
+        # Completed daily snapshot: stable structure and ranking anchor.
+        "daily_price": base.get("price"),
+        "daily_rsi": base.get("rsi"),
+        "daily_momentum_3m": base.get("momentum_3m"),
+        "daily_vs_ma20_pct": base.get("vs_ma20_pct"),
+        "daily_vs_ma50_pct": base.get("vs_ma50_pct"),
+        "rank_momentum_3m": base.get("momentum_3m"),
+        # Current confirmation: what Rex would be buying against now.
+        "price": round(current_price, 2),
+        "rsi": current_rsi,
+        "momentum_5d": intraday_tech.get("momentum_5d", base.get("momentum_5d")),
+        "momentum_1m": intraday_tech.get("momentum_1m", base.get("momentum_1m")),
+        "momentum_3m": round(current_mom_3m, 2),
+        "vs_ma20_pct": round(current_vs_ma20, 2) if current_vs_ma20 is not None else None,
+        "vs_ma50_pct": round(current_vs_ma50, 2) if current_vs_ma50 is not None else None,
+        "near_breakout": intraday_tech.get("near_breakout", base.get("near_breakout")),
+        "scan_price_source": "intraday_latest",
+    }
+    return out
+
+
+def _fetch_raw(symbol: str, bars_by_sym: dict | None = None,
+               intraday_bars_by_sym: dict | None = None) -> dict | None:
     """Compute technicals for a single symbol from pre-fetched Alpaca bars.
 
     bars_by_sym: {symbol: DataFrame(Open/High/Low/Close/Volume)} from fetch_bars_batch().
@@ -528,7 +580,8 @@ def _fetch_raw(symbol: str, bars_by_sym: dict | None = None) -> dict | None:
         if not tech:
             return None
         sector = SECTOR_MAP.get(symbol, "OTHER")
-        return {"symbol": symbol, "sector": sector, **tech}
+        base = {"symbol": symbol, "sector": sector, **tech}
+        return _with_intraday_confirmation(base, df, (intraday_bars_by_sym or {}).get(symbol))
     except Exception:
         pass
     return None
@@ -544,8 +597,8 @@ def quick_screen(
     """
     Download 60d OHLCV per-ticker in parallel, compute technicals, return top_n.
 
-    v8 单一趋势门(无双轨、无 AI):price>MA50 且 MA50 上升 + RSI 50-80 +
-    3 月动量>0 + vs_ma20≤15%(不过度延伸)。过门后按 momentum_3m 整体排名取 top_n。
+    v10 盘中扫描口径:上日完成日线定结构/排名,盘中最新价确认 RSI/价格位置。
+    过门后按上日完成日线 rank_momentum_3m 排名取 top_n,避免追当天涨幅。
 
     force_symbols (watchlist): 走同一道趋势门(不搞特殊),仅保证过门后不被
     top_n 截断;整体按动量重排,不给买入插队。
@@ -557,6 +610,9 @@ def quick_screen(
     # 批量从 Alpaca 取日线 bars（替代逐个 yfinance，根治 rate limit）
     print(f"[scanner] batch-fetching {total} tickers via Alpaca…")
     bars_by_sym = fetch_bars_batch(tickers, progress_cb=progress_cb)
+    intraday_bars_by_sym = fetch_bars_batch(
+        tickers, progress_cb=None, include_incomplete_today=True
+    )
     downloaded_ok = len(bars_by_sym)
     print(f"[scanner] Alpaca bars: {downloaded_ok}/{total} symbols got data")
     if stats is not None:   # 供调用方判断「故障空」(取数大面积失败 vs 正常没票过筛)
@@ -564,7 +620,7 @@ def quick_screen(
         stats["total"] = total
 
     for sym in tickers:
-        result = _fetch_raw(sym, bars_by_sym)
+        result = _fetch_raw(sym, bars_by_sym, intraday_bars_by_sym)
         if result:
             raw_results.append(result)
 
@@ -583,22 +639,27 @@ def quick_screen(
         sector      = r["sector"]
         ma20_slope  = r.get("ma20_slope_pct", 0)
 
-        # v8 趋势统一:上升趋势 + 强动量(替代 Track1/Track2 双轨)。
-        # 砍掉"抄底(Track2) vs 追突破(Track1)"的矛盾,只买"趋势中的强势股"。
-        # 回测+稳健性验证:9/9 组参数均赢 SPY(见 scripts/v8_robustness.py)。
-        # 条件精确匹配回测(scripts/v8_robustness.py,9/9赢SPY):
-        # 不加 vol 门、不加板块RSI boost —— 那些没被验证过,加了就不是"测过的那套"。
+        # v10:上日结构 + 盘中确认。
+        # 慢结构(趋势线/排名)用完成日线,当前入场有效性(RSI/价格位置)用最新价。
+        # 不加 vol 门、不加板块RSI boost;盘中量能不可与全天量直接比较。
         vs_ma50    = r.get("vs_ma50_pct")
         mom_3m     = r.get("momentum_3m") or 0
         ma50_slope = r.get("ma50_slope_pct") or 0
+        daily_vs_ma50 = r.get("daily_vs_ma50_pct", vs_ma50)
+        daily_mom_3m = r.get("daily_momentum_3m", mom_3m) or 0
 
-        trend_ok = (
-            vs_ma50 is not None and vs_ma50 > 0   # 价在 MA50 上方
-            and ma50_slope > 0                    # MA50 上升
-            and 50 <= rsi <= 80                    # 强势区(不超卖、不过热)
-            and mom_3m > 0                         # 3 月动量为正(≈60日动量)
-            and vs_ma20 <= 15.0                    # 不过度延伸(≤ MA20×1.15)
+        structure_ok = (
+            daily_vs_ma50 is not None and daily_vs_ma50 > 0  # 上日收盘在 MA50 上方
+            and ma50_slope > 0                               # 上日 MA50 上升
+            and daily_mom_3m > 0                              # 上日 3 月动量为正
         )
+        intraday_ok = (
+            vs_ma50 is not None and vs_ma50 > 0   # 当前价仍在上日 MA50 上方
+            and 50 <= rsi <= 80                    # 当前 RSI 强势区(不超卖、不过热)
+            and mom_3m > 0                         # 当前 3 月动量仍为正
+            and vs_ma20 <= 15.0                    # 当前价不过度延伸(≤ MA20×1.15)
+        )
+        trend_ok = structure_ok and intraday_ok
 
         # v8: 自选(watchlist)不搞特殊 —— 和全量股走同一道趋势门(用户选 B,= 回测验证的那套)。
         # force_symbols 仅保证过门后出现在候选列表(免被 top_n 截断),不给买入优先(买入按动量排名)。
@@ -611,12 +672,12 @@ def quick_screen(
     if passed == 0:
         print("[scanner] WARNING: 0 candidates passed technical filter")
     else:
-        print(f"[scanner] {passed}/{total} passed v8 趋势门(MA50上+MA50升+RSI50-80+3月动量正+不过高+爆量)")
+        print(f"[scanner] {passed}/{total} passed v10 趋势门(上日结构+盘中RSI/价格确认)")
 
     # Always include force_symbols that passed — don't let tech_score ranking cut them
     force_results   = [r for r in all_results if r["symbol"] in _force]
     regular_results = [r for r in all_results if r["symbol"] not in _force]
-    regular_results.sort(key=lambda x: x.get("momentum_3m") or 0, reverse=True)   # v8: 按动量排名
+    regular_results.sort(key=lambda x: x.get("rank_momentum_3m", x.get("momentum_3m")) or 0, reverse=True)
     regular_slots = max(0, top_n - len(force_results))
     combined = force_results + regular_results[:regular_slots]
     if _force:
@@ -624,5 +685,5 @@ def quick_screen(
         print(f"[scanner] force_symbols: {force_tracks}")
     # v8: 自选不搞特殊 —— 仅保证过门后不被 top_n 截断(已进 combined),
     # 但整体按动量重排,坐回真实排名、不给买入插队。三处(信号页/候选表/买入循环)统一动量序。
-    combined.sort(key=lambda x: x.get("momentum_3m") or 0, reverse=True)
+    combined.sort(key=lambda x: x.get("rank_momentum_3m", x.get("momentum_3m")) or 0, reverse=True)
     return combined

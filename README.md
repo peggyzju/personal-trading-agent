@@ -2,7 +2,7 @@
 
 An autonomous AI-assisted trading system that scans the US market, ranks stocks by momentum, and executes trades on Alpaca — with a React dashboard for monitoring and control. Currently runs in **paper trading** mode.
 
-> **Strategy v9 (2026-07-02):** keeps the v8 **mechanical momentum** selection/buy thesis and adds BE5/trail5 profit protection on exits. Stock selection and entry/exit remain rule-based (no AI in the buy/sell decision). AI is demoted to an advisory role — landmine veto (→ manual review), post-earnings judgment, and end-of-day review.
+> **Strategy v10 (2026-07-02):** keeps the v9 BE5/trail5 exits and updates Scout scans to use completed daily bars for structure/ranking plus intraday price for entry confirmation. Stock selection and entry/exit remain rule-based (no AI in the buy/sell decision). AI is advisory only — landmine veto (→ manual review), post-earnings judgment, and end-of-day review.
 
 ## Agents
 
@@ -30,16 +30,14 @@ api/app.py (FastAPI :8000)        frontend/ (React + Vite)
   └── REST endpoints   ←→         └── Portfolio Command Center
 ```
 
-## Strategy (v9 — mechanical momentum + BE5/trail5 exits)
+## Strategy (v10 — daily structure + intraday confirmation)
 
-### 1. Selection (Scout) — single trend gate, ranked by momentum
-A stock passes the gate only if **all** hold (no dual-track, no AI score gate, no sector boost):
-- price **> MA50** and **MA50 rising** (5-day slope > 0)
-- **RSI 50–80** (strength zone)
-- **3-month momentum > 0**
-- **vs MA20 ≤ 15%** (not over-extended)
+### 1. Selection (Scout) — completed structure, intraday confirmation
+A stock passes only if the completed-daily structure and current intraday confirmation both hold (no dual-track, no AI score gate, no sector boost):
+- completed daily structure: previous close **> MA50**, **MA50 rising** (5-day slope > 0), previous **3-month momentum > 0**
+- intraday confirmation: current price **> previous MA50**, current **RSI 50–80**, current **3-month momentum > 0**, current **vs previous MA20 ≤ 15%**
 
-Passing stocks are ranked by **3-month momentum**; the top N (by regime cap) are the candidates. Watchlist symbols go through the same gate (no special treatment).
+Passing stocks are ranked by **previous completed-day 3-month momentum**; the candidate price is updated to the current intraday price for sizing/stops. Watchlist symbols go through the same gate (no special treatment).
 
 ### 2. Buy (Rex) — momentum order, auto by default
 - Candidates in momentum order → entry gate: market hours · fresh signal · price drift ≤ 1.5% · no earnings today/tomorrow
