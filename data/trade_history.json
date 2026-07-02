@@ -1610,5 +1610,43 @@
     "strategy_version": "v8",
     "alpaca_order_id": "d71f2204-844f-4a4d-b3ef-b0dfee835b85",
     "recorded_at": "2026-06-30T20:10:01.298785+00:00"
+  },
+  {
+    "symbol": "ARM",
+    "entry_date": "2026-07-01",
+    "exit_date": "2026-07-01",
+    "entry_price": 340.75,
+    "exit_price": 339.67,
+    "pnl_pct": -0.32,
+    "exit_reason": "ai_sell",
+    "days_held": 0,
+    "notional": 8519.0,
+    "dollar_pnl": -27.0,
+    "rsi_at_entry": null,
+    "vma20_at_entry": null,
+    "market_regime": "BULL",
+    "screen_track": "momentum",
+    "strategy_version": "v8",
+    "alpaca_order_id": "2a8cd21a-e3dc-4977-872c-94e375348cce",
+    "recorded_at": "2026-07-01T20:10:01.373116+00:00"
+  },
+  {
+    "symbol": "MU",
+    "entry_date": "2026-06-30",
+    "exit_date": "2026-07-01",
+    "entry_price": 1148.15,
+    "exit_price": 1056.06,
+    "pnl_pct": -8.02,
+    "exit_reason": "alpaca_sync",
+    "days_held": 1,
+    "notional": 6889.0,
+    "dollar_pnl": -552.0,
+    "rsi_at_entry": null,
+    "vma20_at_entry": null,
+    "market_regime": "BULL",
+    "screen_track": "momentum",
+    "strategy_version": "v8",
+    "alpaca_order_id": "e7de4737-a8e3-49f4-aa19-771f52295658",
+    "recorded_at": "2026-07-01T20:10:01.397987+00:00"
   }
 ]

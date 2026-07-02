@@ -1,18 +1,9 @@
 {
-  "generated_at": "2026-06-30T12:00:22.971998+00:00",
+  "generated_at": "2026-07-01T12:00:29.051320+00:00",
   "horizon_days": 7,
   "count": 2,
   "holdings_reporting": 0,
   "rows": [
-    {
-      "symbol": "STZ",
-      "date": "2026-06-30",
-      "session": "AMC",
-      "eps_estimate": 3.2744,
-      "in_portfolio": false,
-      "importance": "",
-      "days_until": 0
-    },
     {
       "symbol": "FDS",
       "date": "2026-07-01",
@@ -20,7 +11,16 @@
       "eps_estimate": 4.4964,
       "in_portfolio": false,
       "importance": "",
-      "days_until": 1
+      "days_until": 0
+    },
+    {
+      "symbol": "CAG",
+      "date": "2026-07-08",
+      "session": "AMC",
+      "eps_estimate": 0.4603,
+      "in_portfolio": false,
+      "importance": "",
+      "days_until": 7
     }
   ]
 }

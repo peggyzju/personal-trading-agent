@@ -1,1 +1,40 @@
-[]
+[
+  {
+    "symbol": "FDS",
+    "held": false,
+    "gap_pct": 6.4,
+    "vol_ratio": 1.8,
+    "surprise_pct": 0.7,
+    "history": [
+      {
+        "date": "2026-06-30",
+        "surprise_pct": 0.7,
+        "reaction_pct": 6.4
+      },
+      {
+        "date": "2026-03-31",
+        "surprise_pct": 0.9,
+        "reaction_pct": 3.1
+      },
+      {
+        "date": "2025-12-31",
+        "surprise_pct": 2.2,
+        "reaction_pct": -7.7
+      },
+      {
+        "date": "2025-09-30",
+        "surprise_pct": -2.9,
+        "reaction_pct": -10.3
+      }
+    ],
+    "analysis": {
+      "summary": "EPS微超预期0.7%,盘后跳空上涨6.4%,市场反应积极但超预期幅度较小",
+      "verdict": "观望",
+      "confidence": 5,
+      "reason": "虽然盘后跳空6.4%显示市场做多情绪,但存在三大风险:①EPS超预期幅度仅0.7%,为近期最低,动能有限;②历史数据显示超预期幅度与后续涨跌无必然关联(0.7%超预期曾跌-10.3%);③盘后跳空后次日常见回调或高开低走。建议等待开盘确认走势后再介入,追高风险大,可在跳空缺口处设置支撑"
+    },
+    "earnings_date": "2026-07-01",
+    "session": "BMO",
+    "analyzed_at": "2026-07-02T00:45:09.723014+00:00"
+  }
+]
