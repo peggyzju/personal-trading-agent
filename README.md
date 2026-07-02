@@ -2,7 +2,7 @@
 
 An autonomous AI-assisted trading system that scans the US market, ranks stocks by momentum, and executes trades on Alpaca — with a React dashboard for monitoring and control. Currently runs in **paper trading** mode.
 
-> **Strategy v8 (2026-06-29):** unified to a single **mechanical momentum** thesis. Stock selection and entry/exit are rule-based (no AI in the buy/sell decision). AI is demoted to an advisory role — landmine veto (→ manual review), post-earnings judgment, and end-of-day review. Backtest + robustness: 9/9 parameter combos beat SPY.
+> **Strategy v9 (2026-07-02):** keeps the v8 **mechanical momentum** selection/buy thesis and adds BE5/trail5 profit protection on exits. Stock selection and entry/exit remain rule-based (no AI in the buy/sell decision). AI is demoted to an advisory role — landmine veto (→ manual review), post-earnings judgment, and end-of-day review.
 
 ## Agents
 
@@ -30,7 +30,7 @@ api/app.py (FastAPI :8000)        frontend/ (React + Vite)
   └── REST endpoints   ←→         └── Portfolio Command Center
 ```
 
-## Strategy (v8 — mechanical momentum)
+## Strategy (v9 — mechanical momentum + BE5/trail5 exits)
 
 ### 1. Selection (Scout) — single trend gate, ranked by momentum
 A stock passes the gate only if **all** hold (no dual-track, no AI score gate, no sector boost):
@@ -53,7 +53,8 @@ Passing stocks are ranked by **3-month momentum**; the top N (by regime cap) are
 | Mechanism | Rule |
 |-----------|------|
 | **Hard stop** | −8% from entry → Alpaca bracket GTC order (server-side, ms-latency) + holdings-monitor fallback |
-| **Trailing stop** | Activates at **+6%** gain; triggers SELL if price falls **8%** from the high watermark |
+| **Breakeven stop** | Activates at **+5%** high watermark; triggers SELL if price returns to entry/average cost |
+| **Trailing stop** | Activates at **+6%** high watermark; triggers SELL if price falls **5%** from the high watermark |
 | **MA20 break** | **2 consecutive daily closes below MA20** → trend over, exit (single-bar dips are held — avoids whipsaw) |
 
 ## Stack
@@ -103,7 +104,7 @@ Dashboard: `http://localhost:5173` (dev) — production build is served by the b
 | `trailing_stops.json` | Per-position high-watermarks + trailing stop prices |
 | `earnings_calendar.json` / `earnings_analysis.json` | Earnings radar (upcoming + post-report AI judgment) |
 | `scheduler_heartbeat.json` | Scheduler liveness (watched by the watchdog) |
-| `versions.json` | Strategy version history (v1–v8) |
+| `versions.json` | Strategy version history (v1–v9) |
 
 ## Testing & self-check
 
@@ -114,6 +115,6 @@ PYTHONPATH=. python scripts/mock_pipeline.py   # 全链路 mock: Maya→Scout→
 ```
 
 Backtest scripts (offline, survivorship-biased universe — relative comparison is reliable):
-`scripts/v8_backtest.py`, `scripts/v8_robustness.py`, `scripts/v8_ma20_exit_test.py`, `scripts/v8_ma20_volume_test.py`.
+`scripts/v8_backtest.py`, `scripts/v8_robustness.py`, `scripts/v8_ma20_exit_test.py`, `scripts/v8_ma20_volume_test.py`, `scripts/v8_exit_ab_backtest.py`.
 
 > Strategy + operating guide: `CLAUDE.md` (single source of truth).
