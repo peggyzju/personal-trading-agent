@@ -801,8 +801,9 @@ def run_agent(
         # ── 3. Holdings: SELL / REDUCE ────────────────────────────────────────
         # First pass: hard stop-loss + trailing stop from live Alpaca positions
         HARD_STOP_PCT  = -stop_loss_pct * 100   # fallback for untracked positions
-        TRAIL_TRIGGER = 0.06   # v8: 浮盈 +6% 激活追踪(原 +10%)— 顺势早保护
-        TRAIL_PCT     = 0.08   # v8: 高水位回撤 8% 才走(原 5%)— 给赢家呼吸空间、让它跑
+        BREAKEVEN_TRIGGER = 0.05  # v9: 浮盈 +5% 后启用保本线
+        TRAIL_TRIGGER = 0.06      # v9: 浮盈 +6% 激活追踪
+        TRAIL_PCT     = 0.05      # v9: 高水位回撤 5% 退出,更快锁住短线收益
 
         # Build symbol → trade entry from most-recent buy in trades.json
         all_trades = _load_from_disk()
@@ -828,7 +829,12 @@ def run_agent(
             current_px = float(ap.current_price)
             entry_trade = _sym_trade.get(ap.symbol, {})
             per_pos_stop = entry_trade.get("stop_loss")
-            entry_px = entry_trade.get("price") or (current_px / (1 + plpc / 100) if plpc != -100 else current_px)
+            entry_px = (
+                float(getattr(ap, "avg_entry_price", 0) or 0)
+                or entry_trade.get("fill_price")
+                or entry_trade.get("price")
+                or (current_px / (1 + plpc / 100) if plpc != -100 else current_px)
+            )
 
             # ── Update high water mark ────────────────────────────────────────
             high_water = float(entry_trade.get("high_water_price") or entry_px)
@@ -838,9 +844,18 @@ def run_agent(
                     all_trades[_sym_trade_id[ap.symbol]]["high_water_price"] = round(high_water, 4)
                     _trades_dirty = True
 
-            # ── Activate trailing stop once target is reached (v8: 浮盈 +6% 激活) ──
+            # ── Activate breakeven once high watermark reaches +5% ───────────
+            breakeven_active = bool(entry_trade.get("breakeven_active", False))
+            if not breakeven_active and entry_px and high_water >= entry_px * (1 + BREAKEVEN_TRIGGER):
+                breakeven_active = True
+                if ap.symbol in _sym_trade_id:
+                    all_trades[_sym_trade_id[ap.symbol]]["breakeven_active"] = True
+                    _trades_dirty = True
+                print(f"[agent] Breakeven stop ACTIVATED: {ap.symbol} high=${high_water:.2f} (+{((high_water/entry_px)-1)*100:.1f}%)")
+
+            # ── Activate trailing stop once target is reached (v9: 浮盈 +6% 激活) ──
             trail_active = bool(entry_trade.get("trail_active", False))
-            if not trail_active and entry_px and current_px >= entry_px * (1 + TRAIL_TRIGGER):
+            if not trail_active and entry_px and high_water >= entry_px * (1 + TRAIL_TRIGGER):
                 trail_active = True
                 if ap.symbol in _sym_trade_id:
                     all_trades[_sym_trade_id[ap.symbol]]["trail_active"] = True
@@ -849,10 +864,29 @@ def run_agent(
 
             # ── Check exit conditions ─────────────────────────────────────────
             trail_stop_px = high_water * (1 - TRAIL_PCT) if trail_active else None
+            breakeven_stop_px = float(entry_px) if breakeven_active and entry_px else None
             hard_stop_hit  = (current_px <= float(per_pos_stop)) if per_pos_stop else (plpc <= HARD_STOP_PCT)
             trail_stop_hit = trail_active and trail_stop_px and current_px <= trail_stop_px
+            breakeven_hit = breakeven_active and breakeven_stop_px and current_px <= breakeven_stop_px
 
-            if trail_stop_hit:
+            if hard_stop_hit:
+                stop_desc = f"stop price ${per_pos_stop:.2f} (structured)" if per_pos_stop else f"threshold {HARD_STOP_PCT:.1f}%"
+                print(f"[agent] Hard stop: {ap.symbol} @ ${current_px:.2f} hit {stop_desc} (P&L {plpc:.1f}%)")
+                trade = _make_trade(
+                    symbol=ap.symbol, side="sell",
+                    notional=None, qty=None,
+                    signal="SELL", confidence=0.9,
+                    reason=f"Hard stop: {ap.symbol} @ ${current_px:.2f} hit {stop_desc} (P&L {plpc:.1f}%)",
+                    source="hard_stop",
+                    price=current_px,
+                )
+                if _add_trade(trade, owned_symbols):
+                    summary["signals_found"] += 1
+                    summary["trades_queued"] += 1
+                    holdings_added += 1
+                    hard_stop_symbols.add(ap.symbol)
+                    _new_trade_ids.add(trade["id"])
+            elif trail_stop_hit:
                 reason_txt = f"Trailing stop: {ap.symbol} dropped ${current_px:.2f} from high ${high_water:.2f} ({((current_px/high_water)-1)*100:.1f}%)"
                 print(f"[agent] {reason_txt}")
                 trade = _make_trade(
@@ -868,15 +902,17 @@ def run_agent(
                     holdings_added += 1
                     hard_stop_symbols.add(ap.symbol)
                     _new_trade_ids.add(trade["id"])
-            elif hard_stop_hit:
-                stop_desc = f"stop price ${per_pos_stop:.2f} (structured)" if per_pos_stop else f"threshold {HARD_STOP_PCT:.1f}%"
-                print(f"[agent] Hard stop: {ap.symbol} @ ${current_px:.2f} hit {stop_desc} (P&L {plpc:.1f}%)")
+            elif breakeven_hit:
+                reason_txt = (
+                    f"Breakeven stop: {ap.symbol} protected after +{BREAKEVEN_TRIGGER*100:.0f}% run; "
+                    f"${current_px:.2f} <= entry ${breakeven_stop_px:.2f}"
+                )
+                print(f"[agent] {reason_txt}")
                 trade = _make_trade(
                     symbol=ap.symbol, side="sell",
                     notional=None, qty=None,
-                    signal="SELL", confidence=0.9,
-                    reason=f"Hard stop: {ap.symbol} @ ${current_px:.2f} hit {stop_desc} (P&L {plpc:.1f}%)",
-                    source="hard_stop",
+                    signal="SELL", confidence=0.82,
+                    reason=reason_txt, source="breakeven_stop",
                     price=current_px,
                 )
                 if _add_trade(trade, owned_symbols):

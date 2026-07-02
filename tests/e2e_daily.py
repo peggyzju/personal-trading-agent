@@ -559,19 +559,27 @@ def test_hard_stop_logic():
         mock_client.messages.create.return_value = mock_msg
 
         positions_ts = [
-            # RUNIT: watermark=$120, trailing_stop=$112.8 (6%), current=$110 → SELL
+            # RUNIT: watermark=$120, trailing_stop=$114 (5%), current=$110 → SELL
             {"symbol": "RUNIT", "qty": 10, "avg_entry_price": 100.0,
              "current_price": 110.0, "market_value": 1100, "unrealized_pl": 100,
              "unrealized_plpc": 10.0, "side": "long"},
-            # SAFEX: watermark=$105, trailing_stop=$98.7, current=$103 → HOLD
+            # SAFEX: watermark=$105, breakeven active but price still above entry → HOLD
             {"symbol": "SAFEX", "qty": 10, "avg_entry_price": 100.0,
              "current_price": 103.0, "market_value": 1030, "unrealized_pl": 30,
              "unrealized_plpc": 3.0, "side": "long"},
+            # LOCKIT: reached +5%, then fell back to entry → breakeven SELL
+            {"symbol": "LOCKIT", "qty": 10, "avg_entry_price": 100.0,
+             "current_price": 99.8, "market_value": 998, "unrealized_pl": -2,
+             "unrealized_plpc": -0.2, "side": "long"},
         ]
         # Mock trailing stops: RUNIT's stop is above current price
         mock_trailing = {
-            "RUNIT": {"high_watermark": 120.0, "trailing_stop": 114.0, "trail_pct": 5.0},  # 120*(1-0.05)
-            "SAFEX": {"high_watermark": 105.0, "trailing_stop":  99.75, "trail_pct": 5.0},  # 105*(1-0.05)
+            "RUNIT": {"high_watermark": 120.0, "trailing_stop": 114.0, "trail_pct": 5.0,
+                      "breakeven_active": True, "breakeven_stop": 100.0},
+            "SAFEX": {"high_watermark": 105.0, "trailing_stop": None, "trail_pct": 5.0,
+                      "breakeven_active": True, "breakeven_stop": 100.0},
+            "LOCKIT": {"high_watermark": 105.0, "trailing_stop": None, "trail_pct": 5.0,
+                       "breakeven_active": True, "breakeven_stop": 100.0},
         }
 
         with patch("anthropic.Anthropic", return_value=mock_client), \
@@ -591,13 +599,20 @@ def test_hard_stop_logic():
             fail("Trailing stop trigger",
                  f"RUNIT: sell_signal={runit.get('sell_signal')}, urgency={runit.get('urgency')}")
 
-        # SAFEX: price $103 > trailing_stop $99.75 (5% from $105 peak) → HOLD passes through
+        # SAFEX: price $103 > breakeven $100 → HOLD passes through
         safex = ts_map.get("SAFEX", {})
         if safex.get("sell_signal") == "HOLD":
-            ok("No false trailing stop", "SAFEX $103 > stop $99.75: HOLD 正确保留 ✓")
+            ok("No false trailing stop", "SAFEX $103 > breakeven $100: HOLD 正确保留 ✓")
         else:
             fail("No false trailing stop",
                  f"SAFEX: 意外 sell_signal={safex.get('sell_signal')}")
+
+        lockit = ts_map.get("LOCKIT", {})
+        if lockit.get("sell_signal") == "SELL" and "Breakeven" in lockit.get("reason", ""):
+            ok("Breakeven stop", "LOCKIT +5%后回到成本 → breakeven SELL ✓")
+        else:
+            fail("Breakeven stop",
+                 f"LOCKIT: sell_signal={lockit.get('sell_signal')}, reason={lockit.get('reason')}")
 
     except Exception as e:
         fail("Trailing stop 逻辑", str(e))
@@ -887,7 +902,7 @@ def test_v3_strategy():
     except Exception as e:
         fail("财报过滤", str(e))
 
-    # ── 6. Trail 参数验证 (TRAIL_TRIGGER=20%, TRAIL_PCT=5%) ─────────────────
+    # ── 6. Trail / breakeven 参数验证 ───────────────────────────────────────
     try:
         import src.trader.trade_agent as ta
         import inspect
@@ -895,15 +910,19 @@ def test_v3_strategy():
         import src.trader.trade_agent as _ta_mod
         ta_src = inspect.getsource(_ta_mod)
         import re as _re
-        # v8: 实际追踪止盈 TRAIL_TRIGGER=0.06 / TRAIL_PCT=0.08(让赢家跑)
+        # v9: BE5/trail5 — +5%保本, +6%激活追踪, 5%高水位回撤退出
+        if _re.search(r"BREAKEVEN_TRIGGER\s*=\s*0\.05", ta_src):
+            ok("Breakeven trigger v9", "BREAKEVEN_TRIGGER = 5% ✓")
+        else:
+            fail("Breakeven trigger v9", "BREAKEVEN_TRIGGER 不是 0.05")
         if _re.search(r"TRAIL_TRIGGER\s*=\s*0\.06", ta_src):
-            ok("Trail trigger v8", "TRAIL_TRIGGER = 6% ✓")
+            ok("Trail trigger v9", "TRAIL_TRIGGER = 6% ✓")
         else:
-            fail("Trail trigger v8", "TRAIL_TRIGGER 不是 0.06")
-        if _re.search(r"TRAIL_PCT\s*=\s*0\.08", ta_src):
-            ok("Trail pct v8", "TRAIL_PCT = 8% ✓")
+            fail("Trail trigger v9", "TRAIL_TRIGGER 不是 0.06")
+        if _re.search(r"TRAIL_PCT\s*=\s*0\.05", ta_src):
+            ok("Trail pct v9", "TRAIL_PCT = 5% ✓")
         else:
-            fail("Trail pct v8", "TRAIL_PCT 不是 0.08")
+            fail("Trail pct v9", "TRAIL_PCT 不是 0.05")
     except Exception as e:
         fail("Trail 参数", str(e))
 

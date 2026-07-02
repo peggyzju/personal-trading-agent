@@ -26,6 +26,7 @@ data/review_cache.json
 data/scan_cache.json
 data/sector_cache.json
 data/strategy_notes.json
+data/v8_exit_ab_ohlc_cache.pkl
 data/wsb_cache.json
 data/version_compare_cache.json
 api/data/

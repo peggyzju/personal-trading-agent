@@ -161,5 +161,27 @@
     "backtest_params": {
       "note": "v8 机械逻辑可回测,见 scripts/v8_robustness.py(9/9赢SPY)"
     }
+  },
+  {
+    "version": "v9",
+    "label": "v9 — BE5/trail5 收益保护",
+    "created_at": "2026-07-02",
+    "description": "保持 v8 机械动量选股和 -8% 主硬止损不变,只调整卖出端收益保护:高水位达到 +5% 后启用保本线,高水位达到 +6% 后启用 5% 回撤追踪止盈。目标是在高波动动量行情中减少盈利单回吐,更贴近 5-10 天短线波段。",
+    "changes": [
+      "硬止损仍为 -8%,Alpaca GTC 主止损 + holdings monitor 兜底不变",
+      "新增保本退出:高水位 ≥ 入场价×1.05 后,价格跌回入场价附近即卖出",
+      "追踪止盈保持 +6% 激活,回撤阈值从 8% 收紧到 5%",
+      "MA20 连续2根破位退出保留",
+      "回测 scripts/v8_exit_ab_backtest.py:BE5/trail5 在 2023-2026 收益 +153.5% vs v8 +135.9%,2026 YTD +51.1% vs v8 +39.5%"
+    ],
+    "backtest_params": {
+      "entry_mode": "v8_mechanical_momentum",
+      "hard_stop_pct": 0.08,
+      "breakeven_trigger": 0.05,
+      "trail_trigger": 0.06,
+      "trail_pct": 0.05,
+      "ma20_exit": "2d_confirm",
+      "note": "见 scripts/v8_exit_ab_backtest.py --grid"
+    }
   }
 ]

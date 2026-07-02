@@ -16,8 +16,9 @@ _PRICE_MOVE_THRESHOLD = 1.5           # re-analyse if price moved >1.5%
 
 # ── Trailing stop config ──────────────────────────────────────────────────────
 _TRAILING_FILE = Path(__file__).parent.parent.parent / "data" / "trailing_stops.json"
-TRAIL_PCT = 8.0           # v8: 高水位回撤 8% 才走(给赢家呼吸空间)
-TRAIL_ACTIVATE_PCT = 6.0  # v8: 浮盈高水位达 +6% 才激活追踪(未达则靠 -8% 硬止损,让赢家起步)
+BREAKEVEN_ACTIVATE_PCT = 5.0  # v9: 浮盈高水位达 +5% 后,回到成本附近就保护退出
+TRAIL_PCT = 5.0               # v9: 高水位回撤 5% 退出(更快锁住短线收益)
+TRAIL_ACTIVATE_PCT = 6.0      # v9: 浮盈高水位达 +6% 才激活追踪
 
 
 def _load_trailing_stops() -> dict:
@@ -63,7 +64,14 @@ def _update_trailing_stops(positions: list[dict]) -> dict:
             print(f"[holdings] {sym} watermark updated ${old_wm:.2f} → ${price:.2f}")
 
         wm = stops[sym]["high_watermark"]
-        # v8: 浮盈高水位达 +6% 才激活追踪;未达则不挂(trailing_stop=None,由 -8% 硬止损兜底)
+        # v9: +5% 后启用保本,+6% 后启用 5% trailing;未达则由 -8% 硬止损兜底。
+        if entry and wm >= entry * (1 + BREAKEVEN_ACTIVATE_PCT / 100):
+            stops[sym]["breakeven_active"] = True
+            stops[sym]["breakeven_stop"] = round(entry, 2)
+        else:
+            stops[sym]["breakeven_active"] = False
+            stops[sym]["breakeven_stop"] = None
+
         if entry and wm >= entry * (1 + TRAIL_ACTIVATE_PCT / 100):
             stops[sym]["trailing_stop"] = round(wm * (1 - TRAIL_PCT / 100), 2)
         else:
@@ -194,11 +202,9 @@ def analyze_sell_signals(positions: list[dict]) -> list[dict]:
 
     now = _time.time()
 
-    # ── trail_active bypass: Alpaca owns the exit, AI must stay silent ────────
-    # When trail_active=True the stock has gained ≥+10% and a server-side
-    # trailing stop is active on Alpaca. Any local AI SELL/REDUCE would race
-    # with Alpaca's order. Bypass Claude entirely; only _rule_based_override
-    # (hard stop / trailing_stop.json hit) can still trigger a SELL.
+    # ── trail_active bypass: local mechanical exits own the decision ──────────
+    # When trail_active=True the stock has reached the profit-protection zone.
+    # AI is bypassed; only _rule_based_override can trigger a mechanical SELL.
     trail_bypass: list[dict] = []
     remaining: list[dict] = []
     for p in positions:
@@ -250,7 +256,7 @@ def analyze_sell_signals(positions: list[dict]) -> list[dict]:
     def _rule_based_override(p: dict) -> dict | None:
         """
         Returns a forced sell dict if any rule-based condition is met, else None.
-        Priority: hard stop > trailing stop > (Claude signal used as-is)
+        Priority: hard stop > trailing stop > breakeven > MA20 break.
         """
         sym  = p["symbol"]
         plpc = p.get("unrealized_plpc", 0)
@@ -271,7 +277,14 @@ def analyze_sell_signals(positions: list[dict]) -> list[dict]:
                     "reason": f"Trailing stop hit: ${price:.2f} ≤ ${ts:.2f} "
                               f"({drawdown:.1f}% from high of ${wm:.2f})"}
 
-        # 3. v8 趋势破位:**连续 2 根日线收盘都 < MA20** 才退出(回测验证优于单根:
+        # 3. Breakeven stop: once high watermark reached +5%, do not let it turn into a loser.
+        be = ts_data.get("breakeven_stop")
+        if ts_data.get("breakeven_active") and be and price and price <= be:
+            return {"sell_signal": "SELL", "urgency": "MEDIUM",
+                    "reason": f"Breakeven stop: protected after +{BREAKEVEN_ACTIVATE_PCT:.0f}% run; "
+                              f"${price:.2f} ≤ entry ${be:.2f}"}
+
+        # 4. v8/v9 趋势破位:**连续 2 根日线收盘都 < MA20** 才退出(回测验证优于单根:
         #    收益+7pt、卖出次数-39%、回撤持平 —— 过滤单根假破位/健康回调,避免卖飞)。
         _tech = p.get("_tech", {}) or {}
         if _tech.get("ma20_below_2d") is True:
@@ -316,7 +329,7 @@ def analyze_sell_signals(positions: list[dict]) -> list[dict]:
 
     # Re-append trail_active bypass positions (trail_stop _rule_based_override still applies)
     # Run them through _rule_based_override so hard stop / trailing_stop.json can still fire
-    _update_trailing_stops(trail_bypass)   # keep high watermarks current
+    trailing_stops.update(_update_trailing_stops(trail_bypass))   # keep high watermarks current
     for p in trail_bypass:
         override = _rule_based_override(p)
         if override:
