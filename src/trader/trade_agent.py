@@ -363,6 +363,7 @@ def approve_trade(trade_id: str) -> dict:
             and trade.get("price")
         ):
             # Bracket order: market entry + stop-loss only (trailing stop handles upside exit)
+            reference_price = trade.get("price_at_approve") or trade.get("price")
             order = place_order(
                 symbol=trade["symbol"],
                 side="buy",
@@ -371,6 +372,7 @@ def approve_trade(trade_id: str) -> dict:
                 order_type="market",
                 stop_loss=trade["stop_loss"],
                 take_profit=None,
+                reference_price=reference_price,
             )
         else:
             order = place_order(

@@ -44,6 +44,7 @@ def place_order(
     stop_price: Optional[float] = None,
     stop_loss: Optional[float] = None,    # bracket: stop-loss price
     take_profit: Optional[float] = None,  # bracket: take-profit limit price
+    reference_price: Optional[float] = None,  # fallback for notional -> qty conversion
 ):
     """
     Place a buy or sell order.
@@ -79,23 +80,21 @@ def place_order(
                 live_price = float(api.get_latest_trade(symbol, feed="iex").price) or 0
             except Exception:
                 live_price = 0
-            if live_price > 0:
+            conversion_price = live_price if live_price > 0 else float(reference_price or 0)
+            if conversion_price > 0:
                 import math
-                computed_qty = math.floor(notional_val / live_price)
+                computed_qty = math.floor(notional_val / conversion_price)
                 if computed_qty >= 1:
                     kwargs["qty"] = computed_qty
                 else:
-                    # Price > notional — can't buy even 1 share; fall back to plain notional order
-                    kwargs["notional"] = str(round(notional_val, 2))
-                    stop_loss = None
-                    take_profit = None
+                    raise RuntimeError(
+                        f"{symbol}: notional ${notional_val:.2f} is too small to buy 1 share "
+                        f"with protective stop (reference price ${conversion_price:.2f})"
+                    )
             else:
-                # 取价失败：退化为普通 notional 市价单（无 bracket 止损），
-                # 必须恢复 notional —— 否则缺 qty/notional 会被 Alpaca 拒单（曾导致买入静默失败）
-                print(f"[alpaca] {symbol}: 无法取价，退化为普通 notional 单（无 bracket 止损，靠 holdings monitor 兜底）")
-                kwargs["notional"] = str(round(notional_val, 2))
-                stop_loss = None
-                take_profit = None
+                raise RuntimeError(
+                    f"{symbol}: cannot price order for protective stop; refusing naked notional buy"
+                )
 
         if stop_loss or take_profit:
             # bracket 止损必须 GTC —— 否则第 59 行按 notional 设的 "day" 会让子止损单

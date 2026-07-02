@@ -642,6 +642,35 @@ def test_bracket_gtc():
             ok("Bracket GTC", f"notional+止损 → tif={tif} order_class={oc} ✓")
         else:
             fail("Bracket GTC", f"tif={tif} order_class={oc}(期望 gtc + oto/bracket)")
+
+        # Quote outage path: use caller-provided reference price to keep the protective stop.
+        captured.clear()
+        mock_api = MagicMock()
+        mock_api.submit_order.side_effect = lambda **kw: (captured.update(kw), MagicMock())[1]
+        mock_api.get_latest_trade.side_effect = Exception("quote unavailable")
+        with patch.object(at, "get_client", return_value=mock_api):
+            at.place_order(
+                symbol="TESTX", side="buy", notional=1000,
+                stop_loss=92.0, reference_price=100.0,
+            )
+        tif = captured.get("time_in_force"); oc = captured.get("order_class")
+        if tif == "gtc" and oc in ("bracket", "oto") and captured.get("qty") == 10:
+            ok("Bracket quote fallback", "取价失败+reference_price → 仍挂 GTC OTO ✓")
+        else:
+            fail("Bracket quote fallback", f"captured={captured}(期望 qty+gtc+oto)")
+
+        # No fallback price: never submit a naked notional buy when stop_loss is required.
+        mock_api = MagicMock()
+        mock_api.get_latest_trade.side_effect = Exception("quote unavailable")
+        with patch.object(at, "get_client", return_value=mock_api):
+            try:
+                at.place_order(symbol="TESTX", side="buy", notional=1000, stop_loss=92.0)
+                fail("No naked stop buy", "取价失败却提交了无保护买单")
+            except RuntimeError:
+                if not mock_api.submit_order.called:
+                    ok("No naked stop buy", "取价失败且无reference_price → 拒单、不裸买 ✓")
+                else:
+                    fail("No naked stop buy", "拒单前仍调用了 submit_order")
     except Exception as e:
         fail("Bracket GTC", str(e)); traceback.print_exc()
 
