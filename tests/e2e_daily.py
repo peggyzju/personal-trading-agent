@@ -898,6 +898,62 @@ def test_v3_strategy():
         fail("v8 选股", str(e))
         traceback.print_exc()
 
+    # ── 4. v11 AI链 soft rotation overlay ───────────────────────────────────
+    try:
+        from src.monitor.sp500_scanner import quick_screen, AI_SOFTWARE_SYMBOLS, AI_HARDWARE_SYMBOLS
+        from unittest.mock import patch as _patch
+
+        def _row(symbol, sector, rank, ret1, ret3, rsi=60, vs20=4.0):
+            return {
+                "symbol": symbol, "sector": sector, "rsi": rsi, "today_bull": True,
+                "momentum_5d": 2.0, "momentum_3m": rank, "rank_momentum_3m": rank,
+                "daily_momentum_3m": rank, "vs_ma20_pct": vs20, "vs_ma50_pct": 10.0,
+                "daily_vs_ma50_pct": 10.0, "ma50_slope_pct": 2.0,
+                "return_1d": ret1, "return_3d": ret3, "volume_ratio": 1.0,
+                "price": 100, "tech_score": 50.0, "ma20_slope_pct": 0.5,
+            }
+
+        software_syms = ["DDOG", "SNOW", "CRWD", "MDB", "GTLB", "MNDY", "NET", "WDAY"]
+        hardware_syms = ["AMD", "AMAT", "NVDA", "MU"]
+        other_syms = ["HUM", "CNC", "FTNT"]
+        rotation_raws = []
+        for i, sym in enumerate(software_syms):
+            rotation_raws.append(_row(sym, "SOFTWARE", 35 - i, 1.5, 6.0, vs20=3.0))
+        for i, sym in enumerate(hardware_syms):
+            rotation_raws.append(_row(sym, "SEMIS", 70 - i, -4.0, -6.0, vs20=2.0 if i < 2 else -1.0))
+        rotation_raws.append(_row("ARM", "SEMIS", 80, -5.0, -7.0, rsi=51, vs20=2.0))
+        for i, sym in enumerate(other_syms):
+            rotation_raws.append(_row(sym, "OTHER", 60 - i, 0.2, 1.0, vs20=2.0))
+
+        _mock_map = {r["symbol"]: r for r in rotation_raws}
+        with _patch("src.monitor.sp500_scanner._fetch_raw", side_effect=lambda sym, *a, **k: _mock_map.get(sym)), \
+             _patch("src.monitor.sp500_scanner.fetch_bars_batch", return_value={}):
+            rotation_results = quick_screen([r["symbol"] for r in rotation_raws], top_n=10, force_symbols=set())
+
+        rot_syms = [r["symbol"] for r in rotation_results]
+        rot_groups = [r.get("rotation_group") for r in rotation_results]
+        sw_count = sum(1 for s in rot_syms if s in AI_SOFTWARE_SYMBOLS)
+        hw_count = sum(1 for s in rot_syms if s in AI_HARDWARE_SYMBOLS)
+
+        if rot_syms and rot_syms[0] in AI_SOFTWARE_SYMBOLS:
+            ok("v11 软件接棒优先", f"SOFTWARE_OVER_HARDWARE 下首位={rot_syms[0]} ✓")
+        else:
+            fail("v11 软件接棒优先", f"软件应排到高动量硬件前, 实际 {rot_syms[:5]}")
+
+        if "ARM" not in rot_syms:
+            ok("v11 弱硬件更严确认", "ARM RSI<52 在 overlay 下被拦截 ✓")
+        else:
+            fail("v11 弱硬件更严确认", f"ARM 不应进入候选, 实际 {rot_syms}")
+
+        if sw_count <= 6 and hw_count <= 3 and len(rotation_results) == 10:
+            ok("v11 top10 集中度上限", f"software={sw_count}, hardware={hw_count}, groups={rot_groups} ✓")
+        else:
+            fail("v11 top10 集中度上限", f"software={sw_count}, hardware={hw_count}, len={len(rotation_results)}, syms={rot_syms}")
+
+    except Exception as e:
+        fail("v11 rotation overlay", str(e))
+        traceback.print_exc()
+
     # ── 5. 财报过滤 days=1 (今天/明天) ───────────────────────────────────────
     try:
         from src.monitor.news_monitor import earnings_within_days

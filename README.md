@@ -2,7 +2,7 @@
 
 An autonomous AI-assisted trading system that scans the US market, ranks stocks by momentum, and executes trades on Alpaca — with a React dashboard for monitoring and control. Currently runs in **paper trading** mode.
 
-> **Strategy v10 (2026-07-02):** keeps the v9 BE5/trail5 exits and updates Scout scans to use completed daily bars for structure/ranking plus intraday price for entry confirmation. Stock selection and entry/exit remain rule-based (no AI in the buy/sell decision). AI is advisory only — landmine veto (→ manual review), post-earnings judgment, and end-of-day review.
+> **Strategy v11 (2026-07-03):** keeps v10 completed-daily structure + intraday confirmation and v9 BE5/trail5 exits. Scout adds a software-over-hardware AI-chain soft rotation overlay before top-N truncation: software can be ranked ahead when it clearly takes leadership, weak hardware needs stronger confirmation, and sector crowding is capped. Entry/exit remain rule-based; AI is advisory only — landmine veto (→ manual review), post-earnings judgment, and end-of-day review.
 
 ## Agents
 
@@ -30,7 +30,7 @@ api/app.py (FastAPI :8000)        frontend/ (React + Vite)
   └── REST endpoints   ←→         └── Portfolio Command Center
 ```
 
-## Strategy (v10 — daily structure + intraday confirmation)
+## Strategy (v11 — daily structure + intraday confirmation + rotation overlay)
 
 ### 1. Selection (Scout) — completed structure, intraday confirmation
 A stock passes only if the completed-daily structure and current intraday confirmation both hold (no dual-track, no AI score gate, no sector boost):
@@ -38,6 +38,12 @@ A stock passes only if the completed-daily structure and current intraday confir
 - intraday confirmation: current price **> previous MA50**, current **RSI 50–80**, current **3-month momentum > 0**, current **vs previous MA20 ≤ 15%**
 
 Passing stocks are ranked by **previous completed-day 3-month momentum**; the candidate price is updated to the current intraday price for sizing/stops. Watchlist symbols go through the same gate (no special treatment).
+
+When the AI-chain software group clearly leads hardware, Scout enables a **soft rotation overlay** before top-N truncation:
+- trigger: software 3-day median return minus hardware 3-day median return **> 3%**, hardware 1-day median return **< -2%**, and software MA20 breadth **>** hardware MA20 breadth
+- order: **software → other → hardware**, while each bucket still sorts by previous completed-day 3-month momentum
+- hardware is not banned, but must have **RSI ≥ 52** and current price **≥ MA20**
+- caps: top10 max **6 software / 3 hardware**; top25 max **12 software / 8 hardware**
 
 ### 2. Buy (Rex) — momentum order, auto by default
 - Candidates in momentum order → entry gate: market hours · fresh signal · price drift ≤ 1.5% · no earnings today/tomorrow

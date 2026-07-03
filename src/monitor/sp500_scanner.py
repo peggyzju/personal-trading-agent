@@ -64,6 +64,21 @@ SECTOR_MAP: dict[str, str] = {
     "VERV":"BIOTECH","EDIT":"BIOTECH","FATE":"BIOTECH","NVCR":"BIOTECH",
 }
 
+AI_HARDWARE_SYMBOLS: set[str] = {
+    "NVDA", "AMD", "AVGO", "MU", "MRVL", "LRCX", "AMAT", "KLAC",
+    "ACLS", "ONTO", "ARM", "SMCI", "QCOM", "TXN", "ON", "FORM",
+    "DELL", "WDC", "STX", "NTAP", "PSTG",
+}
+
+AI_SOFTWARE_SYMBOLS: set[str] = {
+    "DDOG", "SNOW", "CRM", "NOW", "PANW", "CRWD", "ZS", "MDB",
+    "NET", "TEAM", "WDAY", "OKTA", "GTLB", "MNDY", "BILL", "ADBE",
+    "MSFT", "ORCL", "VEEV", "APP", "HUBS", "PATH",
+}
+
+ROTATION_SW_MINUS_HW_3D_PCT = 3.0
+ROTATION_HW_1D_PCT = -2.0
+
 
 # ── Stock Universe ────────────────────────────────────────────────────────────
 
@@ -325,9 +340,13 @@ def compute_technicals(df: pd.DataFrame) -> dict:
         return {}
 
     price_now = float(closes.iloc[-1])
+    price_1d  = float(closes.iloc[-2]) if len(closes) >= 2 else price_now
+    price_3d  = float(closes.iloc[-4]) if len(closes) >= 4 else float(closes.iloc[0])
     price_5d  = float(closes.iloc[-6])
     price_1m  = float(closes.iloc[-22]) if len(closes) >= 22 else float(closes.iloc[0])
     price_3m  = float(closes.iloc[-63]) if len(closes) >= 63 else float(closes.iloc[0])
+    return_1d = (price_now - price_1d) / price_1d * 100 if price_1d else 0.0
+    return_3d = (price_now - price_3d) / price_3d * 100 if price_3d else 0.0
     momentum_5d  = (price_now - price_5d)  / price_5d  * 100
     momentum_1m  = (price_now - price_1m)  / price_1m  * 100
     momentum_3m  = (price_now - price_3m)  / price_3m  * 100
@@ -410,6 +429,8 @@ def compute_technicals(df: pd.DataFrame) -> dict:
 
     result = {
         "price":          round(price_now, 2),
+        "return_1d":      round(return_1d, 2),
+        "return_3d":      round(return_3d, 2),
         "momentum_5d":    round(momentum_5d, 2),
         "momentum_1m":    round(momentum_1m, 2),
         "momentum_3m":    round(momentum_3m, 2),
@@ -546,6 +567,8 @@ def _with_intraday_confirmation(base: dict, completed_df: pd.DataFrame,
         **base,
         # Completed daily snapshot: stable structure and ranking anchor.
         "daily_price": base.get("price"),
+        "daily_return_1d": base.get("return_1d"),
+        "daily_return_3d": base.get("return_3d"),
         "daily_rsi": base.get("rsi"),
         "daily_momentum_3m": base.get("momentum_3m"),
         "daily_vs_ma20_pct": base.get("vs_ma20_pct"),
@@ -553,6 +576,8 @@ def _with_intraday_confirmation(base: dict, completed_df: pd.DataFrame,
         "rank_momentum_3m": base.get("momentum_3m"),
         # Current confirmation: what Rex would be buying against now.
         "price": round(current_price, 2),
+        "return_1d": intraday_tech.get("return_1d", base.get("return_1d")),
+        "return_3d": intraday_tech.get("return_3d", base.get("return_3d")),
         "rsi": current_rsi,
         "momentum_5d": intraday_tech.get("momentum_5d", base.get("momentum_5d")),
         "momentum_1m": intraday_tech.get("momentum_1m", base.get("momentum_1m")),
@@ -563,6 +588,102 @@ def _with_intraday_confirmation(base: dict, completed_df: pd.DataFrame,
         "scan_price_source": "intraday_latest",
     }
     return out
+
+
+def _rotation_group(symbol: str, sector: str | None = None) -> str:
+    if symbol in AI_HARDWARE_SYMBOLS or sector == "SEMIS":
+        return "hardware"
+    if symbol in AI_SOFTWARE_SYMBOLS or sector == "SOFTWARE":
+        return "software"
+    return "other"
+
+
+def _median_pct(rows: list[dict], key: str) -> float | None:
+    vals = [float(r[key]) for r in rows if r.get(key) is not None]
+    if not vals:
+        return None
+    return float(np.median(vals))
+
+
+def _breadth_above_ma20(rows: list[dict]) -> float | None:
+    vals = [1.0 if (r.get("vs_ma20_pct") or 0) > 0 else 0.0 for r in rows if r.get("vs_ma20_pct") is not None]
+    if not vals:
+        return None
+    return float(np.mean(vals))
+
+
+def _software_over_hardware_signal(rows: list[dict]) -> dict:
+    hardware = [r for r in rows if _rotation_group(r["symbol"], r.get("sector")) == "hardware"]
+    software = [r for r in rows if _rotation_group(r["symbol"], r.get("sector")) == "software"]
+    if len(hardware) < 3 or len(software) < 3:
+        return {"active": False, "reason": "insufficient_group_data"}
+
+    sw_3d = _median_pct(software, "return_3d")
+    hw_3d = _median_pct(hardware, "return_3d")
+    hw_1d = _median_pct(hardware, "return_1d")
+    sw_breadth = _breadth_above_ma20(software)
+    hw_breadth = _breadth_above_ma20(hardware)
+    if None in (sw_3d, hw_3d, hw_1d, sw_breadth, hw_breadth):
+        return {"active": False, "reason": "missing_rotation_fields"}
+
+    sw_minus_hw_3d = sw_3d - hw_3d
+    active = (
+        sw_minus_hw_3d > ROTATION_SW_MINUS_HW_3D_PCT
+        and hw_1d < ROTATION_HW_1D_PCT
+        and sw_breadth > hw_breadth
+    )
+    return {
+        "active": active,
+        "sw_minus_hw_3d": round(sw_minus_hw_3d, 2),
+        "hardware_1d": round(hw_1d, 2),
+        "software_breadth": round(sw_breadth, 3),
+        "hardware_breadth": round(hw_breadth, 3),
+        "hardware_count": len(hardware),
+        "software_count": len(software),
+    }
+
+
+def _momentum_rank_value(row: dict) -> float:
+    return row.get("rank_momentum_3m", row.get("momentum_3m")) or 0.0
+
+
+def _apply_software_rotation_overlay(candidates: list[dict], top_n: int,
+                                     signal: dict) -> list[dict]:
+    if not signal.get("active"):
+        return sorted(candidates, key=_momentum_rank_value, reverse=True)
+
+    sw_cap = 6 if top_n <= 10 else 12
+    hw_cap = 3 if top_n <= 10 else 8
+    buckets: dict[str, list[dict]] = {"software": [], "other": [], "hardware": []}
+
+    for row in candidates:
+        group = _rotation_group(row["symbol"], row.get("sector"))
+        annotated = {
+            **row,
+            "rotation_group": group,
+            "rotation_overlay": "SOFTWARE_OVER_HARDWARE",
+        }
+        # 硬件不是禁买,但在软件显著接棒时要求它至少站在 MA20 上且 RSI 不弱。
+        if group == "hardware" and ((annotated.get("rsi") or 0) < 52 or (annotated.get("vs_ma20_pct") or 0) < 0):
+            continue
+        buckets[group].append(annotated)
+
+    for group_rows in buckets.values():
+        group_rows.sort(key=_momentum_rank_value, reverse=True)
+
+    selected: list[dict] = []
+    counts = Counter()
+    for group in ("software", "other", "hardware"):
+        limit = sw_cap if group == "software" else hw_cap if group == "hardware" else top_n
+        for row in buckets[group]:
+            if len(selected) >= top_n:
+                return selected
+            if counts[group] >= limit:
+                continue
+            selected.append(row)
+            counts[group] += 1
+
+    return selected
 
 
 def _fetch_raw(symbol: str, bars_by_sym: dict | None = None,
@@ -597,8 +718,9 @@ def quick_screen(
     """
     Download 60d OHLCV per-ticker in parallel, compute technicals, return top_n.
 
-    v10 盘中扫描口径:上日完成日线定结构/排名,盘中最新价确认 RSI/价格位置。
-    过门后按上日完成日线 rank_momentum_3m 排名取 top_n,避免追当天涨幅。
+    v11 盘中扫描口径:上日完成日线定结构/排名,盘中最新价确认 RSI/价格位置。
+    过门后默认按上日完成日线 rank_momentum_3m 排名;若 AI 链出现软件显著接棒,
+    启用 SOFTWARE_OVER_HARDWARE soft overlay:软件优先、硬件更严确认且做集中度上限。
 
     force_symbols (watchlist): 走同一道趋势门(不搞特殊),仅保证过门后不被
     top_n 截断;整体按动量重排,不给买入插队。
@@ -674,16 +796,27 @@ def quick_screen(
     else:
         print(f"[scanner] {passed}/{total} passed v10 趋势门(上日结构+盘中RSI/价格确认)")
 
-    # Always include force_symbols that passed — don't let tech_score ranking cut them
+    rotation_signal = _software_over_hardware_signal(raw_results)
+    if rotation_signal.get("active"):
+        print(
+            "[scanner] SOFTWARE_OVER_HARDWARE overlay active: "
+            f"sw-hw3d={rotation_signal.get('sw_minus_hw_3d')}%, "
+            f"hw1d={rotation_signal.get('hardware_1d')}%, "
+            f"breadth sw={rotation_signal.get('software_breadth')} "
+            f"hw={rotation_signal.get('hardware_breadth')}"
+        )
+    else:
+        print(f"[scanner] rotation overlay inactive ({rotation_signal.get('reason', 'no_trigger')})")
+
+    # Always include force_symbols that passed — don't let top_n cut them
     force_results   = [r for r in all_results if r["symbol"] in _force]
     regular_results = [r for r in all_results if r["symbol"] not in _force]
-    regular_results.sort(key=lambda x: x.get("rank_momentum_3m", x.get("momentum_3m")) or 0, reverse=True)
     regular_slots = max(0, top_n - len(force_results))
-    combined = force_results + regular_results[:regular_slots]
+    regular_ranked = _apply_software_rotation_overlay(regular_results, regular_slots, rotation_signal)
+    combined = force_results + regular_ranked[:regular_slots]
     if _force:
         force_tracks = {r["symbol"]: r.get("screen_track", "?") for r in force_results}
         print(f"[scanner] force_symbols: {force_tracks}")
     # v8: 自选不搞特殊 —— 仅保证过门后不被 top_n 截断(已进 combined),
-    # 但整体按动量重排,坐回真实排名、不给买入插队。三处(信号页/候选表/买入循环)统一动量序。
-    combined.sort(key=lambda x: x.get("rank_momentum_3m", x.get("momentum_3m")) or 0, reverse=True)
-    return combined
+    # 但整体仍按同一 overlay/动量序重排,坐回真实排名、不给买入插队。
+    return _apply_software_rotation_overlay(combined, top_n, rotation_signal)

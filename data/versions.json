@@ -203,5 +203,34 @@
       "intraday_confirmation": ["price_gt_prev_ma50", "rsi_50_80", "momentum_3m_gt_0", "vs_prev_ma20_lte_15"],
       "note": "盘中确认属于实盘执行口径修复;完成日线结构仍保留 v8/v9 趋势 thesis"
     }
+  },
+  {
+    "version": "v11",
+    "label": "v11 — AI链软件接棒 soft overlay",
+    "created_at": "2026-07-03",
+    "description": "保持 v10 上日结构+盘中确认和 v9 BE5/trail5 卖出不变,在 Scout 候选截断前新增 AI 链板块轮动 soft overlay。当软件/SaaS 相对硬件显著接棒时,候选排序优先软件、硬件需要更强确认,并限制 top10/top25 板块集中度。不是硬件禁买,也不改变已有持仓的卖出逻辑。",
+    "changes": [
+      "触发条件:软件 3日中位回报 - 硬件 3日中位回报 > 3%,且硬件 1日中位回报 < -2%,且软件站上 MA20 breadth > 硬件 breadth",
+      "触发后排序:software → other → hardware,每组内部仍按上日 rank_momentum_3m 降序",
+      "硬件候选在 overlay 下需 RSI ≥ 52 且当前价 ≥ MA20,弱硬件不进入新增买入候选",
+      "集中度上限:top10 软件最多 6、硬件最多 3;top25 软件最多 12、硬件最多 8",
+      "watchlist 仍走同一道趋势门和 overlay,只保证过门后不被 top_n 截断,不给买入优先权",
+      "回测 scripts/ai_rotation_backtest.py:2023-2026 soft_rotation_capped +149.0% vs baseline_v10 +140.2%,PF 1.59 vs 1.55"
+    ],
+    "backtest_params": {
+      "entry_mode": "v11_ai_chain_soft_rotation_overlay",
+      "inherits_entry": "v10_daily_structure_intraday_confirmation",
+      "inherits_exit": "v9_BE5_trail5",
+      "trigger": {
+        "software_minus_hardware_3d_pct_gt": 3.0,
+        "hardware_1d_median_pct_lt": -2.0,
+        "software_breadth_gt_hardware_breadth": true
+      },
+      "caps": {
+        "top10": {"software_max": 6, "hardware_max": 3},
+        "top25": {"software_max": 12, "hardware_max": 8}
+      },
+      "note": "soft overlay 只影响新增候选排序/截断;不触发卖出,不暂停全部硬件买入"
+    }
   }
 ]
