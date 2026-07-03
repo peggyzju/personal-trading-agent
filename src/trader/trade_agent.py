@@ -98,7 +98,7 @@ def _next_session_close() -> datetime:
     """Return the next trading session's 4:30 PM ET as UTC datetime.
 
     Trades generated any time today survive until today's close (if market still open)
-    or next weekday's close (if market is closed / after hours).
+    or next exchange session's close (if market is closed / after hours / holiday).
     """
     try:
         import zoneinfo
@@ -107,36 +107,32 @@ def _next_session_close() -> datetime:
         et = timezone(timedelta(hours=-4))
 
     from datetime import time as dtime
+    from src.trader.market_calendar import is_trading_day_et
+
     now_et = _now().astimezone(et)
     close_time = dtime(16, 30)  # 30-min buffer after 4 PM close
 
     candidate = now_et.replace(hour=16, minute=30, second=0, microsecond=0)
-    if now_et.time() >= close_time or now_et.weekday() >= 5:
-        # already past close or weekend — advance to next weekday
+    if now_et.time() >= close_time or not is_trading_day_et(now_et):
+        # already past close or no exchange session today — advance to next session
         candidate = candidate + timedelta(days=1)
-        while candidate.weekday() >= 5:
+        for _ in range(14):
+            if is_trading_day_et(candidate):
+                break
             candidate = candidate + timedelta(days=1)
 
     return candidate.astimezone(timezone.utc)
 
 
 def _is_market_hours() -> bool:
-    """True between 9:31 AM and 4:05 PM US/Eastern Mon-Fri.
+    """True between 9:31 AM and 4:05 PM US/Eastern on real trading sessions.
     Starts at 9:31 (not 9:30) to avoid the first-minute liquidity chaos:
     wide spreads, erratic vol_ratio, and unreliable price signals.
     Scanner cascade also runs at 9:31 AM, so buy gate and scan are naturally synced.
     """
-    from datetime import time as dtime
-    try:
-        import zoneinfo
-        et = zoneinfo.ZoneInfo("America/New_York")
-    except ImportError:
-        et = timezone(timedelta(hours=-4))   # EDT approximation
+    from src.trader.market_calendar import is_market_hours_et
 
-    now_et = _now().astimezone(et)
-    if now_et.weekday() >= 5:   # Saturday / Sunday
-        return False
-    return dtime(9, 31) <= now_et.time() <= dtime(16, 5)
+    return is_market_hours_et(_now())
 
 
 # ── Trade construction ────────────────────────────────────────────────────────

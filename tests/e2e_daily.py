@@ -455,12 +455,25 @@ def test_rex_logic():
             fail("hold_count reset", "count 未重置")
 
         # 9c. _next_session_close returns a future datetime
-        close_dt = ta._next_session_close()
+        from unittest.mock import patch
+        with patch("src.trader.market_calendar.is_trading_day_et", return_value=True):
+            close_dt = ta._next_session_close()
         now = datetime.utcnow().replace(tzinfo=close_dt.tzinfo)
         if close_dt > now:
             ok("next_session_close", f"下次收盘: {close_dt.strftime('%Y-%m-%d %H:%M %Z')} ✓")
         else:
             fail("next_session_close", f"返回过去时间: {close_dt}")
+
+        # Holiday should roll pending expiry to the next real session.
+        holiday_now = datetime(2026, 7, 3, 10, 0, tzinfo=ZoneInfo("America/New_York"))
+        with patch("src.trader.trade_agent._now", return_value=holiday_now), \
+             patch("src.trader.market_calendar.is_trading_day_et",
+                   side_effect=lambda dt=None: dt.astimezone(ZoneInfo("America/New_York")).date().isoformat() == "2026-07-06"):
+            holiday_close = ta._next_session_close().astimezone(ZoneInfo("America/New_York"))
+        if holiday_close.date().isoformat() == "2026-07-06":
+            ok("next_session_close holiday", "2026-07-03 休市 → 过期滚到 2026-07-06 收盘 ✓")
+        else:
+            fail("next_session_close holiday", f"休市日应滚到 2026-07-06, 实际 {holiday_close}")
 
         # 9d. _add_trade duplicate buy prevention
         ta._pending.clear()
@@ -800,20 +813,31 @@ def test_v3_strategy():
         open_dt  = datetime(2026, 5, 18, 10, 0, tzinfo=ET)
         # Monday 8:00 ET → should be closed
         pre_dt   = datetime(2026, 5, 18, 8, 0, tzinfo=ET)
+        # Friday 2026-07-03 is Independence Day observed → should be closed
+        holiday_dt = datetime(2026, 7, 3, 10, 0, tzinfo=ET)
         # Saturday → should be closed
         sat_dt   = datetime(2026, 5, 16, 10, 0, tzinfo=ET)
 
-        with patch("src.trader.trade_agent._now", return_value=open_dt):
+        with patch("src.trader.trade_agent._now", return_value=open_dt), \
+             patch("src.trader.market_calendar.is_trading_day_et", return_value=True):
             if _is_market_hours():
                 ok("Market hours open", "Mon 10:00 ET → open ✓")
             else:
                 fail("Market hours open", "Mon 10:00 ET 应为 open")
 
-        with patch("src.trader.trade_agent._now", return_value=pre_dt):
+        with patch("src.trader.trade_agent._now", return_value=pre_dt), \
+             patch("src.trader.market_calendar.is_trading_day_et", return_value=True):
             if not _is_market_hours():
                 ok("Market hours pre-open", "Mon 08:00 ET → closed ✓")
             else:
                 fail("Market hours pre-open", "Mon 08:00 ET 应为 closed")
+
+        with patch("src.trader.trade_agent._now", return_value=holiday_dt), \
+             patch("src.trader.market_calendar.is_trading_day_et", return_value=False):
+            if not _is_market_hours():
+                ok("Market hours holiday", "2026-07-03 10:00 ET → closed ✓")
+            else:
+                fail("Market hours holiday", "2026-07-03 休市日应为 closed")
 
         with patch("src.trader.trade_agent._now", return_value=sat_dt):
             if not _is_market_hours():

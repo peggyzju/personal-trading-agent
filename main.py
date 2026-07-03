@@ -37,6 +37,21 @@ def _write_heartbeat(job_id: str, status: str) -> None:
     except Exception:
         pass
 
+
+def _is_real_trading_day() -> bool:
+    from src.trader.market_calendar import is_trading_day_et
+
+    return is_trading_day_et()
+
+
+def _skip_non_trading_day(job_id: str) -> bool:
+    if _is_real_trading_day():
+        return False
+    from src.trader.market_calendar import now_et
+
+    print(f"[scheduler] {job_id} skipped — {now_et():%Y-%m-%d} ET is not an Alpaca trading session")
+    return True
+
 WATCHLIST_DEFAULT = ["AAPL", "NVDA", "MSFT", "TSLA"]
 
 
@@ -45,6 +60,8 @@ ANALYSIS_MOVE_THRESHOLD = 1.5  # re-analyze if price moved more than this %
 
 
 def run_analysis_cycle():
+    if _skip_non_trading_day("analysis_cycle"):
+        return
     import json
     import time as _t
     from pathlib import Path
@@ -90,6 +107,8 @@ def run_scout():
     """Pre-market dynamic ticker discovery via Finviz (9:00 AM ET Mon–Fri).
     Scout caches results for the day; calling it again is a no-op if already ran.
     """
+    if _skip_non_trading_day("scout"):
+        return
     print("[scheduler] Running pre-market Scout discovery…")
     from api.agent_runs import record_agent_run
     try:
@@ -105,6 +124,8 @@ def run_scout():
 def run_market_context():
     """Step 1 of pipeline — generate market context (regime + goal progress + sector bias).
     Runs at 8:00 AM ET, before scan and agent."""
+    if _skip_non_trading_day("market_context"):
+        return
     from src.analysis.market_context import generate_market_context
     from api.agent_runs import record_agent_run
     print("[scheduler] Generating market context…")
@@ -147,6 +168,8 @@ def _desktop_notify(title: str, msg: str) -> None:
 def run_earnings_scan():
     """财报雷达 Part B:检测当日财报名单的显著价格反应 → AI 研判 → 桌面通知。
     人工决策,不自动下单。结果写 data/earnings_analysis.json。"""
+    if _skip_non_trading_day("earnings_scan"):
+        return
     import json as _json
     from datetime import datetime as _dt, timezone as _tz, timedelta as _td
     print("[scheduler] 财报反应扫描…")
@@ -179,6 +202,8 @@ def run_earnings_scan():
 
 def run_sp500_scan():
     """Step 2 of pipeline — scan S&P 500, then auto-cascade to agent."""
+    if _skip_non_trading_day("sp500_scan"):
+        return
     from api.app import _run_sp500_scan
     print("[scheduler] Running daily S&P 500 scan (cascade→agent)…")
     try:
@@ -196,6 +221,8 @@ def run_holdings_refresh():
     """Refresh paper holdings and sell signals every 30 min during market hours.
     After analysis completes, cascade to Rex so sell signals are acted on immediately.
     """
+    if _skip_non_trading_day("holdings_refresh"):
+        return
     from src.monitor.holdings_monitor import get_paper_positions, analyze_sell_signals
     from api.app import _holdings_cache
     print("[scheduler] Refreshing holdings & sell signals…")
@@ -216,7 +243,8 @@ def run_holdings_refresh():
     from datetime import datetime as _dt
     from zoneinfo import ZoneInfo as _ZI
     _et = _dt.now(_ZI("America/New_York"))
-    _after_open = _et.weekday() < 5 and (_et.hour, _et.minute) >= (9, 31)
+    from src.trader.market_calendar import is_market_hours_et
+    _after_open = is_market_hours_et(_et)
     if positions and not _after_open:
         print(f"[scheduler] Holdings 缓存已刷新（{_et:%H:%M} ET 盘前/非交易时段，暂不 cascade 卖出）")
     elif positions:
@@ -239,6 +267,8 @@ def run_holdings_refresh():
 
 def sync_order_fills():
     """Poll Alpaca every 5 min during market hours for fill status updates."""
+    if _skip_non_trading_day("fill_sync"):
+        return
     from src.trader.trade_agent import sync_fills
     changed = sync_fills()
     if changed:
@@ -248,6 +278,8 @@ def sync_order_fills():
 def sync_trade_history():
     """每个交易日收盘后从 Alpaca 回填已平仓交易到 trade_history.json（幂等，无交易副作用）。
     绩效统计(胜率/盈亏比)的数据源就是它——不挂这个定时任务，平仓数据会一直是死数据。"""
+    if _skip_non_trading_day("trade_history_sync"):
+        return
     try:
         from src.analysis.strategy_versions import sync_closed_trades_from_alpaca
         from src.trader.alpaca_trader import get_client
@@ -260,6 +292,8 @@ def sync_trade_history():
 def fill_score_forward_returns():
     """每交易日收盘后回填 score_log 候选的前向收益(5/10/20 交易日)。
     AI-edge 分析的数据源；只填已到期的,无 look-ahead。"""
+    if _skip_non_trading_day("score_fwd_fill"):
+        return
     try:
         from src.analysis.score_logger import fill_forward_returns
         n = fill_forward_returns()
@@ -273,6 +307,8 @@ def catch_up_premarket():
     """盘前补跑看门狗(9:00 ET)：若 Maya/Scout 今天还没成功跑过 → 手动补跑。
     应对睡眠漏跑：本任务给长 misfire 容差(90 分钟),机器睡到 9 点后才醒也能补
     (普通任务 misfire=60s 错过即跳过,补不了)。幂等:已跑过则跳过。"""
+    if _skip_non_trading_day("premarket_catchup"):
+        return
     from api.agent_runs import ran_today_et
     if not ran_today_et("maya"):
         print("[scheduler] 盘前补跑看门狗: Maya 今天未跑 → 补跑 8:00 Maya")

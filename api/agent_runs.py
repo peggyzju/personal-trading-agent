@@ -168,19 +168,18 @@ def _age_str(dt: datetime | None, now: datetime) -> str | None:
     return f"{mins // (60 * 24)} 天前"
 
 
-def _health(agent_id: str, last_run: datetime | None, now_et: datetime) -> tuple[str, str]:
+def _health(agent_id: str, last_run: datetime | None, now_et: datetime, is_trading_day: bool) -> tuple[str, str]:
     """计算健康状态。返回 (status, label)。
 
     状态：
       ok        ✅ 今日已按计划运行
       waiting   ⏳ 今日尚未到运行时间
       missed    ⚠️ 已过运行时间但未见今日运行
-      idle      ⚪ 非交易日（周末）
+      idle      ⚪ 非交易日（周末/交易所休市）
       never     ❌ 从未运行
     """
     sched = AGENT_SCHEDULE[agent_id]
-    # 周末（周六=5，周日=6）非交易日
-    if now_et.weekday() >= 5:
+    if not is_trading_day:
         return "idle", "⚪ 非交易日"
     if last_run is None:
         return "never", "❌ 从未运行"
@@ -212,6 +211,12 @@ def get_agents_status() -> dict:
     """聚合 Maya / Scout / Rex 的运行历史 + 调度 + 健康检查。"""
     now_utc = datetime.now(timezone.utc)
     now_et = now_utc.astimezone(ET)
+    try:
+        from src.trader.market_calendar import is_trading_day_et
+
+        is_trading_day = is_trading_day_et(now_et)
+    except Exception:
+        is_trading_day = False
     store = _load()
 
     agents = []
@@ -250,7 +255,7 @@ def get_agents_status() -> dict:
         else:
             last_dt, last_iso, trigger, result = None, None, None, None
 
-        status, label = _health(agent_id, last_dt, now_et)
+        status, label = _health(agent_id, last_dt, now_et, is_trading_day)
         agents.append({
             "id": agent_id,
             "name": sched["name"],
@@ -269,6 +274,6 @@ def get_agents_status() -> dict:
 
     return {
         "now_et": now_et.isoformat(),
-        "is_trading_day": now_et.weekday() < 5,
+        "is_trading_day": is_trading_day,
         "agents": agents,
     }
