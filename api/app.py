@@ -1010,7 +1010,7 @@ def get_account():
             "buying_power": float(acct.buying_power),
             "cash": float(acct.cash),
             "portfolio_value": float(acct.portfolio_value),
-            "daytrade_count": acct.daytrade_count,
+            "daytrade_count": int(getattr(acct, "daytrade_count", 0) or 0),
             "status": acct.status,
         }
     except Exception as e:
