@@ -3473,6 +3473,25 @@ body {
 }
 .pcc-rd-thead span, .pcc-rd-row > span { text-align: right; font-variant-numeric: tabular-nums; }
 .pcc-rd-thead span:first-child, .pcc-rd-row > span:first-child { text-align: left; }
+.pcc-rd-sort {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+.pcc-rd-thead span:first-child .pcc-rd-sort { justify-content: flex-start; }
+.pcc-rd-sort:hover,
+.pcc-rd-sort.active { color: var(--text); }
+.pcc-rd-sort span { color: #60a5fa; font-size: 10px; }
 .pcc-rd-row { border-bottom: 1px solid rgba(38,42,51,.5); font-size: 12.5px; }
 .pcc-rd-row:hover { background: var(--bg-elevated, rgba(255,255,255,0.03)); }
 .pcc-rd-c-sym { display: flex; align-items: center; gap: 6px; }

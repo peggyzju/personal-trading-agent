@@ -38,9 +38,13 @@ interface PCC {
   allOrders: import("../api/client").Order[];
 }
 
+type HoldingSortKey = "symbol" | "entry" | "price" | "today" | "value" | "alloc" | "pl" | "signal";
+type SortDir = "asc" | "desc";
+
 export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, autoApprove }: Props) {
   const [data, setData] = useState<PCC>({ budget: null, holdings: null, positions: [], scan: null, agent: null, history: null, pipeline: null, agentsStatus: null, goal: null, account: null, openSellSymbols: new Set(), cancellingSymbols: new Set(), errorSellSymbols: new Set(), allOrders: [] });
   const [tradeLogTab, setTradeLogTab] = useState<"open" | "filled" | "failed" | "cancelled">("open");
+  const [holdingSort, setHoldingSort] = useState<{ key: HoldingSortKey; dir: SortDir } | null>(null);
   const [detail, setDetail] = useState<DecisionInput | null>(null);   // K线+决策卡详情模态
 
   const load = useCallback(async () => {
@@ -196,6 +200,52 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
     .forEach(t => {
       if (!buyTradeBySymbol.has(t.symbol)) buyTradeBySymbol.set(t.symbol, t);
     });
+  const allocPctBySymbol = new Map(allocationMap.map(a => [a.symbol, a.pct]));
+  const signalRank: Record<string, number> = { SELL: 4, REDUCE: 3, HOLD: 2, ADD: 1 };
+
+  function toggleHoldingSort(key: HoldingSortKey) {
+    setHoldingSort(prev => {
+      if (!prev || prev.key !== key) return { key, dir: "desc" };
+      if (prev.dir === "desc") return { key, dir: "asc" };
+      return null;
+    });
+  }
+
+  function sortHead(key: HoldingSortKey, label: string) {
+    const active = holdingSort?.key === key;
+    return (
+      <button
+        className={`pcc-rd-sort${active ? " active" : ""}`}
+        onClick={() => toggleHoldingSort(key)}
+        title={`${label} 排序`}
+      >
+        {label}
+        {active && <span>{holdingSort?.dir === "desc" ? "↓" : "↑"}</span>}
+      </button>
+    );
+  }
+
+  function sortValue(p: HoldingPosition, key: HoldingSortKey) {
+    if (key === "symbol") return p.symbol;
+    if (key === "entry") return buyTradeBySymbol.get(p.symbol)?.created_at ? new Date(buyTradeBySymbol.get(p.symbol)!.created_at).getTime() : 0;
+    if (key === "price") return p.current_price ?? 0;
+    if (key === "today") return p.today_pct ?? -Infinity;
+    if (key === "value") return p.market_value ?? 0;
+    if (key === "alloc") return allocPctBySymbol.get(p.symbol) ?? 0;
+    if (key === "pl") return p.unrealized_plpc ?? 0;
+    return signalRank[p.sell_signal ?? "HOLD"] ?? 0;
+  }
+
+  const sortedMergedPositions = holdingSort
+    ? [...mergedPositions].sort((a, b) => {
+        const av = sortValue(a, holdingSort.key);
+        const bv = sortValue(b, holdingSort.key);
+        const cmp = typeof av === "string" && typeof bv === "string"
+          ? av.localeCompare(bv)
+          : Number(av) - Number(bv);
+        return holdingSort.dir === "asc" ? cmp : -cmp;
+      })
+    : mergedPositions;
 
   // Categorise each trade
   const grouped = allTrades.reduce<{
@@ -310,9 +360,16 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
           ) : (
             <div className="pcc-rd-table">
               <div className="pcc-rd-thead">
-                <span>代码</span><span>入场</span><span>现价</span><span>今日</span><span>市值</span><span>仓位</span><span>盈亏</span><span>信号</span>
+                <span>{sortHead("symbol", "代码")}</span>
+                <span>{sortHead("entry", "入场")}</span>
+                <span>{sortHead("price", "现价")}</span>
+                <span>{sortHead("today", "今日")}</span>
+                <span>{sortHead("value", "市值")}</span>
+                <span>{sortHead("alloc", "仓位")}</span>
+                <span>{sortHead("pl", "盈亏")}</span>
+                <span>{sortHead("signal", "信号")}</span>
               </div>
-              {mergedPositions.map(p => {
+              {sortedMergedPositions.map(p => {
                 const allocPct = allocationMap.find(a => a.symbol === p.symbol)?.pct ?? 0;
                 const entryTrade = buyTradeBySymbol.get(p.symbol);
                 return (
