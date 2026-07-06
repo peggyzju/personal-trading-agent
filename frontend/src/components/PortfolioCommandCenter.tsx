@@ -189,6 +189,13 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
   const alpacaOrderById = new Map(data.allOrders.map(o => [o.id, o]));
 
   const allTrades = (data.agent?.trades ?? []).filter(t => t.status !== "pending");
+  const buyTradeBySymbol = new Map<string, PendingTrade>();
+  (data.agent?.trades ?? [])
+    .filter(t => t.side === "buy" && t.status === "executed")
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+    .forEach(t => {
+      if (!buyTradeBySymbol.has(t.symbol)) buyTradeBySymbol.set(t.symbol, t);
+    });
 
   // Categorise each trade
   const grouped = allTrades.reduce<{
@@ -303,15 +310,17 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
           ) : (
             <div className="pcc-rd-table">
               <div className="pcc-rd-thead">
-                <span>代码</span><span>现价</span><span>今日</span><span>市值</span><span>仓位</span><span>盈亏</span><span>信号</span>
+                <span>代码</span><span>入场</span><span>现价</span><span>今日</span><span>市值</span><span>仓位</span><span>盈亏</span><span>信号</span>
               </div>
               {mergedPositions.map(p => {
                 const allocPct = allocationMap.find(a => a.symbol === p.symbol)?.pct ?? 0;
+                const entryTrade = buyTradeBySymbol.get(p.symbol);
                 return (
                   <HoldingRow
                     key={p.symbol}
                     position={p}
                     allocPct={allocPct}
+                    entryTrade={entryTrade}
                     onRefresh={load}
                     hasOpenSell={data.openSellSymbols.has(p.symbol)}
                     isCancelling={data.cancellingSymbols.has(p.symbol)}
@@ -463,9 +472,43 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 
-function HoldingRow({ position: p, allocPct, onRefresh, hasOpenSell, isCancelling, hasSellError, onOpenDetail }: {
+function formatEntryTime(value?: string | null) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(d).replace(",", "");
+}
+
+function holdingDay(value?: string | null) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const toUtcDay = (s: string) => {
+    const [year, month, day] = s.split("-").map(Number);
+    return Date.UTC(year, month - 1, day);
+  };
+  const start = toUtcDay(fmt.format(d));
+  const now = toUtcDay(fmt.format(new Date()));
+  return Math.max(0, Math.floor((now - start) / 86_400_000));
+}
+
+function HoldingRow({ position: p, allocPct, entryTrade, onRefresh, hasOpenSell, isCancelling, hasSellError, onOpenDetail }: {
   position: HoldingPosition;
   allocPct: number;
+  entryTrade?: PendingTrade;
   onRefresh: () => void;
   hasOpenSell?: boolean;
   isCancelling?: boolean;
@@ -480,6 +523,9 @@ function HoldingRow({ position: p, allocPct, onRefresh, hasOpenSell, isCancellin
   const sig = p.sell_signal ?? "HOLD";
   const todayPct = p.today_pct ?? null;
   const todayColor = todayPct != null ? (todayPct >= 0 ? "#22c55e" : "#ef4444") : "var(--muted)";
+  const entryPrice = entryTrade?.fill_price ?? entryTrade?.price ?? p.avg_entry_price ?? null;
+  const entryTime = formatEntryTime(entryTrade?.created_at);
+  const entryDay = holdingDay(entryTrade?.created_at);
 
   async function closePos() {
     if (!confirming) { setConfirming(true); return; }
@@ -497,6 +543,10 @@ function HoldingRow({ position: p, allocPct, onRefresh, hasOpenSell, isCancellin
         {isCancelling ? <span className="pcc-rd-tag">撤单中</span>
           : hasOpenSell ? <span className="pcc-rd-tag">挂单</span>
           : hasSellError ? <span className="pcc-rd-tag warn">⚠</span> : null}
+      </span>
+      <span className="pcc-rd-entry">
+        <b>{entryPrice != null ? `$${entryPrice.toFixed(2)}` : "—"}</b>
+        <small>{entryTime ? `${entryTime} ET${entryDay != null ? ` · D${entryDay}` : ""}` : "时间 —"}</small>
       </span>
       <span>${p.current_price?.toFixed(2)}</span>
       <span style={{ color: todayColor, fontWeight: 600 }}>

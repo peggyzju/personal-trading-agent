@@ -3458,10 +3458,10 @@ body {
 .pcc-rd-pill { background: var(--bg-elevated, rgba(255,255,255,0.04)); border: 1px solid var(--border); border-radius: 20px; padding: 2px 9px; }
 .pcc-rd-empty { color: var(--muted); font-size: 12px; padding: 16px; }
 
-/* 持仓表格（7 列对齐） */
+/* 持仓表格（8 列对齐） */
 .pcc-rd-thead, .pcc-rd-row {
   display: grid;
-  grid-template-columns: 1.2fr 0.95fr 0.8fr 1fr 1.15fr 1.35fr 1.1fr;
+  grid-template-columns: 1.05fr 1.45fr .9fr .75fr .95fr 1.05fr 1.25fr 1.05fr;
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
@@ -3477,6 +3477,9 @@ body {
 .pcc-rd-row:hover { background: var(--bg-elevated, rgba(255,255,255,0.03)); }
 .pcc-rd-c-sym { display: flex; align-items: center; gap: 6px; }
 .pcc-rd-c-sym .sym { font-weight: 700; font-size: 13.5px; }
+.pcc-rd-entry { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 1px; line-height: 1.15; }
+.pcc-rd-entry b { color: var(--text); font-weight: 650; }
+.pcc-rd-entry small { color: var(--muted); font-size: 10px; white-space: nowrap; }
 .pcc-rd-tag { font-size: 9px; color: var(--muted); background: var(--bg-elevated,#1e293b); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
 .pcc-rd-tag.warn { color: #f97316; border-color: #f9731640; }
 .pcc-rd-c-alloc { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; }
