@@ -1,8 +1,8 @@
 """K 线分析 — v8 核心指标解读(机械门控 + AI 一句话点评)。
 
-给前端「K线分析弹窗」用:返回蜡烛 + MA20/MA50/RSI 序列 + 4 个 v8 趋势门通过情况
+给前端「K线分析弹窗」用:返回蜡烛 + MA20/MA50/RSI 序列 + 4 个趋势门通过情况
 + 量能参考 + AI 一句话点评(按 symbol+ET日 缓存,不重复烧钱)。
-仅作展示解读,不参与买卖决策(对齐 v8 纯机械)。
+仅作展示解读,不参与买卖决策。
 """
 from __future__ import annotations
 
@@ -90,7 +90,7 @@ _ANALYSIS_FRAMEWORK = """\
 你是动量交易的技术分析助手。请按下面的「动量分析框架」对该股做结构化点评。
 
 【分析框架——必须逐条覆盖,且全部基于给到的数据,不要套话】
-1. 动量分尺度:中期(3月动量 + MA50 斜率)vs 短期(1月动量 + 最近几根)。
+1. 动量分尺度:中期(3月动量 + MA50 斜率)vs 短期(1月动量 + 最近5根)。
    关键认知:一两根 K 线不代表整个动量;中期还在不等于短期没受伤。
 2. 回调/下跌的量价性质——最重要的判别:
    - 缩量回踩均线 = 健康回调(只是获利了结,无恐慌抛压)
@@ -98,6 +98,7 @@ _ANALYSIS_FRAMEWORK = """\
 3. 反弹/收复的质量:放量站稳均线 = 有承接(强);缩量收复 = 信心不足(弱,易得而复失)。
 4. 定性 + 观察点:判断当前属于【健康回调 / 高位压力测试 / 动量转弱】之一,
    并给出 1 个最关键的后续观察点(通常围绕 MA50 能否放量站稳 / 会不会再放量破位)。
+5. 时间权重:只把最近5根K线作为当前结论依据;超过5个交易日前的事件不要作为主结论。
 
 【输出要求 · 严格遵守】
 - 严格输出 3 行,每行以固定标签开头,中文,每行 ≤ 38 字:
@@ -112,7 +113,7 @@ _ANALYSIS_FRAMEWORK = """\
 def _ai_comment(symbol: str, gates: list[dict], vol_info: dict,
                 ind: dict, recent_path: list[dict]) -> str:
     """AI 结构化点评(3行:动能/量价/观察)。按 symbol+ET日 缓存,失败机械兜底。"""
-    key = f"{symbol}:{_et_today()}:v2"   # v2:换了框架,旧的一句话缓存不再复用
+    key = f"{symbol}:{_et_today()}:v3"   # v3:只让 AI 聚焦最近5根,避免旧异常日主导
     try:
         if _AI_CACHE_FILE.exists():
             cache = json.loads(_AI_CACHE_FILE.read_text())
@@ -122,10 +123,11 @@ def _ai_comment(symbol: str, gates: list[dict], vol_info: dict,
         pass
 
     passed = sum(1 for g in gates if g["pass"])
+    recent_focus = recent_path[-5:]
     path_lines = "\n".join(
         f"  {p['date'][5:]} 收${p['close']} 距MA50 {('%+.1f%%' % p['vs_ma50']) if p['vs_ma50'] is not None else 'NA'} "
         f"量{p['vol_x']}x{' 放量' if (p['vol_x'] or 0) >= 1.5 else (' 缩量' if (p['vol_x'] or 9) < 0.7 else '')}"
-        for p in recent_path
+        for p in recent_focus
     )
     data_block = (
         f"标的:{symbol}\n"
@@ -133,9 +135,9 @@ def _ai_comment(symbol: str, gates: list[dict], vol_info: dict,
         f"现价 ${ind['price']} | MA50 ${ind['ma50']}(价在上方 {ind['vs_ma50']:+.1f}%,MA50 5日斜率 {ind['ma50_slope_pct']:+.1f}%)\n"
         f"RSI {ind['rsi']:.0f} | 3月动量 {ind['momentum_3m']:+.0f}%(中期) | "
         f"1月动量 {ind['momentum_1m']:+.0f}%(短期) | vs_MA20 {ind['vs_ma20']:+.1f}%\n"
-        f"v8 趋势门:4 门过 {passed} 门 "
+        f"趋势门:4 门过 {passed} 门 "
         f"({'、'.join((g['label'] + ('✓' if g['pass'] else '✗')) for g in gates)})\n"
-        f"【最近 10 根 收盘 / 相对MA50 / 量(相对20日均量)】\n{path_lines}\n"
+        f"【最近 5 根 收盘 / 相对MA50 / 量(相对20日均量)】\n{path_lines}\n"
     )
 
     comment = ""
@@ -239,7 +241,7 @@ def build_kline_analysis(symbol: str, candidates: list[dict] | None = None,
             "vol_x": round(v_ / vol_avg20, 1) if vol_avg20 else None,
         })
 
-    # ── v8 趋势门:4 个硬条件(精确匹配 sp500_scanner 的 trend_ok)──────────────
+    # ── 趋势门:4 个硬条件(精确匹配 sp500_scanner 的 trend_ok)──────────────
     g_trend = (vs_ma50 is not None and vs_ma50 > 0) and ma50_slope > 0
     g_rsi   = 50 <= rsi_now <= 80
     g_mom   = mom_3m > 0
