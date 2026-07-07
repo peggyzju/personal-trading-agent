@@ -23,6 +23,8 @@ socket.setdefaulttimeout(90)
 
 
 _HEARTBEAT_FILE = Path(__file__).parent / "data" / "scheduler_heartbeat.json"
+SCAN_TIMES_ET = ((9, 31), (11, 0), (12, 30), (14, 30))
+SCAN_CATCHUP_GRACE_MIN = 90
 
 
 def _write_heartbeat(job_id: str, status: str) -> None:
@@ -217,6 +219,56 @@ def run_sp500_scan():
         print(f"[scheduler] S&P 500 scan error: {e}")
 
 
+def _latest_scan_at_et():
+    """Return latest successful scan timestamp in ET, if scan_cache has one."""
+    from datetime import timezone
+    from zoneinfo import ZoneInfo
+
+    try:
+        cache = json.loads((Path(__file__).parent / "data" / "scan_cache.json").read_text())
+        raw = (cache.get("sp500") or {}).get("scanned_at")
+        if not raw:
+            return None
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(ZoneInfo("America/New_York"))
+    except Exception:
+        return None
+
+
+def catch_up_intraday_scans():
+    """Recover a missed fixed-time scan shortly after sleep/restart.
+
+    APScheduler intentionally uses short misfire windows for normal jobs to avoid a
+    burst of stale work after wake. This catch-up is narrower: it only repairs a
+    missed scan within 90 minutes of its scheduled ET time, then lets the next
+    fixed scan own the later session.
+    """
+    if _skip_non_trading_day("intraday_scan_catchup"):
+        return
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+
+    now_et = datetime.now(ZoneInfo("America/New_York"))
+    if now_et.weekday() >= 5 or not (9 <= now_et.hour <= 15):
+        return
+
+    latest = _latest_scan_at_et()
+    for hour, minute in reversed(SCAN_TIMES_ET):
+        scheduled = now_et.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if now_et < scheduled:
+            continue
+        age_min = (now_et - scheduled).total_seconds() / 60
+        if age_min > SCAN_CATCHUP_GRACE_MIN:
+            continue
+        if latest and latest >= scheduled:
+            return
+        print(f"[scheduler] Scan catch-up: {hour:02d}:{minute:02d} ET missed, latest={latest} → running now")
+        run_sp500_scan()
+        return
+
+
 def run_holdings_refresh():
     """Refresh paper holdings and sell signals every 30 min during market hours.
     After analysis completes, cascade to Rex so sell signals are acted on immediately.
@@ -382,6 +434,12 @@ if __name__ == "__main__":
     scheduler.add_job(run_sp500_scan, "cron", day_of_week="mon-fri", hour=14, minute=30,
                       id="scan_1430", name="扫描第4次 + Rex cascade (2:30 PM ET)",
                       misfire_grace_time=MGT)
+
+    # Intraday scan catch-up: if sleep/restart misses a fixed scan by more than
+    # APScheduler's short misfire window, repair it within a controlled 90min ET window.
+    scheduler.add_job(catch_up_intraday_scans, "cron", day_of_week="mon-fri", hour="9-15", minute="*/15",
+                      id="scan_catchup", name="日内扫描补跑看门狗 (每15分钟)",
+                      misfire_grace_time=300)
 
     # Step 3: Holdings refresh every 30 min → cascades to Rex for sell execution
     scheduler.add_job(run_holdings_refresh, "cron", day_of_week="mon-fri", hour="9-15", minute="*/30",

@@ -1118,10 +1118,16 @@ def test_scheduler_design():
     try:
         import api.app as app_module
         lifespan_src = inspect.getsource(app_module._lifespan)
-        if "_start_scheduler()" not in lifespan_src:
-            ok("No dual scheduler", "lifespan 未调用 _start_scheduler() ✓")
+        app_src = inspect.getsource(app_module)
+        no_lifespan_call = "_start_scheduler()" not in lifespan_src
+        no_dead_scheduler = not hasattr(app_module, "_start_scheduler")
+        no_scan_triggered = "scan_triggered" not in app_src and "_SCAN_TRIGGERED_FILE" not in app_src
+        if no_lifespan_call and no_dead_scheduler and no_scan_triggered:
+            ok("No dual scheduler", "api.app 无旧 scheduler / scan_triggered 状态 ✓")
         else:
-            fail("No dual scheduler", "lifespan 仍调用 _start_scheduler() — 双调度器未修复")
+            fail("No dual scheduler",
+                 f"旧调度残留: lifespan_call={not no_lifespan_call} "
+                 f"dead_scheduler={not no_dead_scheduler} scan_triggered={not no_scan_triggered}")
     except Exception as e:
         fail("No dual scheduler", str(e))
 
@@ -1178,6 +1184,21 @@ def test_scheduler_design():
                  f"缺失: fn={has_fn} job={has_job} long_misfire={long_misfire}")
     except Exception as e:
         fail("Premarket catchup scheduled", str(e))
+
+    # 4d. 回归：日内固定扫描必须有补跑看门狗(应对睡眠/重启漏掉 12:30/14:30)
+    try:
+        import main as main_module
+        src = inspect.getsource(main_module)
+        has_fn = hasattr(main_module, "catch_up_intraday_scans")
+        has_job = "catch_up_intraday_scans," in src and 'id="scan_catchup"' in src
+        has_grace = "SCAN_CATCHUP_GRACE_MIN = 90" in src
+        if has_fn and has_job and has_grace:
+            ok("Intraday scan catchup scheduled", "日内扫描补跑看门狗已挂(90min ET 窗口) ✓")
+        else:
+            fail("Intraday scan catchup scheduled",
+                 f"缺失: fn={has_fn} job={has_job} grace={has_grace}")
+    except Exception as e:
+        fail("Intraday scan catchup scheduled", str(e))
 
     # 4. 回归：trade_agent.py 不应出现把 'symbol' 当自由变量的闭包
     #    （旧版 run_agent 曾有裸 symbol 闭包 → "free variable 'symbol' referenced
