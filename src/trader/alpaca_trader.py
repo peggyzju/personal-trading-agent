@@ -3,12 +3,15 @@ import re
 from typing import Optional
 import alpaca_trade_api as tradeapi
 
+from src.config import get_alpaca_creds
+
 
 def get_client():
+    api_key, secret_key, base_url = get_alpaca_creds()
     return tradeapi.REST(
-        os.environ["ALPACA_API_KEY"],
-        os.environ["ALPACA_SECRET_KEY"],
-        os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets"),
+        api_key,
+        secret_key,
+        base_url,
     )
 
 

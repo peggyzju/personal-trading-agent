@@ -128,8 +128,7 @@ def get_paper_positions() -> list[dict]:
             }
             for p in raw
         ]
-        if positions:
-            return positions
+        return positions
     except Exception:
         pass
 
