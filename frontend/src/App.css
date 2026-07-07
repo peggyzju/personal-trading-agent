@@ -1954,37 +1954,27 @@ body {
   background: rgba(15,23,42,0.42);
 }
 .monthly-pl-card-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: baseline;
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
 .monthly-pl-card-head span {
   font-size: 12px;
   font-weight: 700;
   color: var(--text);
 }
-.monthly-pl-card-head b {
-  font-size: 15px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
 .monthly-pl-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  font-size: 11px;
+  gap: 7px;
+  font-size: 10px;
   color: var(--muted);
-  margin-bottom: 9px;
+  margin-bottom: 4px;
 }
+.monthly-pl-meta b { font-variant-numeric: tabular-nums; }
 .monthly-pl-meta b,
-.monthly-pl-card-head b.pos { color: #22c55e; }
-.monthly-pl-card-head b.neg,
 .monthly-pl-meta b.neg { color: #ef4444; }
 .monthly-pl-data-status {
-  margin: -2px 0 9px;
-  font-size: 10px;
+  margin: 0 0 9px;
+  font-size: 9px;
   color: var(--muted);
 }
 .monthly-pl-empty {

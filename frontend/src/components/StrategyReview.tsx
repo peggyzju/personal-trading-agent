@@ -210,10 +210,10 @@ function MonthlyPLCard({
     <div className="monthly-pl-card">
       <div className="monthly-pl-card-head">
         <span>{title}</span>
-        <b className={totalClass}>P/L {money(stats.total)}</b>
       </div>
       <div className="monthly-pl-meta">
-        <span><b className="up">{stats.wins}</b> 盈 / <b className="down">{stats.losses}</b> 亏</span>
+        <span>P/L <b className={totalClass}>{money(stats.total)}</b></span>
+        <span><b className="up">{stats.wins}</b>盈 / <b className="down">{stats.losses}</b>亏</span>
         <span>Avg <b className={stats.avg >= 0 ? "pos" : "neg"}>{money(stats.avg)}</b>/day</span>
       </div>
       {statusText && <div className="monthly-pl-data-status">{statusText}</div>}
