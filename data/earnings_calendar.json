@@ -1,23 +1,86 @@
 {
-  "generated_at": "2026-07-01T12:00:29.051320+00:00",
+  "generated_at": "2026-07-07T12:00:22.713385+00:00",
   "horizon_days": 7,
-  "count": 2,
+  "count": 9,
   "holdings_reporting": 0,
   "rows": [
-    {
-      "symbol": "FDS",
-      "date": "2026-07-01",
-      "session": "BMO",
-      "eps_estimate": 4.4964,
-      "in_portfolio": false,
-      "importance": "",
-      "days_until": 0
-    },
     {
       "symbol": "CAG",
       "date": "2026-07-08",
       "session": "AMC",
-      "eps_estimate": 0.4603,
+      "eps_estimate": 0.4616,
+      "in_portfolio": false,
+      "importance": "",
+      "days_until": 1
+    },
+    {
+      "symbol": "PEP",
+      "date": "2026-07-09",
+      "session": "BMO",
+      "eps_estimate": 2.229,
+      "in_portfolio": false,
+      "importance": "",
+      "days_until": 2
+    },
+    {
+      "symbol": "DAL",
+      "date": "2026-07-10",
+      "session": "BMO",
+      "eps_estimate": 1.4736,
+      "in_portfolio": false,
+      "importance": "",
+      "days_until": 3
+    },
+    {
+      "symbol": "FAST",
+      "date": "2026-07-13",
+      "session": "?",
+      "eps_estimate": 0.3329,
+      "in_portfolio": false,
+      "importance": "",
+      "days_until": 6
+    },
+    {
+      "symbol": "BAC",
+      "date": "2026-07-14",
+      "session": "BMO",
+      "eps_estimate": 1.129,
+      "in_portfolio": false,
+      "importance": "",
+      "days_until": 7
+    },
+    {
+      "symbol": "C",
+      "date": "2026-07-14",
+      "session": "?",
+      "eps_estimate": 2.7565,
+      "in_portfolio": false,
+      "importance": "",
+      "days_until": 7
+    },
+    {
+      "symbol": "GS",
+      "date": "2026-07-14",
+      "session": "BMO",
+      "eps_estimate": 14.4615,
+      "in_portfolio": false,
+      "importance": "",
+      "days_until": 7
+    },
+    {
+      "symbol": "JPM",
+      "date": "2026-07-14",
+      "session": "?",
+      "eps_estimate": 5.7433,
+      "in_portfolio": false,
+      "importance": "",
+      "days_until": 7
+    },
+    {
+      "symbol": "WFC",
+      "date": "2026-07-14",
+      "session": "BMO",
+      "eps_estimate": 1.7279,
       "in_portfolio": false,
       "importance": "",
       "days_until": 7

@@ -112,7 +112,7 @@ def _build_prompt(
         notes_text = "\n".join(f"- {n}" for n in strategy_notes)
         notes_section = f"\nActive strategy guidelines:\n{notes_text}\n"
 
-    return f"""You are a RISK SCREENER for a momentum/trend trading system (strategy v8).
+    return f"""You are a RISK SCREENER for a momentum/trend trading system (strategy v12).
 The stocks below ALREADY passed a mechanical filter: uptrend (price > MA50, MA50 rising),
 RSI 50-80, positive 3-month momentum, not over-extended. They are RANKED BY MOMENTUM and
 will be bought mechanically in that order.

@@ -20,7 +20,11 @@ data/agent_log.json
 data/auto_approve.json
 data/backend.err
 data/circuit_breaker.json
+data/account_reconciliation_latest.json
+data/ai_rotation_ohlc_cache.pkl
+data/live_daily_pl.json
 data/market_context.json
+data/narrative_radar.json
 data/regime_cache.json
 data/review_cache.json
 data/scan_cache.json
@@ -34,4 +38,5 @@ api/data/
 # 本地备份/归档（不入库）
 *.bak
 data/*.deprecated
+data/archive*/
 data/scheduler_heartbeat.json

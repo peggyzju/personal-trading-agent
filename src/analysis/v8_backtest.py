@@ -1,8 +1,8 @@
-"""v8 趋势打法 组合级回测(后端版)— 供复盘页「回测」用,替代测不了 v8 的旧版本对比。
+"""v12 趋势打法组合级回测(后端版)— 供复盘页「回测」用。
 
 确定性规则(无 AI、无后见之明),数据走 Alpaca(feed=iex,不用 yfinance)。
-逻辑与 scripts/v8_robustness.py 一致:趋势门(MA50上+MA50升+RSI50-80+3月动量>0+不过高)
-→ 按动量排名买 top N → 退出(-8%止损 / 追踪+6%激活-8%回撤 / 跌破MA20)。对照同期 SPY。
+逻辑为当前 v12 baseline:趋势门(MA50上+MA50升+RSI50-80+3月动量>0+不过高)
+→ 按动量排名买 top N → 退出(-8%止损 / 追踪+6%激活 / 跌破MA20)。对照同期 SPY/QQQ。
 返回结构化结果给前端(分年收益 + 总收益 + 最大回撤)。
 """
 from __future__ import annotations
@@ -178,6 +178,7 @@ def run_v8_backtest(period: str = "6mo") -> dict:
 
     return {
         "status": "done",
+        "strategy": "v12",
         "period": period,
         "date_range": f"{str(sim_dates[s0])[:10]} ~ {str(sim_dates[s1])[:10]}",
         "n_months": round((s1 - s0 + 1) / 21, 1),

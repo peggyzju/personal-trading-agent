@@ -1,5 +1,5 @@
 """
-Trade Agent (Rex) — v8 纯机械执行 + 持久化待执行队列。
+Trade Agent (Rex) — v12 纯机械执行 + 持久化待执行队列。
 
 买入:扫描候选(已过趋势门 + 按动量排名)→ 财报门 + 止损门(-8%,+0.5%容差)→
        固定 confidence 0.8 自动执行(无 AI 分门、无 Track1/2、无自选特殊路径)。
@@ -1076,14 +1076,14 @@ _AUTO_APPROVE_FILE = Path(__file__).parent.parent.parent / "data" / "auto_approv
 
 # 保护性卖出比买入更易自动放行（减风险要果断、买入要谨慎）：
 def _is_auto_approve_enabled() -> bool:
-    """v8 自动执行 = 纯开关,无分数概念。默认开。"""
+    """v12 自动执行 = 纯开关,无分数概念。配置缺失时 fail-closed。"""
     try:
         if _AUTO_APPROVE_FILE.exists():
             cfg = json.loads(_AUTO_APPROVE_FILE.read_text())
-            return bool(cfg.get("enabled", True))
+            return bool(cfg.get("enabled", False))
     except Exception:
         pass
-    return True   # default: autonomous
+    return False
 
 
 def set_auto_approve(enabled: bool) -> dict:
@@ -1100,7 +1100,7 @@ def get_auto_approve_config() -> dict:
     try:
         if _AUTO_APPROVE_FILE.exists():
             cfg = json.loads(_AUTO_APPROVE_FILE.read_text())
-            return {"enabled": bool(cfg.get("enabled", True))}
+            return {"enabled": bool(cfg.get("enabled", False))}
     except Exception:
         pass
-    return {"enabled": True}   # default: autonomous
+    return {"enabled": False}

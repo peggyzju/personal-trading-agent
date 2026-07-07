@@ -1,1 +1,10 @@
-{"status": "done", "period": "6mo", "date_range": "2025-12-29 ~ 2026-06-29", "n_months": 6.0, "v8": {"total_return_pct": 28.8, "max_drawdown_pct": -7.6, "by_year": {"2023": 25.6, "2024": 42.1, "2025": 14.7, "2026": 27.6}}, "spy": {"total_return_pct": 8.3, "max_drawdown_pct": -8.9, "by_year": {"2023": 26.7, "2024": 25.6, "2025": 18.0, "2026": 9.0}}, "qqq": {"total_return_pct": 16.9, "max_drawdown_pct": -11.7, "by_year": {"2023": 55.9, "2024": 27.7, "2025": 21.0, "2026": 18.4}}, "generated_at": "2026-06-30T11:29:46.035753"}
+{
+  "status": "not_run",
+  "strategy": "v12",
+  "reset": {
+    "reset_at": "2026-07-07T15:07:37.130548+00:00",
+    "account_equity": 95000.0,
+    "reason": "New Alpaca paper account clean start. Legacy account data archived and excluded from product/runtime views.",
+    "archive": "data/archive_legacy_account_data_20260707T145952Z"
+  }
+}

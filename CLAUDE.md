@@ -62,7 +62,7 @@
   - **价格漂移门**（`_price_drift_decision`）：现价比扫描价**涨 >1.5% 拒单**（追高失效）；跌/阈内放行（更好入场）
   - 止损固定 −8%（`round(price×0.92,2)`，容差 8.5%）· regime 门（BEAR 全停）· **熔断**（单日组合 ≤−5% 当天停买）· **WSB extreme** 仓位砍半
   - 仓位：risk 2%/单，单仓 ≤8%，现金留 ≥5%，按 `size_factor` 缩放
-  - **自动/人工**：默认自动（confidence 固定 0.8；自动审批**纯开关**无阈值）；`veto=True` → 人工队列，**2h 未处理自动作废、释放槽位补位**（`expires_at=created+2h`）
+  - **自动/人工**：`auto_approve.enabled=true` 时自动（confidence 固定 0.8；自动审批**纯开关**无阈值；配置缺失/损坏时 fail-closed=关闭）；`veto=True` → 人工队列，**2h 未处理自动作废、释放槽位补位**（`expires_at=created+2h`）
   - **下单**：Alpaca bracket（市价入场 + −8% 止损），时效 **GTC**
 
 ### Rex — 卖出（v12 纯机械退出，无 AI，每 30 分钟）

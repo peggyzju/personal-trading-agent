@@ -46,6 +46,9 @@ export function SignalsView({ backendOnline }: Props) {
   const [addLoading, setAddLoading] = useState(false);
   const [scanning, setScanning]   = useState(false);
 
+  const isCleanStartScan = (v: ScanResult) =>
+    v.progress === "new_account_clean_start" || (v.status === "not_run" && (v.candidates?.length ?? 0) === 0);
+
   // Load cache from localStorage on mount
   useEffect(() => {
     try {
@@ -63,7 +66,10 @@ export function SignalsView({ backendOnline }: Props) {
     ]);
     if (sp500.status === "fulfilled") {
       const v = sp500.value;
-      if ((v.candidates?.length ?? 0) > 0) {
+      if (isCleanStartScan(v)) {
+        setSp500Data(v);
+        try { localStorage.removeItem("scan_cache_sp500"); } catch { /* ignore */ }
+      } else if ((v.candidates?.length ?? 0) > 0) {
         setSp500Data(v);
         try { localStorage.setItem("scan_cache_sp500", JSON.stringify(v)); } catch { /* ignore */ }
       } else {
@@ -72,7 +78,10 @@ export function SignalsView({ backendOnline }: Props) {
     }
     if (nasdaq.status === "fulfilled") {
       const v = nasdaq.value;
-      if ((v.candidates?.length ?? 0) > 0) {
+      if (isCleanStartScan(v)) {
+        setNasdaqData(v);
+        try { localStorage.removeItem("scan_cache_nasdaq"); } catch { /* ignore */ }
+      } else if ((v.candidates?.length ?? 0) > 0) {
         setNasdaqData(v);
         try { localStorage.setItem("scan_cache_nasdaq", JSON.stringify(v)); } catch { /* ignore */ }
       } else {

@@ -143,6 +143,7 @@ export interface ScanCandidate {
 export interface ScanResult {
   status: "not_run" | "running" | "done" | "error";
   candidates: ScanCandidate[];
+  progress?: string;
   scanned_at?: string;
   total_screened?: number;
   tech_passed?: number;
@@ -646,6 +647,7 @@ export interface V8BacktestSide {
 }
 export interface V8BacktestResult {
   status: "not_run" | "running" | "done" | "error";
+  strategy?: string;
   period?: string;
   date_range?: string;
   n_months?: number;

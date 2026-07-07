@@ -748,13 +748,13 @@ def _build_signal_summary_context() -> dict:
 
 
 def _build_signal_summary_prompt(ctx: dict) -> str:
-    return f"""你是 Personal Trading Agent 的盘中信号分析助手。请严格按照 v9 机械动量策略解释当前信号，不要发明新策略，不要用主观预测替代规则。
+    return f"""你是 Personal Trading Agent 的盘中信号分析助手。请严格按照 v12 机械动量策略解释当前信号，不要发明新策略，不要用主观预测替代规则。
 
 当前策略框架：
 - 美股短线波段，持仓 5–10 天，Alpaca paper trading。
 - Scout 选股为纯机械动量：趋势门通过后按 momentum_3m 排名。
 - Rex 买入为机械入场：BULL/NEUTRAL/CAUTION 才能买，BEAR 不买；价格漂移涨超 +1.5% 拒单，跌/阈内放行；财报今/明未公布跳过；veto=true 转人工。
-- 卖出为机械规则：-8% 硬止损、BE5 保本、+6% 激活/回撤5%追踪止盈、连续2根收盘跌破 MA20。
+- 卖出为机械规则：-8% 硬止损、EF5 新仓失败止损(D1-D2 浮亏≤-5%)、BE5 保本、+6% 激活/回撤5%追踪止盈、连续2根收盘跌破 MA20。
 - 默认不鼓励追高加仓；加仓必须同时满足：已有持仓仍强、未触发卖出风险、位置不过热、不是价格漂移失效、不是 veto、不是刚被止损/破位的弱化票。
 
 请基于输入数据，输出一段中文盘中 Summary 分析，全部时间使用美东时间 ET。
@@ -1491,7 +1491,7 @@ class AutoApproveRequest(BaseModel):
 
 @app.post("/api/agent/auto-approve")
 def set_auto_approve(req: AutoApproveRequest):
-    """开/关自动执行(v8 纯开关,无阈值)。"""
+    """开/关自动执行(v12 纯开关,无阈值)。"""
     from src.trader.trade_agent import set_auto_approve as _set
     return _set(req.enabled)
 
@@ -1895,7 +1895,7 @@ def trigger_version_compare(
     return {"status": "started", "symbols": sym_list}
 
 
-# ── v8 回测:v8 趋势打法 vs SPY(替代测不了 v8 的版本对比)────────────────────────
+# ── v12 回测:当前机械趋势打法 vs SPY/QQQ(兼容旧 /backtest/v8 endpoint)────────
 _v8_bt_cache: dict = {}
 _v8_bt_running: bool = False
 _V8_BT_FILE = Path(__file__).parent.parent / "data" / "v8_backtest_cache.json"
@@ -1911,23 +1911,25 @@ except Exception:
 
 @app.get("/api/backtest/v8")
 def get_v8_backtest():
-    return _v8_bt_cache.get("result", {"status": "not_run"})
+    result = _v8_bt_cache.get("result", {"status": "not_run"})
+    return {**result, "strategy": result.get("strategy", "v12")} if isinstance(result, dict) else result
 
 
 @app.post("/api/backtest/v8")
 def trigger_v8_backtest(background_tasks: BackgroundTasks, period: str = "6mo"):
-    """v8 趋势打法组合回测 vs SPY(Alpaca,无 yfinance)。"""
+    """v12 趋势打法组合回测 vs SPY/QQQ(Alpaca,无 yfinance)。"""
     global _v8_bt_running
     if _v8_bt_running:
         return {"status": "already_running"}
     _v8_bt_running = True
-    _v8_bt_cache["result"] = {"status": "running", "period": period}
+    _v8_bt_cache["result"] = {"status": "running", "period": period, "strategy": "v12"}
 
     def _run():
         global _v8_bt_running
         try:
             from src.analysis.v8_backtest import run_v8_backtest
             result = run_v8_backtest(period=period)
+            result["strategy"] = "v12"
             _v8_bt_cache["result"] = result
             try:
                 _V8_BT_FILE.parent.mkdir(parents=True, exist_ok=True)

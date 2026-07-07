@@ -309,7 +309,7 @@ def test_autonomous_mode():
 
         auto_file = Path("data/auto_approve.json")
         if not auto_file.exists():
-            ok("Default config", "无配置文件，默认自主模式")
+            ok("Default config", "无配置文件，默认自主模式关闭(fail-closed)")
     except Exception as e:
         fail("Auto-execute", str(e))
 

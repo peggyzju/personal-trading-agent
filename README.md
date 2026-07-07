@@ -104,12 +104,12 @@ Dashboard: `http://localhost:5173` (dev) — production build is served by the b
 |------|---------|
 | `scan_cache.json` | Latest Scout scan (momentum-ranked candidates + AI veto) |
 | `dynamic_tickers.json` | Today's Scout-discovered tickers (TTL: 1 trading day) |
-| `auto_approve.json` | Autonomous execution config (enabled + threshold) |
+| `auto_approve.json` | Autonomous execution config (pure enabled switch; fail-closed if missing) |
 | `market_context.json` | Current regime, size factor, position cap |
 | `trailing_stops.json` | Per-position high-watermarks + trailing stop prices |
 | `earnings_calendar.json` / `earnings_analysis.json` | Earnings radar (upcoming + post-report AI judgment) |
 | `scheduler_heartbeat.json` | Scheduler liveness (watched by the watchdog) |
-| `versions.json` | Strategy version history (v1–v9) |
+| `versions.json` | Strategy version history (v1–v12) |
 
 ## Testing & self-check
 
