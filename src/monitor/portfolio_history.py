@@ -1,6 +1,9 @@
 from __future__ import annotations
 import random
-from datetime import date, timedelta
+from datetime import date, datetime, time as dtime, timedelta
+from zoneinfo import ZoneInfo
+
+ET = ZoneInfo("America/New_York")
 
 
 def get_history() -> dict:
@@ -19,6 +22,19 @@ def _is_trading_day(api, date_str: str) -> bool:
     except Exception:
         # Fallback: at least skip weekends
         return date.fromisoformat(date_str).weekday() < 5
+
+
+def _date_from_alpaca_daily_ts(ts: int | float) -> str:
+    return datetime.fromtimestamp(ts, ET).date().isoformat()
+
+
+def _today_et() -> date:
+    return datetime.now(ET).date()
+
+
+def _should_patch_live_today(api, today_str: str) -> bool:
+    now_et = datetime.now(ET)
+    return now_et.time() >= dtime(9, 30) and _is_trading_day(api, today_str)
 
 
 def _get_alpaca_history() -> dict:
@@ -45,7 +61,7 @@ def _get_alpaca_history() -> dict:
         pl = eq - prev_equity
         pl_pct = (pl / prev_equity * 100) if prev_equity > 0 else 0
         days.append({
-            "date": date.fromtimestamp(ts).isoformat(),
+            "date": _date_from_alpaca_daily_ts(ts),
             "equity": round(eq, 2),
             "daily_pl": round(pl, 2),
             "daily_return_pct": round(pl_pct, 3),
@@ -61,9 +77,9 @@ def _get_alpaca_history() -> dict:
     current = live_equity or (float(hist.equity[-1]) if hist.equity[-1] else 100_000.0)
     base = float(hist.base_value) if hist.base_value else 100_000.0
 
-    # Patch today's entry with live equity — only on actual trading days
-    today_str = date.today().isoformat()
-    if days and live_equity and _is_trading_day(api, today_str):
+    # Patch today's entry with live equity only after the ET session has opened.
+    today_str = _today_et().isoformat()
+    if days and live_equity and _should_patch_live_today(api, today_str):
         # Find yesterday's closing equity for today's daily P&L calc
         yesterday_equity = days[-1]["equity"] if days[-1]["date"] != today_str else (days[-2]["equity"] if len(days) > 1 else base)
         today_pl = round(live_equity - yesterday_equity, 2)
@@ -85,7 +101,7 @@ def _get_alpaca_history() -> dict:
 
 def _get_demo_history() -> dict:
     """Deterministic demo history from Jan 1 of current year to today."""
-    today = date.today()
+    today = _today_et()
     start = date(today.year, 1, 1)
     rng = random.Random(today.year)  # deterministic seed
 
