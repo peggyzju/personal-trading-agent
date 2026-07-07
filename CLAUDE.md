@@ -1,6 +1,6 @@
 # Personal Trading Agent — Claude Code 指南
 
-> 当前策略版本 **v11（AI链软件接棒 soft overlay + v10 盘中确认 + v9 BE5/trail5，2026-07-03）**。历史版本见 `data/versions.json`。
+> 当前策略版本 **v12（EF5 新仓失败止损 + v11 soft overlay + v9 BE5/trail5，2026-07-07）**。历史版本见 `data/versions.json`。
 
 ---
 
@@ -10,7 +10,7 @@
 
 - **选股**：机械动量（趋势门 → 按动量排名），无 AI；AI 链板块轮动只做 soft overlay 排序
 - **买入**：机械入场门 + 默认自动执行；唯一 AI 参与 = 买入侧**排雷**层，把高风险票转人工审核
-- **卖出**：纯机械退出（−8% 硬止损 + BE5 保本 + 追踪止盈 + MA20 破位）
+- **卖出**：纯机械退出（−8% 硬止损 + EF5 新仓失败止损 + BE5 保本 + 追踪止盈 + MA20 破位）
 
 ---
 
@@ -47,13 +47,13 @@
   - 上日结构：上日收盘 > MA50 · MA50 上升（5日斜率>0）· 上日 3月动量>0
   - 盘中确认：当前价 > 上日 MA50 · 当前 RSI 50–80 · 当前 3月动量>0 · 当前 vs 上日 MA20 ≤ 15%
   - 默认过门后按上日 `rank_momentum_3m`（63 交易日涨幅%）降序取 top N；候选 `price` 用盘中当前价供 Rex 仓位/止损；自选（force_symbols）**走同一道门、不特殊、无买入优先权**
-  - **AI链软件接棒 soft overlay（v11）**：触发条件 = 软件 3日中位回报 − 硬件 3日中位回报 > 3% · 硬件 1日中位回报 < −2% · 软件站上 MA20 breadth > 硬件 breadth
+  - **AI链软件接棒 soft overlay（v12）**：触发条件 = 软件 3日中位回报 − 硬件 3日中位回报 > 3% · 硬件 1日中位回报 < −2% · 软件站上 MA20 breadth > 硬件 breadth
   - overlay 触发后：排序桶为 software → other → hardware；桶内仍按上日 `rank_momentum_3m`；硬件需 RSI ≥ 52 且当前价 ≥ MA20；top10 软件最多 6、硬件最多 3（top25 软件最多 12、硬件最多 8）
   - overlay 不是硬件禁买，也不影响已有持仓卖出；只影响新增候选的排序/截断
   - **动量窗口 = 3mo 的决策**：稳健性 9/9 赢 SPY；120d 纯回测更高但仍选 3mo（匹配 5–10 天持仓 + 防幸存者偏差）。**要换先做去幸存者偏差重测**
   - 个股过门仍全机械；AI 不做个股选择（AI 仅在买入侧做排雷 veto，见下）
 
-### Rex — 买入（v11 沿用机械买入）
+### Rex — 买入（v12 沿用机械买入）
 - **数据**：Scout 候选（含扫描价）· Alpaca 实时价（漂移/执行）· Finnhub 财报 · regime · 熔断状态 · 当前持仓 + pending
 - **时间**：每次扫描后 cascade
 - **策略**：候选 = 扫描 top-N ∪ 自选（同门）→ 逐个过入场门 → 自动执行
@@ -65,19 +65,20 @@
   - **自动/人工**：默认自动（confidence 固定 0.8；自动审批**纯开关**无阈值）；`veto=True` → 人工队列，**2h 未处理自动作废、释放槽位补位**（`expires_at=created+2h`）
   - **下单**：Alpaca bracket（市价入场 + −8% 止损），时效 **GTC**
 
-### Rex — 卖出（v9 纯机械退出，无 AI，每 30 分钟）
-- **数据**：持仓（Alpaca）· 实时价 · 日线（算 MA20/RSI）· `trailing_stops.json` 高水位
+### Rex — 卖出（v12 纯机械退出，无 AI，每 30 分钟）
+- **数据**：持仓（Alpaca）· 实时价 · 最近一次 buy 入场时间 · 日线（算 MA20/RSI）· `trailing_stops.json` 高水位
 - **时间**：≥9:31 起每 30 分钟
-- **策略**：`_rule_based_override` 优先级 **硬止损 > 追踪止盈 > 保本退出 > MA20 破位**
+- **策略**：`_rule_based_override` 优先级 **硬止损 > EF5 新仓失败止损 > 追踪止盈 > 保本退出 > MA20 破位**
   1. **硬止损**：plpc ≤ −8%
-  2. **追踪止盈**：高水位 +6% 激活 → 从高点回撤 5% 触发（`TRAIL_ACTIVATE_PCT=6.0 / TRAIL_PCT=5.0`）
-  3. **保本退出**：高水位 +5% 激活 → 价格回到实际持仓均价附近触发（`BREAKEVEN_ACTIVATE_PCT=5.0`）
-  4. **MA20 破位**：**连续 2 根**日线收盘 < MA20（`ma20_below_2d`，过滤单根假破位/健康回调）
+  2. **EF5 新仓失败止损**：D1-D2 内，浮亏 ≤ −5% 退出；D0 不触发（避免入场前日内低点干扰）
+  3. **追踪止盈**：高水位 +6% 激活 → 从高点回撤 5% 触发（`TRAIL_ACTIVATE_PCT=6.0 / TRAIL_PCT=5.0`）
+  4. **保本退出**：高水位 +5% 激活 → 价格回到实际持仓均价附近触发（`BREAKEVEN_ACTIVATE_PCT=5.0`）
+  5. **MA20 破位**：**连续 2 根**日线收盘 < MA20（`ma20_below_2d`，过滤单根假破位/健康回调）
   - 主动卖出前先**取消保护止损单**再 `close_position`
   - **超配保护（非策略性卖出）**：持仓市值 > 权益 95% → 卖最差盈亏直到降回 90%（防杠杆）
 
 ### 关键参数（勿随意改）
-`MIN_CASH_PCT=0.05` · `risk_pct=0.02` · `max_pos_pct=0.08` · 止损固定 8% · `BREAKEVEN_ACTIVATE_PCT=5.0` · `TRAIL_ACTIVATE_PCT=6.0`/`TRAIL_PCT=5.0`(holdings_monitor) · `PRICE_DRIFT_THRESHOLD=0.015` · veto TTL 2h
+`MIN_CASH_PCT=0.05` · `risk_pct=0.02` · `max_pos_pct=0.08` · 止损固定 8% · `EARLY_FAILURE_STOP_PCT=-5.0`(D1-D2) · `BREAKEVEN_ACTIVATE_PCT=5.0` · `TRAIL_ACTIVATE_PCT=6.0`/`TRAIL_PCT=5.0`(holdings_monitor) · `PRICE_DRIFT_THRESHOLD=0.015` · veto TTL 2h
 
 ---
 
@@ -94,7 +95,7 @@ python3 tests/e2e_daily.py           # full（~2min）
 **覆盖**：环境 / 账户 / Market Regime / Scanner / Strategy Notes / 自主模式（纯开关）/ 手动复盘 / 数据契约 / 调度器 · **v8/v9 机械规则（smoke 也跑，守实盘根因）**：
 - `test_slot_cap` 槽位上限（防超额，6-30 暴冲）· `test_bracket_gtc` bracket=GTC（防裸奔）
 - `test_ma20_exit` MA20 连续2根破位 · `test_price_drift_gate` 漂移门（涨拒跌放）· `test_veto_ttl` veto 2h
-- `test_hard_stop_logic` 硬止损 + 保本退出 + 追踪止盈（hard stop 场景须用 ≤−8%，如 −9%）
+- `test_hard_stop_logic` 硬止损 + 保本退出 + 追踪止盈（hard stop 场景须用 ≤−8%，如 −9%）· `test_early_failure_stop` EF5 D1-D2
 
 ---
 

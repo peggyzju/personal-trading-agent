@@ -327,7 +327,7 @@ function AllSignalsView({
   return (
     <div className="sc-list">
       <div className="signals-stale-banner" style={{ background: "rgba(34,197,94,.1)", borderColor: "rgba(34,197,94,.3)", color: "#86efac" }}>
-        📈 v8 趋势打法 · 按 <b>3 月动量</b>排名,买动量前 N(机械选股) · AI 评分仅供参考,不参与买入
+        📈 v12 趋势打法 · 按 <b>3 月动量</b>排名,买动量前 N(机械选股) · AI 评分仅供参考,不参与买入
       </div>
       {isRunning && (
         <div className="signals-stale-banner" style={{ background: "rgba(59,130,246,.1)", borderColor: "rgba(59,130,246,.3)", color: "#93c5fd" }}>
@@ -540,7 +540,7 @@ function SignalCard({
             </span>
           </div>
         ) : (
-          <span title="AI 排雷未发现风险(v8:AI 只排雷,不打分选股)"
+          <span title="AI 排雷未发现风险(v12:AI 只排雷,不打分选股)"
                 style={{ fontSize: 11, color: "#22c55e", fontWeight: 600, whiteSpace: "nowrap" }}>
             ✓ AI 放行
           </span>
@@ -560,7 +560,7 @@ function SignalCard({
         <span className="sc-price">${c.price?.toFixed(2)}</span>
         {c.momentum_3m != null && (
           <span className="sc-change" style={{ color: c.momentum_3m >= 0 ? "#22c55e" : "#ef4444", fontWeight: 700 }}
-                title="3 月动量(v8 排名依据)">
+                title="3 月动量(v12 排名依据)">
             动量 {c.momentum_3m >= 0 ? "+" : ""}{c.momentum_3m.toFixed(0)}%
           </span>
         )}

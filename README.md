@@ -2,7 +2,7 @@
 
 An autonomous AI-assisted trading system that scans the US market, ranks stocks by momentum, and executes trades on Alpaca — with a React dashboard for monitoring and control. Currently runs in **paper trading** mode.
 
-> **Strategy v11 (2026-07-03):** keeps v10 completed-daily structure + intraday confirmation and v9 BE5/trail5 exits. Scout adds a software-over-hardware AI-chain soft rotation overlay before top-N truncation: software can be ranked ahead when it clearly takes leadership, weak hardware needs stronger confirmation, and sector crowding is capped. Entry/exit remain rule-based; AI is advisory only — landmine veto (→ manual review), post-earnings judgment, and end-of-day review.
+> **Strategy v12 (2026-07-07):** keeps v10 completed-daily structure + intraday confirmation, v11 software-over-hardware soft rotation overlay, and v9 BE5/trail5 exits. Rex adds EF5 early-failure exits: D1-D2 positions with floating loss at or below -5% are recycled before they hard-stop. Entry/exit remain rule-based; AI is advisory only — landmine veto (→ manual review), post-earnings judgment, and end-of-day review.
 
 ## Agents
 
@@ -30,7 +30,7 @@ api/app.py (FastAPI :8000)        frontend/ (React + Vite)
   └── REST endpoints   ←→         └── Portfolio Command Center
 ```
 
-## Strategy (v11 — daily structure + intraday confirmation + rotation overlay)
+## Strategy (v12 — daily structure + intraday confirmation + rotation overlay + EF5)
 
 ### 1. Selection (Scout) — completed structure, intraday confirmation
 A stock passes only if the completed-daily structure and current intraday confirmation both hold (no dual-track, no AI score gate, no sector boost):
@@ -57,6 +57,7 @@ When the AI-chain software group clearly leads hardware, Scout enables a **soft 
 | Mechanism | Rule |
 |-----------|------|
 | **Hard stop** | −8% from entry → Alpaca bracket GTC order (server-side, ms-latency) + holdings-monitor fallback |
+| **EF5 early-failure stop** | D1-D2 positions with floating loss **≤ −5%** → exit; D0 is ignored |
 | **Breakeven stop** | Activates at **+5%** high watermark; triggers SELL if price returns to entry/average cost |
 | **Trailing stop** | Activates at **+6%** high watermark; triggers SELL if price falls **5%** from the high watermark |
 | **MA20 break** | **2 consecutive daily closes below MA20** → trend over, exit (single-bar dips are held — avoids whipsaw) |
