@@ -34,6 +34,12 @@ function currentMonthDays(days: PortfolioDay[], monthKey: string): PortfolioDay[
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
+function shortDate(value: string | null): string {
+  if (!value) return "—";
+  const [, month, day] = value.split("-");
+  return `${Number(month)}/${Number(day)}`;
+}
+
 function monthStats(days: PortfolioDay[]) {
   const total = days.reduce((sum, d) => sum + d.daily_pl, 0);
   const wins = days.filter(d => d.daily_pl > 0).length;
@@ -122,6 +128,10 @@ function MonthlyPLComparison({ paperDays }: { paperDays: PortfolioDay[] }) {
   const liveMonth = currentMonthDays(liveDays, monthKey);
   const paperStats = monthStats(paperMonth);
   const liveStats = monthStats(liveMonth);
+  const paperLatestDate = paperMonth.at(-1)?.date ?? null;
+  const paperStatus = paperLatestDate
+    ? `最新完成日 ${shortDate(paperLatestDate)}${paperLatestDate < todayET() ? " · 等待 Alpaca EOD 数据" : ""}`
+    : "等待 Alpaca EOD 数据";
 
   return (
     <section className="monthly-pl-panel">
@@ -166,6 +176,7 @@ function MonthlyPLComparison({ paperDays }: { paperDays: PortfolioDay[] }) {
           mode="percent"
           monthKey={monthKey}
           markTodayLive
+          statusText={paperStatus}
           emptyText="本月还没有 paper 收益记录。"
         />
         <MonthlyPLCard
@@ -174,6 +185,7 @@ function MonthlyPLComparison({ paperDays }: { paperDays: PortfolioDay[] }) {
           days={liveMonth}
           mode="dollar"
           monthKey={monthKey}
+          statusText="手动记录"
           emptyText="本月还没有实盘 P/L 记录。"
         />
       </div>
@@ -182,7 +194,7 @@ function MonthlyPLComparison({ paperDays }: { paperDays: PortfolioDay[] }) {
 }
 
 function MonthlyPLCard({
-  title, stats, days, mode, monthKey, emptyText, markTodayLive = false,
+  title, stats, days, mode, monthKey, emptyText, statusText, markTodayLive = false,
 }: {
   title: string;
   stats: ReturnType<typeof monthStats>;
@@ -190,6 +202,7 @@ function MonthlyPLCard({
   mode: "percent" | "dollar";
   monthKey: string;
   emptyText: string;
+  statusText?: string;
   markTodayLive?: boolean;
 }) {
   const totalClass = stats.total >= 0 ? "pos" : "neg";
@@ -203,6 +216,7 @@ function MonthlyPLCard({
         <span><b className="up">{stats.wins}</b> 盈 / <b className="down">{stats.losses}</b> 亏</span>
         <span>Avg <b className={stats.avg >= 0 ? "pos" : "neg"}>{money(stats.avg)}</b>/day</span>
       </div>
+      {statusText && <div className="monthly-pl-data-status">{statusText}</div>}
       <MonthlyPLCalendar
         days={days}
         mode={mode}

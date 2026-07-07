@@ -1982,6 +1982,11 @@ body {
 .monthly-pl-card-head b.pos { color: #22c55e; }
 .monthly-pl-card-head b.neg,
 .monthly-pl-meta b.neg { color: #ef4444; }
+.monthly-pl-data-status {
+  margin: -2px 0 9px;
+  font-size: 10px;
+  color: var(--muted);
+}
 .monthly-pl-empty {
   font-size: 12px;
   color: var(--muted);
