@@ -1792,6 +1792,23 @@ body {
   flex-direction: column;
   gap: 16px;
 }
+.sr-review-backtest-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.sr-review-backtest-pane {
+  min-width: 0;
+}
+.sr-review-backtest-pane .sr-header {
+  margin-top: 0 !important;
+}
+@media (max-width: 1100px) {
+  .sr-review-backtest-grid {
+    grid-template-columns: 1fr;
+  }
+}
 
 /* ── Sub-tab switcher ── */
 .sr-subtab-bar {

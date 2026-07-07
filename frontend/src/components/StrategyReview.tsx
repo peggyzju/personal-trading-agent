@@ -370,8 +370,14 @@ export function StrategyReviewPanel({ backendOnline }: Props) {
   return (
     <div className="sr-container">
       <PerformanceSummary />
-      <PostMortemPanel backendOnline={backendOnline} />
-      <BacktestView backendOnline={backendOnline} />
+      <div className="sr-review-backtest-grid">
+        <div className="sr-review-backtest-pane">
+          <PostMortemPanel backendOnline={backendOnline} />
+        </div>
+        <div className="sr-review-backtest-pane">
+          <BacktestView backendOnline={backendOnline} />
+        </div>
+      </div>
     </div>
   );
 }
