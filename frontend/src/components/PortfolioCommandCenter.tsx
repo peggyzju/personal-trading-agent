@@ -1110,39 +1110,46 @@ export function CompactHeatmap({
   days,
   title = "最近 30 天每日收益",
   mode = "percent",
+  compact = false,
+  dateFilter = "last30",
 }: {
   days: PortfolioDay[];
   title?: string;
   mode?: "percent" | "dollar";
+  compact?: boolean;
+  dateFilter?: "last30" | "none";
 }) {
   const [tooltip, setTooltip] = useState<{ day: PortfolioDay; x: number; y: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-  const monthDays = days.filter(d => d.date >= cutoff);
+  const monthDays = (dateFilter === "last30" ? days.filter(d => d.date >= cutoff) : [...days])
+    .sort((a, b) => a.date.localeCompare(b.date));
   const maxAbsPl = Math.max(0, ...monthDays.map(d => Math.abs(d.daily_pl)));
   if (monthDays.length === 0) return null;
 
   return (
-    <div className="pcc-compact-heatmap" ref={ref}>
-      <div className="pcc-heatmap-header">
-        <span className="pcc-heatmap-title">{title}</span>
-        {(() => {
-          const n = monthDays.length;
-          const wins = monthDays.filter(d => d.daily_pl > 0).length;
-          const losses = monthDays.filter(d => d.daily_pl < 0).length;
-          return <span className="pcc-heatmap-summary">{n} 个交易日 · <span className="up">{wins} 盈</span> / <span className="down">{losses} 亏</span></span>;
-        })()}
-        <div className="pcc-heatmap-legend">
-          {(mode === "percent"
-            ? ([["<−1%","#dc2626"],["−1~0%","#fca5a5"],["≈0","#1e293b"],["0~1%","#4ade80"],[">1%","#16a34a"]] as const)
-            : ([["亏损大","#dc2626"],["亏损","#fca5a5"],["0","#1e293b"],["盈利","#4ade80"],["盈利大","#16a34a"]] as const)
-          ).map(([l,c]) => (
-            <span key={l} className="pcc-legend-item">
-              <span className="pcc-legend-swatch" style={{ background: c }} />{l}
-            </span>
-          ))}
+    <div className={`pcc-compact-heatmap${compact ? " compact" : ""}`} ref={ref}>
+      {!compact && (
+        <div className="pcc-heatmap-header">
+          <span className="pcc-heatmap-title">{title}</span>
+          {(() => {
+            const n = monthDays.length;
+            const wins = monthDays.filter(d => d.daily_pl > 0).length;
+            const losses = monthDays.filter(d => d.daily_pl < 0).length;
+            return <span className="pcc-heatmap-summary">{n} 个交易日 · <span className="up">{wins} 盈</span> / <span className="down">{losses} 亏</span></span>;
+          })()}
+          <div className="pcc-heatmap-legend">
+            {(mode === "percent"
+              ? ([["<−1%","#dc2626"],["−1~0%","#fca5a5"],["≈0","#1e293b"],["0~1%","#4ade80"],[">1%","#16a34a"]] as const)
+              : ([["亏损大","#dc2626"],["亏损","#fca5a5"],["0","#1e293b"],["盈利","#4ade80"],["盈利大","#16a34a"]] as const)
+            ).map(([l,c]) => (
+              <span key={l} className="pcc-legend-item">
+                <span className="pcc-legend-swatch" style={{ background: c }} />{l}
+              </span>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
       <div className="pcc-heatmap-cells">
         {monthDays.map(d => (
           <div

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { api } from "../api/client";
 import type { StockDebateResult, PostmortemResult, PostmortemTrade, StrategyBacktestResult, TimelinePeriod } from "../api/client";
-import type { Account, PortfolioHistory, GoalProgress, PerformanceStats, Position } from "../api/client";
+import type { Account, PortfolioHistory, GoalProgress, PerformanceStats, Position, PortfolioDay } from "../api/client";
 import { BacktestView } from "./BacktestView";
 import { DashboardSummary, CompactHeatmap } from "./PortfolioCommandCenter";
 
@@ -16,19 +16,53 @@ function todayET(): string {
   }).format(new Date());
 }
 
-function LiveDailyPLTracker() {
+function monthKeyET(): string {
+  return todayET().slice(0, 7);
+}
+
+function monthLabel(monthKey: string): string {
+  return monthKey;
+}
+
+function toPortfolioDay(date: string, daily_pl: number): PortfolioDay {
+  return { date, daily_pl, daily_return_pct: 0, equity: 0 };
+}
+
+function currentMonthDays(days: PortfolioDay[], monthKey: string): PortfolioDay[] {
+  return days
+    .filter(d => d.date.startsWith(monthKey))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function monthStats(days: PortfolioDay[]) {
+  const total = days.reduce((sum, d) => sum + d.daily_pl, 0);
+  const wins = days.filter(d => d.daily_pl > 0).length;
+  const losses = days.filter(d => d.daily_pl < 0).length;
+  const avg = days.length ? total / days.length : 0;
+  return { total, wins, losses, avg };
+}
+
+function money(value: number, decimals = 0): string {
+  const sign = value >= 0 ? "+" : "-";
+  return `${sign}$${Math.abs(value).toLocaleString("en-US", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })}`;
+}
+
+function MonthlyPLComparison({ paperDays }: { paperDays: PortfolioDay[] }) {
+  const monthKey = monthKeyET();
   const [date, setDate] = useState(todayET());
   const [pl, setPl] = useState("");
-  const [days, setDays] = useState<Array<{ date: string; daily_pl: number }>>([]);
-  const [total, setTotal] = useState(0);
+  const [liveDays, setLiveDays] = useState<PortfolioDay[]>([]);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
 
   useEffect(() => {
     api.getLiveDailyPL()
       .then(r => {
-        setDays(r.days);
-        setTotal(r.total_pl);
+        setLiveDays(r.days.map(d => toPortfolioDay(d.date, d.daily_pl)));
         const today = r.days.find(d => d.date === todayET());
         if (today) setPl(String(today.daily_pl));
       })
@@ -45,10 +79,10 @@ function LiveDailyPLTracker() {
     setStatus(null);
     try {
       const r = await api.saveLiveDailyPL(date, value);
-      setDays(r.days);
-      setTotal(r.total_pl);
+      setLiveDays(r.days.map(d => toPortfolioDay(d.date, d.daily_pl)));
       setStatus("Saved");
       setTimeout(() => setStatus(null), 1800);
+      setFormOpen(false);
     } catch (e: unknown) {
       setStatus(e instanceof Error ? e.message : "保存失败");
     } finally {
@@ -56,50 +90,90 @@ function LiveDailyPLTracker() {
     }
   }
 
-  const chartDays = days.map(d => ({
-    date: d.date,
-    daily_pl: d.daily_pl,
-    daily_return_pct: 0,
-    equity: 0,
-  }));
+  const paperMonth = currentMonthDays(paperDays, monthKey);
+  const liveMonth = currentMonthDays(liveDays, monthKey);
+  const paperStats = monthStats(paperMonth);
+  const liveStats = monthStats(liveMonth);
 
   return (
-    <div className="live-pl-panel">
-      <div className="live-pl-head">
+    <section className="monthly-pl-panel">
+      <div className="monthly-pl-head">
         <div>
-          <div className="live-pl-title">Live Daily P/L</div>
-          <div className="live-pl-subtitle">手动记录实盘每日收益，不影响策略执行。</div>
+          <div className="monthly-pl-title">当月每日收益对比</div>
+          <div className="monthly-pl-subtitle">{monthLabel(monthKey)} · Paper vs Live</div>
         </div>
-        <div className={`live-pl-total${total >= 0 ? " pos" : " neg"}`}>
-          {total >= 0 ? "+" : "-"}${Math.abs(total).toFixed(2)}
-        </div>
-      </div>
-
-      <div className="live-pl-form">
-        <label>
-          <span>Date</span>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} />
-        </label>
-        <label>
-          <span>P/L</span>
-          <input
-            type="number"
-            step="0.01"
-            value={pl}
-            onChange={e => setPl(e.target.value)}
-            placeholder="0.00"
-          />
-        </label>
-        <button type="button" onClick={save} disabled={saving}>
-          {saving ? "Saving..." : "Save"}
+        <button type="button" className="monthly-pl-add" onClick={() => setFormOpen(v => !v)}>
+          {formOpen ? "Close" : "+ Add Live P/L"}
         </button>
-        {status && <span className="live-pl-status">{status}</span>}
       </div>
 
-      {chartDays.length > 0 ? (
-        <CompactHeatmap days={chartDays} title="实盘最近 30 天每日收益" mode="dollar" />
+      {formOpen && (
+        <div className="monthly-pl-form">
+          <label>
+            <span>Date</span>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} />
+          </label>
+          <label>
+            <span>P/L</span>
+            <input
+              type="number"
+              step="0.01"
+              value={pl}
+              onChange={e => setPl(e.target.value)}
+              placeholder="0.00"
+            />
+          </label>
+          <button type="button" onClick={save} disabled={saving}>
+            {saving ? "Saving..." : "Save"}
+          </button>
+          {status && <span className="monthly-pl-status">{status}</span>}
+        </div>
+      )}
+
+      <div className="monthly-pl-grid">
+        <MonthlyPLCard
+          title="Paper Trading"
+          stats={paperStats}
+          days={paperMonth}
+          mode="percent"
+          emptyText="本月还没有 paper 收益记录。"
+        />
+        <MonthlyPLCard
+          title="Live Trading"
+          stats={liveStats}
+          days={liveMonth}
+          mode="dollar"
+          emptyText="本月还没有实盘 P/L 记录。"
+        />
+      </div>
+    </section>
+  );
+}
+
+function MonthlyPLCard({
+  title, stats, days, mode, emptyText,
+}: {
+  title: string;
+  stats: ReturnType<typeof monthStats>;
+  days: PortfolioDay[];
+  mode: "percent" | "dollar";
+  emptyText: string;
+}) {
+  const totalClass = stats.total >= 0 ? "pos" : "neg";
+  return (
+    <div className="monthly-pl-card">
+      <div className="monthly-pl-card-head">
+        <span>{title}</span>
+        <b className={totalClass}>P/L {money(stats.total)}</b>
+      </div>
+      <div className="monthly-pl-meta">
+        <span><b className="up">{stats.wins}</b> 盈 / <b className="down">{stats.losses}</b> 亏</span>
+        <span>Avg <b className={stats.avg >= 0 ? "pos" : "neg"}>{money(stats.avg)}</b>/day</span>
+      </div>
+      {days.length > 0 ? (
+        <CompactHeatmap days={days} title="" mode={mode} compact dateFilter="none" />
       ) : (
-        <div className="live-pl-empty">还没有实盘 P/L 记录。</div>
+        <div className="monthly-pl-empty">{emptyText}</div>
       )}
     </div>
   );
@@ -162,8 +236,7 @@ function PerformanceSummary() {
         )}
       </div>
 
-      {(history?.days.length ?? 0) > 10 && <CompactHeatmap days={history!.days} title="Paper 最近 30 天每日收益" />}
-      <LiveDailyPLTracker />
+      <MonthlyPLComparison paperDays={history?.days ?? []} />
     </div>
   );
 }
