@@ -1,5 +1,19 @@
 {
   "maya": [],
-  "scout": [],
-  "rex": []
+  "scout": [
+    {
+      "ran_at": "2026-07-07T15:17:08.426194+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    }
+  ],
+  "rex": [
+    {
+      "ran_at": "2026-07-07T15:17:19.716825+00:00",
+      "trigger": "auto",
+      "result": "success",
+      "error": null
+    }
+  ]
 }
