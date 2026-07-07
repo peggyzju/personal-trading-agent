@@ -1987,11 +1987,100 @@ body {
   color: var(--muted);
   padding: 10px 0 2px;
 }
+.monthly-cal {
+  min-width: 0;
+}
+.monthly-cal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.monthly-cal-weekdays span {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--muted);
+  text-align: center;
+  text-transform: uppercase;
+}
+.monthly-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+}
+.monthly-cal-cell {
+  position: relative;
+  min-width: 0;
+  min-height: 46px;
+  border: 1px solid rgba(148,163,184,0.16);
+  border-radius: 6px;
+  padding: 5px 5px 4px;
+  background: #111827;
+  overflow: hidden;
+}
+.monthly-cal-cell.blank {
+  visibility: hidden;
+}
+.monthly-cal-cell.empty {
+  background: rgba(30,41,59,0.6);
+}
+.monthly-cal-cell.flat {
+  background: #1e293b;
+}
+.monthly-cal-cell.up {
+  background: rgba(74,222,128,0.22);
+  border-color: rgba(74,222,128,0.35);
+}
+.monthly-cal-cell.strong-up {
+  background: rgba(22,163,74,0.5);
+  border-color: rgba(34,197,94,0.55);
+}
+.monthly-cal-cell.down {
+  background: rgba(248,113,113,0.22);
+  border-color: rgba(248,113,113,0.35);
+}
+.monthly-cal-cell.strong-down {
+  background: rgba(220,38,38,0.48);
+  border-color: rgba(239,68,68,0.55);
+}
+.monthly-cal-cell.today {
+  box-shadow: inset 0 0 0 1px #60a5fa;
+}
+.monthly-cal-date {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1;
+  margin-bottom: 6px;
+}
+.monthly-cal-pl {
+  display: block;
+  font-size: clamp(9px, 1.1vw, 12px);
+  font-weight: 800;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+.monthly-cal-live {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  border-radius: 4px;
+  padding: 1px 4px;
+  background: rgba(96,165,250,0.18);
+  color: #93c5fd;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
 
 @media (max-width: 760px) {
   .monthly-pl-grid { grid-template-columns: 1fr; }
   .monthly-pl-head { align-items: stretch; flex-direction: column; }
   .monthly-pl-add { width: fit-content; }
+  .monthly-cal-cell { min-height: 42px; }
 }
 
 /* ── Trades grid ── */

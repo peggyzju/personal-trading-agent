@@ -3,7 +3,7 @@ import { api } from "../api/client";
 import type { StockDebateResult, PostmortemResult, PostmortemTrade, StrategyBacktestResult, TimelinePeriod } from "../api/client";
 import type { Account, PortfolioHistory, GoalProgress, PerformanceStats, Position, PortfolioDay } from "../api/client";
 import { BacktestView } from "./BacktestView";
-import { DashboardSummary, CompactHeatmap } from "./PortfolioCommandCenter";
+import { DashboardSummary } from "./PortfolioCommandCenter";
 
 interface Props { backendOnline: boolean }
 
@@ -48,6 +48,34 @@ function money(value: number, decimals = 0): string {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   })}`;
+}
+
+function dateFromYMD(value: string): Date {
+  return new Date(`${value}T12:00:00`);
+}
+
+function weekdayIndexMonFirst(value: string): number {
+  const day = dateFromYMD(value).getDay();
+  return day === 0 ? 6 : day - 1;
+}
+
+function monthTradingDates(monthKey: string): Array<string | null> {
+  const [year, month] = monthKey.split("-").map(Number);
+  const first = new Date(year, month - 1, 1, 12);
+  const last = new Date(year, month, 0, 12);
+  const cells: Array<string | null> = [];
+  const lead = weekdayIndexMonFirst(`${monthKey}-01`);
+  for (let i = 0; i < Math.min(lead, 5); i++) cells.push(null);
+
+  for (let day = 1; day <= last.getDate(); day += 1) {
+    const d = new Date(first);
+    d.setDate(day);
+    const jsDay = d.getDay();
+    if (jsDay === 0 || jsDay === 6) continue;
+    cells.push(`${monthKey}-${String(day).padStart(2, "0")}`);
+  }
+  while (cells.length % 5 !== 0) cells.push(null);
+  return cells;
 }
 
 function MonthlyPLComparison({ paperDays }: { paperDays: PortfolioDay[] }) {
@@ -136,6 +164,8 @@ function MonthlyPLComparison({ paperDays }: { paperDays: PortfolioDay[] }) {
           stats={paperStats}
           days={paperMonth}
           mode="percent"
+          monthKey={monthKey}
+          markTodayLive
           emptyText="本月还没有 paper 收益记录。"
         />
         <MonthlyPLCard
@@ -143,6 +173,7 @@ function MonthlyPLComparison({ paperDays }: { paperDays: PortfolioDay[] }) {
           stats={liveStats}
           days={liveMonth}
           mode="dollar"
+          monthKey={monthKey}
           emptyText="本月还没有实盘 P/L 记录。"
         />
       </div>
@@ -151,13 +182,15 @@ function MonthlyPLComparison({ paperDays }: { paperDays: PortfolioDay[] }) {
 }
 
 function MonthlyPLCard({
-  title, stats, days, mode, emptyText,
+  title, stats, days, mode, monthKey, emptyText, markTodayLive = false,
 }: {
   title: string;
   stats: ReturnType<typeof monthStats>;
   days: PortfolioDay[];
   mode: "percent" | "dollar";
+  monthKey: string;
   emptyText: string;
+  markTodayLive?: boolean;
 }) {
   const totalClass = stats.total >= 0 ? "pos" : "neg";
   return (
@@ -170,11 +203,69 @@ function MonthlyPLCard({
         <span><b className="up">{stats.wins}</b> 盈 / <b className="down">{stats.losses}</b> 亏</span>
         <span>Avg <b className={stats.avg >= 0 ? "pos" : "neg"}>{money(stats.avg)}</b>/day</span>
       </div>
-      {days.length > 0 ? (
-        <CompactHeatmap days={days} title="" mode={mode} compact dateFilter="none" />
-      ) : (
-        <div className="monthly-pl-empty">{emptyText}</div>
-      )}
+      <MonthlyPLCalendar
+        days={days}
+        mode={mode}
+        monthKey={monthKey}
+        emptyText={emptyText}
+        markTodayLive={markTodayLive}
+      />
+    </div>
+  );
+}
+
+function MonthlyPLCalendar({
+  days, mode, monthKey, emptyText, markTodayLive,
+}: {
+  days: PortfolioDay[];
+  mode: "percent" | "dollar";
+  monthKey: string;
+  emptyText: string;
+  markTodayLive: boolean;
+}) {
+  const byDate = new Map(days.map(d => [d.date, d]));
+  const dates = monthTradingDates(monthKey);
+  const today = todayET();
+  const hasAny = days.length > 0;
+  const maxAbs = Math.max(0, ...days.map(d => Math.abs(d.daily_pl)));
+
+  function cellClass(day: PortfolioDay | undefined): string {
+    if (!day) return "empty";
+    if (day.daily_pl === 0) return "flat";
+    if (mode === "dollar" && maxAbs > 0 && Math.abs(day.daily_pl) / maxAbs >= 0.6) {
+      return day.daily_pl > 0 ? "strong-up" : "strong-down";
+    }
+    return day.daily_pl > 0 ? "up" : "down";
+  }
+
+  return (
+    <div className="monthly-cal">
+      <div className="monthly-cal-weekdays">
+        {["Mon", "Tue", "Wed", "Thu", "Fri"].map(d => <span key={d}>{d}</span>)}
+      </div>
+      <div className="monthly-cal-grid">
+        {dates.map((date, idx) => {
+          const day = date ? byDate.get(date) : undefined;
+          const isToday = Boolean(date && date === today);
+          const isLive = markTodayLive && isToday && Boolean(day);
+          return (
+            <div
+              key={date ?? `blank-${idx}`}
+              className={`monthly-cal-cell ${date ? cellClass(day) : "blank"}${isToday ? " today" : ""}`}
+              title={date && day ? `${date}: ${money(day.daily_pl, 2)}${mode === "percent" ? ` (${day.daily_return_pct >= 0 ? "+" : ""}${day.daily_return_pct.toFixed(2)}%)` : ""}` : date ?? ""}
+            >
+              {date && <span className="monthly-cal-date">{date.slice(-2)}</span>}
+              {date && (
+                <span className="monthly-cal-pl">
+                  {day ? money(day.daily_pl) : "—"}
+                </span>
+              )}
+              {isLive && <span className="monthly-cal-live">Live</span>}
+            </div>
+          );
+        })}
+      </div>
+      {!hasAny && <div className="monthly-pl-empty">{emptyText}</div>}
     </div>
   );
 }
