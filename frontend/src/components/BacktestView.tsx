@@ -42,7 +42,7 @@ export function BacktestView({ backendOnline }: Props) {
   type Row = { key: string; label: string; side: V8BacktestSide; strat: boolean };
   const rows: Row[] = [];
   if (data?.status === "done" && data.v8) {
-    rows.push({ key: "v8", label: "v12 策略", side: data.v8, strat: true });
+    rows.push({ key: "v8", label: "策略", side: data.v8, strat: true });
     if (data.qqq) rows.push({ key: "qqq", label: "QQQ 纳指", side: data.qqq, strat: false });
     if (data.spy) rows.push({ key: "spy", label: "SPY 标普", side: data.spy, strat: false });
   }
@@ -53,7 +53,7 @@ export function BacktestView({ backendOnline }: Props) {
       <div className="sr-header" style={{ marginTop: 32 }}>
         <div>
           <h2 className="sr-title">📊 回测</h2>
-          <p className="sr-subtitle">v12 策略 · Alpaca 数据 · QQQ / SPY 同池对照</p>
+          <p className="sr-subtitle">Alpaca 数据 · QQQ / SPY 同池对照</p>
         </div>
       </div>
 
@@ -101,7 +101,7 @@ export function BacktestView({ backendOnline }: Props) {
                 <tbody>
                   {rows.map(r => (
                     <tr key={r.key} style={{ borderTop: "1px solid var(--border)" }}>
-                      <td style={{ textAlign: "left", padding: "5px 6px", fontWeight: r.strat ? 700 : 400 }}>{r.key === "v8" ? "v12" : r.label.slice(0, 3)}</td>
+                      <td style={{ textAlign: "left", padding: "5px 6px", fontWeight: r.strat ? 700 : 400 }}>{r.strat ? "策略" : r.label.slice(0, 3)}</td>
                       {years.map(y => {
                         const v = r.side.by_year[y];
                         return <td key={y} style={{ textAlign: "right", padding: "5px 6px", color: v == null ? "var(--muted)" : v >= 0 ? "#22c55e" : "#ef4444" }}>{v != null ? fmt(v) : "—"}</td>;
@@ -114,7 +114,7 @@ export function BacktestView({ backendOnline }: Props) {
           )}
 
           <p className="sr-subtitle" style={{ marginTop: 12 }}>
-            ⚠️ 用今天的 S&P500 名单有幸存者偏差(绝对数字偏高);但三者同池对照,相对胜负可信。稳健性见 scripts/v8_robustness.py(9/9 组赢 SPY)。
+            ⚠️ 用今天的 S&P500 名单有幸存者偏差(绝对数字偏高);但三者同池对照,相对胜负可信。稳健性验证:9/9 组赢 SPY。
           </p>
         </>
       )}
