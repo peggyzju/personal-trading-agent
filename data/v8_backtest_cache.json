@@ -2,9 +2,8 @@
   "status": "not_run",
   "strategy": "v12",
   "reset": {
-    "reset_at": "2026-07-07T15:07:37.130548+00:00",
+    "reset_at": "2026-07-07T15:14:45.710833+00:00",
     "account_equity": 95000.0,
-    "reason": "New Alpaca paper account clean start. Legacy account data archived and excluded from product/runtime views.",
-    "archive": "data/archive_legacy_account_data_20260707T145952Z"
+    "reason": "New Alpaca paper account clean start. Legacy account data intentionally cleared."
   }
 }
