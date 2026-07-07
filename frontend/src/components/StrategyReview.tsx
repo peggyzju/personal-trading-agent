@@ -218,13 +218,11 @@ function MonthlyPLCard({
       <div className="monthly-pl-card-head">
         <span>{title}</span>
       </div>
-      {summary && <div className="monthly-pl-paper-summary">{summary}</div>}
       <div className="monthly-pl-meta">
         <span>P/L <b className={totalClass}>{money(stats.total)}</b></span>
         <span><b className="up">{stats.wins}</b>盈 / <b className="down">{stats.losses}</b>亏</span>
         <span>Avg <b className={stats.avg >= 0 ? "pos" : "neg"}>{money(stats.avg)}</b>/day</span>
       </div>
-      {statusText && <div className="monthly-pl-data-status">{statusText}</div>}
       <MonthlyPLCalendar
         days={days}
         mode={mode}
@@ -232,6 +230,12 @@ function MonthlyPLCard({
         emptyText={emptyText}
         markTodayLive={markTodayLive}
       />
+      {(summary || statusText) && (
+        <div className="monthly-pl-card-footer">
+          {summary && <div className="monthly-pl-paper-summary">{summary}</div>}
+          {statusText && <div className="monthly-pl-data-status">{statusText}</div>}
+        </div>
+      )}
     </div>
   );
 }
