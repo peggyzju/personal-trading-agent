@@ -6,6 +6,7 @@ that downstream agents read to align their behavior.
 Produces:
   - regime: BULL / NEUTRAL / CAUTION / BEAR
   - sector_bias: {sector: "positive"/"negative"/"neutral"}
+  - narrative_shocks: price-confirmed market narrative shocks
   - goal_context: progress toward 20-day 10-15% target
   - aggression: "conservative" / "normal" / "aggressive"
   - macro_flags: any known events today
@@ -143,7 +144,20 @@ def generate_market_context(save: bool = True) -> dict:
     # 4. Sector bias (best-effort, don't fail if yfinance slow)
     sector_bias = _get_sector_bias()
 
-    # 5. Derive agent params from aggression + regime
+    # 5. Market narrative shocks (best-effort, explanatory only)
+    try:
+        from src.monitor.narrative_radar import get_narrative_radar
+        narrative_radar = get_narrative_radar()
+    except Exception as e:
+        narrative_radar = {
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "active_count": 0,
+            "watch_count": 0,
+            "items": [],
+            "error": str(e),
+        }
+
+    # 6. Derive agent params from aggression + regime
     # aggression order: conservative(0) < normal(1) < aggressive(2)
     _AGG_ORDER = {"conservative": 0, "normal": 1, "aggressive": 2}
 
@@ -169,6 +183,8 @@ def generate_market_context(save: bool = True) -> dict:
         "block_buys":    regime_data.get("block_buys", False),
         "size_factor":   regime_data.get("size_factor", 1.0),
         "sector_bias":   sector_bias,
+        "narrative_shocks": narrative_radar.get("items", []),
+        "narrative_radar": narrative_radar,
         "goal_context":  goal_ctx,
         "aggression":    aggression,
         "min_ai_score":  min_ai_score_map[aggression],

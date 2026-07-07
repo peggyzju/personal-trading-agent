@@ -34,6 +34,7 @@ WATCHLIST_FILE = Path(__file__).parent.parent / "watchlist.json"
 DEFAULT_WATCHLIST = ["AAPL", "NVDA", "MSFT", "TSLA"]
 _SCAN_CACHE_FILE = Path(__file__).parent.parent / "data" / "scan_cache.json"
 _SCOUT_RUN_FILE      = Path(__file__).parent.parent / "data" / "scout_run_dates.json"
+_LIVE_DAILY_PL_FILE  = Path(__file__).parent.parent / "data" / "live_daily_pl.json"
 
 def _load_scout_run_dates() -> set:
     try:
@@ -55,6 +56,7 @@ _analysis_timestamps: dict = {}      # symbol -> unix timestamp of last update
 _news_cache: dict = {}
 _brief_cache: dict = {}
 _holdings_cache: dict = {}           # "sell_signals" -> list, "positions" -> list
+_signal_summary_cache: dict = {}
 _scan_running: bool = False
 _last_cascade_at: float = 0.0        # unix timestamp of last cascade-to-agent
 
@@ -663,6 +665,168 @@ def enrich_scan():
         return {"status": "error", "error": str(e), "candidates": candidates}
 
 
+def _compact_rows(rows: list[dict], fields: list[str], limit: int = 15) -> list[dict]:
+    out = []
+    for row in rows[:limit]:
+        out.append({k: row.get(k) for k in fields if row.get(k) is not None})
+    return out
+
+
+def _load_earnings_calendar() -> dict:
+    path = Path(__file__).parent.parent / "data" / "earnings_calendar.json"
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return {"rows": []}
+
+
+def _build_signal_summary_context() -> dict:
+    from datetime import datetime
+    try:
+        from zoneinfo import ZoneInfo
+        now_et = datetime.now(ZoneInfo("America/New_York")).isoformat()
+    except Exception:
+        now_et = datetime.utcnow().isoformat()
+
+    scan = _scan_cache.get("sp500", {}) if isinstance(_scan_cache.get("sp500"), dict) else {}
+    candidates = scan.get("candidates") or []
+    candidate_fields = [
+        "symbol", "price", "momentum_3m", "momentum_5d", "momentum_1m", "rsi",
+        "vs_ma20_pct", "ma20_slope_pct", "volume_ratio", "near_breakout",
+        "veto", "veto_category", "veto_reason", "sector", "owned", "stop_loss",
+    ]
+
+    holdings = _holdings_cache.get("positions") or []
+    holding_fields = [
+        "symbol", "qty", "avg_entry_price", "current_price", "market_value",
+        "unrealized_plpc", "stop_loss", "high_water_price", "sell_signal", "reason",
+    ]
+
+    try:
+        from src.trader.trade_agent import get_pending_trades
+        trades = get_pending_trades()
+    except Exception:
+        trades = []
+    trade_fields = [
+        "symbol", "side", "status", "price", "fill_price", "fill_qty", "stop_loss",
+        "price_at_approve", "price_drift_pct", "error", "created_at", "expires_at",
+    ]
+
+    try:
+        acct = get_account()
+        portfolio = {
+            "equity": acct.get("equity"),
+            "cash": acct.get("cash"),
+            "portfolio_value": acct.get("portfolio_value"),
+        }
+    except Exception:
+        portfolio = {}
+
+    try:
+        from src.monitor.market_regime import get_market_regime
+        regime = get_market_regime()
+    except Exception:
+        regime = {}
+
+    return _sanitize_floats({
+        "now_et": now_et,
+        "market_regime": regime,
+        "portfolio": {
+            **portfolio,
+            "positions": len(holdings),
+        },
+        "scan": {
+            "scanned_at": scan.get("scanned_at"),
+            "status": scan.get("status"),
+            "total_screened": scan.get("total_screened"),
+            "latest_scan_candidates": _compact_rows(candidates, candidate_fields, limit=15),
+        },
+        "trades_today": _compact_rows(trades, trade_fields, limit=25),
+        "current_holdings": _compact_rows(holdings, holding_fields, limit=20),
+        "earnings_calendar": _load_earnings_calendar(),
+    })
+
+
+def _build_signal_summary_prompt(ctx: dict) -> str:
+    return f"""你是 Personal Trading Agent 的盘中信号分析助手。请严格按照 v9 机械动量策略解释当前信号，不要发明新策略，不要用主观预测替代规则。
+
+当前策略框架：
+- 美股短线波段，持仓 5–10 天，Alpaca paper trading。
+- Scout 选股为纯机械动量：趋势门通过后按 momentum_3m 排名。
+- Rex 买入为机械入场：BULL/NEUTRAL/CAUTION 才能买，BEAR 不买；价格漂移涨超 +1.5% 拒单，跌/阈内放行；财报今/明未公布跳过；veto=true 转人工。
+- 卖出为机械规则：-8% 硬止损、BE5 保本、+6% 激活/回撤5%追踪止盈、连续2根收盘跌破 MA20。
+- 默认不鼓励追高加仓；加仓必须同时满足：已有持仓仍强、未触发卖出风险、位置不过热、不是价格漂移失效、不是 veto、不是刚被止损/破位的弱化票。
+
+请基于输入数据，输出一段中文盘中 Summary 分析，全部时间使用美东时间 ET。
+
+输入数据：
+{json.dumps(ctx, ensure_ascii=False, default=str)}
+
+分析要求：
+1. 输出必须简单明了，只回答两个问题：
+   - 可加的：列 0-3 个 ticker；如果没有，写“无”。
+   - 原因：每个 ticker 只写 1 句核心原因。
+2. 判断“可加”时必须同时看买入纪律和卖出纪律：
+   - 买入侧：regime、veto、价格漂移、财报、位置是否过热、是否已成交/已拒单。
+   - 卖出侧：是否接近 -8% 硬止损、是否破 MA20、是否属于防守持仓、是否已有保护/追踪逻辑。
+3. 如果没有可加的，必须用 1-2 句说明最主要的“不加原因”，例如：已成交不再叠、漂移拒单、RSI/MA20 过热、短线动量转弱、持仓接近止损。
+4. 最多点名 3 个“不要加”的关键票；不要展开完整候选排名。
+5. 必须引用少量关键指标，但不要堆数据：优先使用 momentum_5d、rsi、vs_ma20_pct、订单状态、止损/漂移情况。
+
+输出风格：
+- 中文，简洁，像盘中交易助手，不写长篇宏观。
+- 不要说“我预测会上涨/下跌”，只说“按规则更优/更弱/不适合追”。
+- 不要编造实时价格；只能使用输入数据。
+- 不要给财务建议免责声明。
+- 不要输出 JSON。
+
+推荐格式：
+可加的：SYMBOL / SYMBOL；或 无
+
+原因：
+- SYMBOL：一句话说明为什么可加。
+- 如果无：一句话说明为什么今天不加。
+
+不要加：
+- SYMBOL：一句话说明主要风险。（最多 3 条，可省略）
+
+当前动作：一句话，明确“加/不加/只持有”。"""
+
+
+@app.get("/api/scan/summary")
+def get_signal_summary():
+    if _signal_summary_cache.get("latest"):
+        return _signal_summary_cache["latest"]
+    raise HTTPException(status_code=404, detail="No signal summary yet.")
+
+
+@app.post("/api/scan/summary")
+def generate_signal_summary():
+    import anthropic
+    from src.config import get_anthropic_key
+
+    ctx = _build_signal_summary_context()
+    prompt = _build_signal_summary_prompt(ctx)
+    try:
+        client = anthropic.Anthropic(api_key=get_anthropic_key())
+        msg = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1600,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = msg.content[0].text.strip()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    result = {
+        "summary": text,
+        "generated_at": ctx["now_et"],
+        "scanned_at": ctx.get("scan", {}).get("scanned_at"),
+    }
+    _signal_summary_cache["latest"] = result
+    return result
+
+
 @app.get("/api/scan/nasdaq")
 def get_scan_nasdaq():
     """Return scan candidates from NASDAQ-100 universe."""
@@ -1010,24 +1174,57 @@ def get_positions():
     try:
         alpaca = get_client()
         positions = alpaca.list_positions()
-        return [
-            {
+        bars_by_symbol = {}
+        if positions:
+            try:
+                from src.monitor.sp500_scanner import fetch_bars_batch
+                symbols = [p.symbol for p in positions]
+                bars_by_symbol = fetch_bars_batch(symbols, days=8, include_incomplete_today=True)
+            except Exception:
+                bars_by_symbol = {}
+        out = []
+        for p in positions:
+            current_price = float(p.current_price)
+            lastday_price = float(p.lastday_price) if getattr(p, "lastday_price", None) is not None else None
+            segment_pct = (float(p.change_today) * 100) if getattr(p, "change_today", None) is not None else None
+            prev_close = None
+            regular_price = lastday_price
+            regular_pct = None
+            bars = bars_by_symbol.get(p.symbol)
+            if bars is not None and not bars.empty:
+                try:
+                    closes = bars["Close"].dropna().tolist()
+                    if len(closes) >= 2:
+                        prev_close = float(closes[-2])
+                        regular_price = float(closes[-1])
+                        regular_pct = ((regular_price - prev_close) / prev_close * 100) if prev_close else None
+                except Exception:
+                    pass
+            if prev_close is None and segment_pct is not None and lastday_price is not None:
+                # In regular hours Alpaca lastday_price is usually the previous close.
+                prev_close = lastday_price
+            day_pct = ((current_price - prev_close) / prev_close * 100) if prev_close else segment_pct
+            extended_pct = ((current_price - regular_price) / regular_price * 100) if regular_price else None
+            out.append({
                 "symbol": p.symbol,
                 "qty": float(p.qty),
                 "avg_entry_price": float(p.avg_entry_price),
-                "current_price": float(p.current_price),
+                "current_price": current_price,
                 "market_value": float(p.market_value),
                 "unrealized_pl": float(p.unrealized_pl),
                 "unrealized_plpc": float(p.unrealized_plpc) * 100,
-                # 今日涨跌：Alpaca 自带 change_today(小数)/ lastday_price(昨收)，
-                # 与 current_price 同源（Alpaca），取代前端原先按 symbol 单查 yfinance
-                # 的「今日」列——yfinance 开盘易限流/陈旧，会出现 AVGO 等显示错（含正负号反）。
-                "today_pct": (float(p.change_today) * 100) if getattr(p, "change_today", None) is not None else None,
-                "lastday_price": float(p.lastday_price) if getattr(p, "lastday_price", None) is not None else None,
+                # Alpaca position.change_today is the current session segment. After hours
+                # it is extended-hours vs the 4pm close, so expose separate RTH/AH/total fields.
+                "today_pct": day_pct,
+                "regular_hours_pct": regular_pct,
+                "extended_hours_pct": extended_pct,
+                "segment_pct": segment_pct,
+                "prev_close": prev_close,
+                "regular_price": regular_price,
+                "lastday_price": lastday_price,
                 "side": p.side,
-            }
-            for p in positions
-        ]
+            })
+        return out
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1307,6 +1504,30 @@ def get_regime():
         return get_market_regime()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/market/narrative")
+def get_market_narrative():
+    """Current market narrative radar generated by Maya; falls back to live compute."""
+    try:
+        from src.analysis.market_context import load_market_context
+        ctx = load_market_context()
+        radar = ctx.get("narrative_radar")
+        if radar:
+            return radar
+    except Exception:
+        pass
+    try:
+        from src.monitor.narrative_radar import get_narrative_radar
+        return get_narrative_radar()
+    except Exception as e:
+        return {
+            "updated_at": None,
+            "active_count": 0,
+            "watch_count": 0,
+            "items": [],
+            "error": str(e),
+        }
 
 
 @app.post("/api/agent/sync-fills")
@@ -1851,6 +2072,52 @@ def trigger_strategy_review(background_tasks: BackgroundTasks):
         return {"status": "already_running"}
     background_tasks.add_task(_run_strategy_review)
     return {"status": "started"}
+
+
+class LiveDailyPLRequest(BaseModel):
+    date: str
+    daily_pl: float
+
+
+def _load_live_daily_pl() -> list[dict]:
+    try:
+        if _LIVE_DAILY_PL_FILE.exists():
+            data = json.loads(_LIVE_DAILY_PL_FILE.read_text())
+            if isinstance(data, list):
+                return [
+                    {"date": str(r.get("date")), "daily_pl": round(float(r.get("daily_pl", 0)), 2)}
+                    for r in data
+                    if isinstance(r, dict) and r.get("date")
+                ]
+    except Exception:
+        pass
+    return []
+
+
+def _save_live_daily_pl(rows: list[dict]):
+    _LIVE_DAILY_PL_FILE.parent.mkdir(exist_ok=True)
+    _LIVE_DAILY_PL_FILE.write_text(json.dumps(rows, indent=2))
+
+
+@app.get("/api/live-daily-pl")
+def get_live_daily_pl():
+    rows = sorted(_load_live_daily_pl(), key=lambda r: r["date"])
+    total = round(sum(r["daily_pl"] for r in rows), 2)
+    return {"days": rows, "total_pl": total}
+
+
+@app.post("/api/live-daily-pl")
+def save_live_daily_pl(req: LiveDailyPLRequest):
+    from datetime import date as _date
+    try:
+        _date.fromisoformat(req.date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+    rows_by_date = {r["date"]: r for r in _load_live_daily_pl()}
+    rows_by_date[req.date] = {"date": req.date, "daily_pl": round(req.daily_pl, 2)}
+    rows = sorted(rows_by_date.values(), key=lambda r: r["date"])
+    _save_live_daily_pl(rows)
+    return {"days": rows, "total_pl": round(sum(r["daily_pl"] for r in rows), 2)}
 
 
 _OVERRIDES_FILE         = Path(__file__).parent.parent / "data" / "strategy_overrides.json"

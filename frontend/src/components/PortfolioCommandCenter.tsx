@@ -8,6 +8,7 @@ import type {
 } from "../api/client";
 import { TradeModal } from "./TradeModal";
 import EarningsRadar from "./EarningsRadar";
+import NarrativeRadar from "./NarrativeRadar";
 import { CandleChart } from "./CandleChart";
 import { KlineGatePanel } from "./KlineGatePanel";
 import { DecisionChain, type DecisionInput } from "./DecisionChain";
@@ -280,9 +281,12 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
   return (
     <div className="pcc-container">
 
-      {/* ── Dashboard top：财报雷达 → Agent运行（收益已移至「复盘」Tab）── */}
+      {/* ── Dashboard top：事件雷达（财报 + 市场叙事）→ Agent运行 ── */}
       <div className="pcc-dashboard-top">
-        <EarningsRadar />
+        <div className="pcc-event-radar-grid">
+          <EarningsRadar />
+          <NarrativeRadar />
+        </div>
         <AgentRunsPanel status={data.agentsStatus} />
       </div>
 
@@ -363,7 +367,7 @@ export function PortfolioCommandCenter({ backendOnline, onPendingCountChange, au
                 <span>{sortHead("symbol", "代码")}</span>
                 <span>{sortHead("entry", "入场")}</span>
                 <span>{sortHead("price", "现价")}</span>
-                <span>{sortHead("today", "今日")}</span>
+                <span>{sortHead("today", "全天")}</span>
                 <span>{sortHead("value", "市值")}</span>
                 <span>{sortHead("alloc", "仓位")}</span>
                 <span>{sortHead("pl", "盈亏")}</span>
@@ -580,6 +584,8 @@ function HoldingRow({ position: p, allocPct, entryTrade, onRefresh, hasOpenSell,
   const sig = p.sell_signal ?? "HOLD";
   const todayPct = p.today_pct ?? null;
   const todayColor = todayPct != null ? (todayPct >= 0 ? "#22c55e" : "#ef4444") : "var(--muted)";
+  const rthPct = p.regular_hours_pct ?? null;
+  const ahPct = p.extended_hours_pct ?? null;
   const entryPrice = entryTrade?.fill_price ?? entryTrade?.price ?? p.avg_entry_price ?? null;
   const entryTime = formatEntryTime(entryTrade?.created_at);
   const entryDay = holdingDay(entryTrade?.created_at);
@@ -606,8 +612,17 @@ function HoldingRow({ position: p, allocPct, entryTrade, onRefresh, hasOpenSell,
         <small>{entryTime ? `${entryTime} ET${entryDay != null ? ` · D${entryDay}` : ""}` : "时间 —"}</small>
       </span>
       <span>${p.current_price?.toFixed(2)}</span>
-      <span style={{ color: todayColor, fontWeight: 600 }}>
-        {todayPct != null ? `${todayPct >= 0 ? "+" : ""}${todayPct.toFixed(1)}%` : "—"}
+      <span className="pcc-rd-daymove" title="全天 = 当前价 vs 昨收；盘中 = 常规盘 vs 昨收；盘后 = 当前价 vs 常规盘收盘">
+        <b style={{ color: todayColor }}>
+          {todayPct != null ? `${todayPct >= 0 ? "+" : ""}${todayPct.toFixed(1)}%` : "—"}
+        </b>
+        {(rthPct != null || ahPct != null) && (
+          <small>
+            {rthPct != null && <span className={rthPct >= 0 ? "up" : "down"}>RTH {rthPct >= 0 ? "+" : ""}{rthPct.toFixed(1)}%</span>}
+            {rthPct != null && ahPct != null && <span className="pcc-rd-daysep">·</span>}
+            {ahPct != null && <span className={ahPct >= 0 ? "up" : "down"}>AH {ahPct >= 0 ? "+" : ""}{ahPct.toFixed(1)}%</span>}
+          </small>
+        )}
       </span>
       <span>${p.market_value?.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
       <span className="pcc-rd-c-alloc">
@@ -1084,25 +1099,44 @@ function cellColor(pct: number): string {
   return "#16a34a";
 }
 
-export function CompactHeatmap({ days }: { days: PortfolioDay[] }) {
+function dollarCellColor(pl: number, maxAbs: number): string {
+  if (pl === 0) return "#1e293b";
+  const strong = maxAbs > 0 && Math.abs(pl) / maxAbs >= 0.6;
+  if (pl > 0) return strong ? "#16a34a" : "#4ade80";
+  return strong ? "#dc2626" : "#fca5a5";
+}
+
+export function CompactHeatmap({
+  days,
+  title = "最近 30 天每日收益",
+  mode = "percent",
+}: {
+  days: PortfolioDay[];
+  title?: string;
+  mode?: "percent" | "dollar";
+}) {
   const [tooltip, setTooltip] = useState<{ day: PortfolioDay; x: number; y: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
   const monthDays = days.filter(d => d.date >= cutoff);
+  const maxAbsPl = Math.max(0, ...monthDays.map(d => Math.abs(d.daily_pl)));
   if (monthDays.length === 0) return null;
 
   return (
     <div className="pcc-compact-heatmap" ref={ref}>
       <div className="pcc-heatmap-header">
-        <span className="pcc-heatmap-title">最近 30 天每日收益</span>
+        <span className="pcc-heatmap-title">{title}</span>
         {(() => {
           const n = monthDays.length;
-          const wins = monthDays.filter(d => d.daily_return_pct > 0).length;
-          const losses = monthDays.filter(d => d.daily_return_pct < 0).length;
+          const wins = monthDays.filter(d => d.daily_pl > 0).length;
+          const losses = monthDays.filter(d => d.daily_pl < 0).length;
           return <span className="pcc-heatmap-summary">{n} 个交易日 · <span className="up">{wins} 盈</span> / <span className="down">{losses} 亏</span></span>;
         })()}
         <div className="pcc-heatmap-legend">
-          {([["<−1%","#dc2626"],["−1~0%","#fca5a5"],["≈0","#1e293b"],["0~1%","#4ade80"],[">1%","#16a34a"]] as const).map(([l,c]) => (
+          {(mode === "percent"
+            ? ([["<−1%","#dc2626"],["−1~0%","#fca5a5"],["≈0","#1e293b"],["0~1%","#4ade80"],[">1%","#16a34a"]] as const)
+            : ([["亏损大","#dc2626"],["亏损","#fca5a5"],["0","#1e293b"],["盈利","#4ade80"],["盈利大","#16a34a"]] as const)
+          ).map(([l,c]) => (
             <span key={l} className="pcc-legend-item">
               <span className="pcc-legend-swatch" style={{ background: c }} />{l}
             </span>
@@ -1114,7 +1148,7 @@ export function CompactHeatmap({ days }: { days: PortfolioDay[] }) {
           <div
             key={d.date}
             className="pcc-heatmap-cell"
-            style={{ background: cellColor(d.daily_return_pct) }}
+            style={{ background: mode === "percent" ? cellColor(d.daily_return_pct) : dollarCellColor(d.daily_pl, maxAbsPl) }}
             onMouseEnter={e => {
               const rect = ref.current?.getBoundingClientRect();
               if (rect) setTooltip({ day: d, x: e.clientX - rect.left, y: e.clientY - rect.top });
@@ -1130,9 +1164,11 @@ export function CompactHeatmap({ days }: { days: PortfolioDay[] }) {
           </div>
           <div className={tooltip.day.daily_pl >= 0 ? "up" : "down"} style={{ fontWeight: 700 }}>
             {tooltip.day.daily_pl >= 0 ? "+" : "−"}${Math.abs(tooltip.day.daily_pl).toFixed(0)}
-            <span style={{ fontWeight: 400, marginLeft: 4 }}>
-              ({tooltip.day.daily_return_pct >= 0 ? "+" : ""}{tooltip.day.daily_return_pct.toFixed(2)}%)
-            </span>
+            {mode === "percent" && (
+              <span style={{ fontWeight: 400, marginLeft: 4 }}>
+                ({tooltip.day.daily_return_pct >= 0 ? "+" : ""}{tooltip.day.daily_return_pct.toFixed(2)}%)
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -1264,4 +1300,3 @@ function AgentRunsPanel({ status }: { status: AgentsStatus | null }) {
     </div>
   );
 }
-

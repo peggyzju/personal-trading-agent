@@ -53,6 +53,9 @@ SOFTWARE = {
 class Variant:
     name: str
     mode: str = "baseline"  # baseline | soft | hard
+    accel_mult: float = 1.0
+    accel_fast_exit: bool = False
+    profit_takes: tuple[tuple[float, float], ...] = ()
 
 
 VARIANTS = [
@@ -60,6 +63,10 @@ VARIANTS = [
     Variant("soft_rotation", "soft"),
     Variant("soft_rotation_capped", "capped"),
     Variant("hard_hw_pause", "hard"),
+    Variant("accel_size_1_25x", "capped", accel_mult=1.25),
+    Variant("accel_1_25x_fast_exit", "capped", accel_mult=1.25, accel_fast_exit=True),
+    Variant("partial_tp6_1_3", "capped", profit_takes=((0.06, 1 / 3),)),
+    Variant("partial_tp6_tp10", "capped", profit_takes=((0.06, 1 / 3), (0.10, 1 / 3))),
 ]
 
 
@@ -217,6 +224,8 @@ def run_variant(
     ma50 = close.rolling(50).mean()
     slope = ma50 - ma50.shift(5)
     mom = close / close.shift(MOM_DAYS) - 1
+    ret1 = close / close.shift(1) - 1
+    ret5 = close / close.shift(5) - 1
     rsi_p = close.apply(rsi)
 
     px_a = close.values
@@ -225,6 +234,8 @@ def run_variant(
     ma50_a = ma50.values
     slope_a = slope.values
     mom_a = mom.values
+    ret1_a = ret1.values
+    ret5_a = ret5.values
     rsi_a = rsi_p.values
     cols = list(close.columns)
 
@@ -241,6 +252,7 @@ def run_variant(
     exit_counts: Counter[str] = Counter()
     entries_by_group: Counter[str] = Counter()
     overlay_entries: Counter[str] = Counter()
+    accel_entries = 0
 
     for k, i in enumerate(sim_idx):
         row = px_a[i]
@@ -268,11 +280,39 @@ def run_variant(
 
             reason = None
             exit_price = p
+            for level, sell_frac in variant.profit_takes:
+                take_key = f"tp_{level:.2f}"
+                if gain_high >= level and take_key not in pos["partial_taken"]:
+                    sell_amount = min(pos["frac"], pos["orig_frac"] * sell_frac)
+                    if sell_amount > 1e-9:
+                        cash += sell_amount * (p / entry) * (1 - COST)
+                        pos["frac"] -= sell_amount
+                        pos["partial_taken"].add(take_key)
+                        ret = p / entry - 1
+                        reason_key = f"partial_tp_{int(level * 100)}"
+                        trades.append({
+                            "symbol": cols[ci],
+                            "group": group_for(cols[ci]),
+                            "ret": ret,
+                            "days": k - pos["entry_k"] + 1,
+                            "reason": reason_key,
+                            "overlay_entry": pos["overlay_entry"],
+                            "accel_entry": pos.get("accel_entry", False),
+                        })
+                        exit_counts[reason_key] += 1
+
             if gain_close <= -STOP:
                 reason = "hard_stop"
             elif pos.get("breakeven_active") and p <= entry:
                 reason = "breakeven"
                 exit_price = entry
+            elif (
+                variant.accel_fast_exit
+                and pos.get("accel_entry")
+                and gain_high >= 0.04
+                and p <= pos["hi"] * 0.97
+            ):
+                reason = "accel_fast_trail"
             elif gain_high >= 0.06 and p <= pos["hi"] * 0.95:
                 reason = "trail"
             elif below2:
@@ -291,6 +331,7 @@ def run_variant(
                     "days": k - pos["entry_k"] + 1,
                     "reason": reason,
                     "overlay_entry": pos["overlay_entry"],
+                    "accel_entry": pos.get("accel_entry", False),
                 })
                 exit_counts[reason] += 1
                 del positions[ci]
@@ -332,17 +373,32 @@ def run_variant(
                 for ci in idx:
                     if cash < each * 0.5:
                         break
-                    spend = min(each, cash)
+                    accel = (
+                        variant.accel_mult > 1.0
+                        and not np.isnan(ret1_a[i, ci])
+                        and not np.isnan(ret5_a[i, ci])
+                        and not np.isnan(ma20_a[i, ci])
+                        and ret1_a[i, ci] >= 0.03
+                        and ret5_a[i, ci] >= 0.05
+                        and rsi_a[i, ci] <= 78
+                        and row[ci] <= ma20_a[i, ci] * 1.12
+                    )
+                    spend = min(each * (variant.accel_mult if accel else 1.0), cash)
                     grp = group_for(cols[ci])
                     positions[ci] = {
                         "entry": row[ci],
                         "frac": spend * (1 - COST),
+                        "orig_frac": spend * (1 - COST),
                         "hi": row[ci],
                         "entry_k": k,
                         "overlay_entry": overlay,
+                        "accel_entry": accel,
+                        "partial_taken": set(),
                     }
                     cash -= spend
                     entries_by_group[grp] += 1
+                    if accel:
+                        accel_entries += 1
                     if overlay:
                         overlay_entries[grp] += 1
 
@@ -366,6 +422,7 @@ def run_variant(
         }
 
     overlay_rs = np.array([t["ret"] for t in trades if t["overlay_entry"]], dtype=float)
+    accel_rs = np.array([t["ret"] for t in trades if t.get("accel_entry")], dtype=float)
     return {
         "name": variant.name,
         "eq": eq,
@@ -381,6 +438,9 @@ def run_variant(
         "entries_by_group": dict(entries_by_group),
         "overlay_entries": dict(overlay_entries),
         "overlay_avg_trade": float(overlay_rs.mean()) if len(overlay_rs) else 0.0,
+        "accel_entries": accel_entries,
+        "accel_avg_trade": float(accel_rs.mean()) if len(accel_rs) else 0.0,
+        "accel_win_rate": float((accel_rs > 0).mean()) if len(accel_rs) else 0.0,
         "by_group": by_group,
         "exits": dict(exit_counts),
     }
@@ -445,7 +505,12 @@ def main():
 
     print("\n===== Group Trade Quality =====")
     for r in results:
-        print(f"\n{r['name']}: entries={r['entries_by_group']} overlay_entries={r['overlay_entries']} overlay_avg={r['overlay_avg_trade']*100:+.2f}%")
+        print(
+            f"\n{r['name']}: entries={r['entries_by_group']} "
+            f"overlay_entries={r['overlay_entries']} overlay_avg={r['overlay_avg_trade']*100:+.2f}% "
+            f"accel_entries={r['accel_entries']} accel_avg={r['accel_avg_trade']*100:+.2f}% "
+            f"accel_win={r['accel_win_rate']*100:.1f}%"
+        )
         for grp, g in r["by_group"].items():
             print(f"  {grp:<8} trades={g['trades']:>3} avg={g['avg']*100:+.2f}% win={g['win']*100:>5.1f}% PF={g['pf']:.2f}")
 

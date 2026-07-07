@@ -55,6 +55,11 @@ export interface Position {
   unrealized_pl: number;
   unrealized_plpc: number;
   today_pct?: number | null;
+  regular_hours_pct?: number | null;
+  extended_hours_pct?: number | null;
+  segment_pct?: number | null;
+  prev_close?: number | null;
+  regular_price?: number | null;
   lastday_price?: number | null;
   side: string;
 }
@@ -144,6 +149,12 @@ export interface ScanResult {
   error?: string;
 }
 
+export interface SignalSummary {
+  summary: string;
+  generated_at: string;
+  scanned_at?: string | null;
+}
+
 export interface HoldingPosition {
   symbol: string;
   qty: number;
@@ -153,6 +164,11 @@ export interface HoldingPosition {
   unrealized_pl: number;
   unrealized_plpc: number;
   today_pct?: number | null;
+  regular_hours_pct?: number | null;
+  extended_hours_pct?: number | null;
+  segment_pct?: number | null;
+  prev_close?: number | null;
+  regular_price?: number | null;
   lastday_price?: number | null;
   side: string;
   sell_signal?: "SELL" | "REDUCE" | "HOLD" | "ADD";
@@ -217,6 +233,11 @@ export interface PortfolioHistory {
   total_return_pct: number;
   days: PortfolioDay[];
   source: "alpaca" | "demo";
+}
+
+export interface LiveDailyPL {
+  days: Array<{ date: string; daily_pl: number }>;
+  total_pl: number;
 }
 
 export interface BacktestTrade {
@@ -402,6 +423,29 @@ export interface EarningsAnalysisItem {
   analyzed_at: string;
 }
 
+export interface NarrativeShockItem {
+  theme: string;
+  status: "active" | "watch" | "inactive";
+  severity: "none" | "low" | "medium" | "high";
+  headline: string;
+  summary: string;
+  affected_groups: string[];
+  beneficiary_groups: string[];
+  price_confirmed: boolean;
+  confidence: number;
+  metrics: Record<string, number>;
+  action_hint: string;
+  reason: string;
+}
+
+export interface NarrativeRadar {
+  updated_at: string | null;
+  active_count: number;
+  watch_count: number;
+  items: NarrativeShockItem[];
+  error?: string;
+}
+
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`);
   if (!r.ok) throw new Error(await r.text());
@@ -541,6 +585,8 @@ export const api = {
   getScan: () => get<ScanResult>("/scan/sp500"),
   triggerScan: () => post<{ status: string }>("/scan/sp500"),
   enrichScan: () => post<ScanResult & { status: string }>("/scan/enrich"),
+  getSignalSummary: () => get<SignalSummary>("/scan/summary"),
+  generateSignalSummary: () => post<SignalSummary>("/scan/summary"),
   getHoldings: () => get<HoldingsResult>("/scan/holdings"),
   refreshHoldings: () => post<{ status: string }>("/scan/holdings"),
   getBudget: () => get<BudgetAllocation>("/budget"),
@@ -556,11 +602,15 @@ export const api = {
     post<{ enabled: boolean; threshold: number }>("/agent/auto-approve", { enabled, threshold }),
   getPerformanceStats: () => get<PerformanceStats>("/stats/performance"),
   getMarketRegime: () => get<MarketRegime>("/market/regime"),
+  getMarketNarrative: () => get<NarrativeRadar>("/market/narrative"),
   getCircuitBreaker: () => get<CircuitBreaker>("/circuit-breaker"),
   resetCircuitBreaker: () => post<CircuitBreaker>("/circuit-breaker/reset"),
   getStrategyReview: () => get<StrategyReview | { status: string }>("/strategy/review"),
   getStrategyReviews: () => get<StrategyReview[]>("/strategy/reviews"),
   generateStrategyReview: () => post<{ status: string }>("/strategy/review"),
+  getLiveDailyPL: () => get<LiveDailyPL>("/live-daily-pl"),
+  saveLiveDailyPL: (date: string, daily_pl: number) =>
+    post<LiveDailyPL>("/live-daily-pl", { date, daily_pl }),
   debateIteration: (op: StrategyIterationOp) => post<DebateResult>("/strategy/debate", op),
   debateStock: (symbol: string, action: string, context: Record<string, unknown>) =>
     post<StockDebateResult>("/strategy/debate/stock", { symbol, action, context }),

@@ -4,7 +4,7 @@ function toUTC(ts: string): Date {
   return new Date(/[Z+]/.test(ts) ? ts : ts + "Z");
 }
 import { api } from "../api/client";
-import type { ScanCandidate, ScanResult, BudgetAllocation } from "../api/client";
+import type { ScanCandidate, ScanResult, BudgetAllocation, SignalSummary } from "../api/client";
 import { TradeModal } from "./TradeModal";
 import { StockDebatePanel } from "./StrategyReview";
 import { CandleChart } from "./CandleChart";
@@ -283,6 +283,29 @@ function AllSignalsView({
   onAddToWatchlist: (sym: string) => void;
 }) {
   const [sel, setSel] = useState<string | null>(null);
+  const [summary, setSummary] = useState<SignalSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!backendOnline) return;
+    api.getSignalSummary()
+      .then(setSummary)
+      .catch(() => { /* no cached summary yet */ });
+  }, [backendOnline]);
+
+  async function refreshSummary() {
+    setSummaryLoading(true);
+    setSummaryError(null);
+    try {
+      setSummary(await api.generateSignalSummary());
+    } catch (e) {
+      setSummaryError(e instanceof Error ? e.message : "生成失败");
+    } finally {
+      setSummaryLoading(false);
+    }
+  }
+
   if (candidates.length === 0 && !isRunning) {
     return (
       <div className="brief-empty">
@@ -316,6 +339,12 @@ function AllSignalsView({
           📦 缓存结果 · {toUTC(scanTime).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} · 点击「立即扫描」刷新
         </div>
       )}
+      <SignalSummaryPanel
+        summary={summary}
+        loading={summaryLoading}
+        error={summaryError}
+        onRefresh={refreshSummary}
+      />
       <div className="sig-md">
         {/* 左列：按动量排名的紧凑列表 */}
         <div className="sig-md-list">
@@ -347,6 +376,39 @@ function AllSignalsView({
         </div>
       </div>
     </div>
+  );
+}
+
+function SignalSummaryPanel({
+  summary, loading, error, onRefresh,
+}: {
+  summary: SignalSummary | null;
+  loading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+}) {
+  return (
+    <section className="signal-summary-panel">
+      <div className="signal-summary-head">
+        <div>
+          <div className="signal-summary-title">盘中 Summary</div>
+          <div className="signal-summary-meta">
+            {summary?.generated_at
+              ? `${toUTC(summary.generated_at).toLocaleString("zh-CN", { timeZone: "America/New_York", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} ET`
+              : "基于当前扫描、持仓与订单状态"}
+          </div>
+        </div>
+        <button className="signal-summary-btn" onClick={onRefresh} disabled={loading}>
+          {loading ? "分析中…" : summary ? "刷新分析" : "生成分析"}
+        </button>
+      </div>
+      {error && <div className="signal-summary-error">{error}</div>}
+      {summary ? (
+        <div className="signal-summary-text">{summary.summary}</div>
+      ) : (
+        <div className="signal-summary-empty">生成后会给出是否适合加仓、候选排序、订单纪律和当前动作建议。</div>
+      )}
+    </section>
   );
 }
 

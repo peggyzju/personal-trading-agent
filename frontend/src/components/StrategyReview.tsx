@@ -7,6 +7,104 @@ import { DashboardSummary, CompactHeatmap } from "./PortfolioCommandCenter";
 
 interface Props { backendOnline: boolean }
 
+function todayET(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function LiveDailyPLTracker() {
+  const [date, setDate] = useState(todayET());
+  const [pl, setPl] = useState("");
+  const [days, setDays] = useState<Array<{ date: string; daily_pl: number }>>([]);
+  const [total, setTotal] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.getLiveDailyPL()
+      .then(r => {
+        setDays(r.days);
+        setTotal(r.total_pl);
+        const today = r.days.find(d => d.date === todayET());
+        if (today) setPl(String(today.daily_pl));
+      })
+      .catch(() => {});
+  }, []);
+
+  async function save() {
+    const value = Number(pl);
+    if (!date || !Number.isFinite(value)) {
+      setStatus("请输入有效日期和 P/L");
+      return;
+    }
+    setSaving(true);
+    setStatus(null);
+    try {
+      const r = await api.saveLiveDailyPL(date, value);
+      setDays(r.days);
+      setTotal(r.total_pl);
+      setStatus("Saved");
+      setTimeout(() => setStatus(null), 1800);
+    } catch (e: unknown) {
+      setStatus(e instanceof Error ? e.message : "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const chartDays = days.map(d => ({
+    date: d.date,
+    daily_pl: d.daily_pl,
+    daily_return_pct: 0,
+    equity: 0,
+  }));
+
+  return (
+    <div className="live-pl-panel">
+      <div className="live-pl-head">
+        <div>
+          <div className="live-pl-title">Live Daily P/L</div>
+          <div className="live-pl-subtitle">手动记录实盘每日收益，不影响策略执行。</div>
+        </div>
+        <div className={`live-pl-total${total >= 0 ? " pos" : " neg"}`}>
+          {total >= 0 ? "+" : "-"}${Math.abs(total).toFixed(2)}
+        </div>
+      </div>
+
+      <div className="live-pl-form">
+        <label>
+          <span>Date</span>
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} />
+        </label>
+        <label>
+          <span>P/L</span>
+          <input
+            type="number"
+            step="0.01"
+            value={pl}
+            onChange={e => setPl(e.target.value)}
+            placeholder="0.00"
+          />
+        </label>
+        <button type="button" onClick={save} disabled={saving}>
+          {saving ? "Saving..." : "Save"}
+        </button>
+        {status && <span className="live-pl-status">{status}</span>}
+      </div>
+
+      {chartDays.length > 0 ? (
+        <CompactHeatmap days={chartDays} title="实盘最近 30 天每日收益" mode="dollar" />
+      ) : (
+        <div className="live-pl-empty">还没有实盘 P/L 记录。</div>
+      )}
+    </div>
+  );
+}
+
 // 收益概览（从首页移来）：自取数 account / portfolio history / goal / 历史胜率 / 持仓
 function PerformanceSummary() {
   const [account, setAccount] = useState<Account | null>(null);
@@ -64,7 +162,8 @@ function PerformanceSummary() {
         )}
       </div>
 
-      {(history?.days.length ?? 0) > 10 && <CompactHeatmap days={history!.days} />}
+      {(history?.days.length ?? 0) > 10 && <CompactHeatmap days={history!.days} title="Paper 最近 30 天每日收益" />}
+      <LiveDailyPLTracker />
     </div>
   );
 }
