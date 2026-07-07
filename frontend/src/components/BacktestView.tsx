@@ -52,7 +52,7 @@ export function BacktestView({ backendOnline }: Props) {
     <div className="pm-backtest-section">
       <div className="sr-header" style={{ marginTop: 32 }}>
         <div>
-          <h2 className="sr-title">📊 v8 回测 — 趋势打法 vs 大盘</h2>
+          <h2 className="sr-title">📊 回测</h2>
           <p className="sr-subtitle">机械动量(无 AI、无后见之明)· Alpaca 数据 · v8 / QQQ / SPY 同池对照</p>
         </div>
       </div>
