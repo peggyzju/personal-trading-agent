@@ -232,5 +232,35 @@
       },
       "note": "soft overlay 只影响新增候选排序/截断;不触发卖出,不暂停全部硬件买入"
     }
+  },
+  {
+    "version": "v12",
+    "label": "v12 — EF5 新仓失败止损",
+    "created_at": "2026-07-07",
+    "description": "保持 v11 AI链软件接棒 soft overlay 和 v10 盘中确认买入口径不变,在卖出端新增 EF5 新仓失败止损:D1-D2 内浮亏达到 -5% 即机械退出。-8% 硬止损继续作为灾难兜底,BE5/trail5 和 MA20 连续2根破位保留。目标是减少失败新仓硬扛到 -8% 或更深亏损,把资金更快释放给下一次合格入场。",
+    "changes": [
+      "新增 EF5 新仓失败止损:D1-D2 内浮亏 <= -5% 退出,D0 不触发",
+      "卖出优先级更新为:硬止损 > EF5 新仓失败止损 > 追踪止盈 > 保本退出 > MA20 破位",
+      "-8% Alpaca GTC bracket 主止损和 Holdings Monitor 兜底硬止损不变",
+      "持仓监控从最近一次 buy 记录注入 entry_created_at,用于按 ET 计算 D1/D2",
+      "机械卖出监控每次刷新重新计算,避免旧 HOLD 缓存遮挡新止损信号",
+      "回测 /private/tmp/ai_rotation_ef5_backtest.py:2025-01-02~2026-07-06 v11_ef5_d1d2 +88.3% vs current_v11 +77.7%,maxDD -23.4% vs -24.0%,avg loss -3.89% vs -4.57%"
+    ],
+    "backtest_params": {
+      "entry_mode": "v11_ai_chain_soft_rotation_overlay",
+      "inherits_entry": "v11_ai_chain_soft_rotation_overlay",
+      "exit_mode": "v12_EF5_BE5_trail5_ma20_2d",
+      "early_failure": {
+        "min_trading_day": 1,
+        "max_trading_day": 2,
+        "loss_pct_lte": -5.0
+      },
+      "hard_stop_pct": 0.08,
+      "breakeven_trigger": 0.05,
+      "trail_trigger": 0.06,
+      "trail_pct": 0.05,
+      "ma20_exit": "2d_confirm",
+      "note": "EF5 只处理新仓失败;不改变新增候选排序/截断,不替代 -8% 灾难硬止损"
+    }
   }
 ]

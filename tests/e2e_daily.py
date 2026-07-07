@@ -740,6 +740,74 @@ def test_ma20_exit():
         fail("MA20 破位", str(e)); traceback.print_exc()
 
 
+def test_early_failure_stop():
+    print("\n[v12] EF5 新仓失败止损(D1-D2 浮亏≤-5%)")
+    try:
+        from datetime import datetime, timedelta
+        from unittest.mock import patch, MagicMock
+        from src.monitor.holdings_monitor import analyze_sell_signals
+        from src.trader.holding_period import ET, trading_days_since_entry
+
+        def entry_for_trading_age(target_days: int) -> str:
+            base = datetime.now(ET).replace(hour=10, minute=0, second=0, microsecond=0)
+            for offset in range(0, 10):
+                candidate = base - timedelta(days=offset)
+                if trading_days_since_entry(candidate.isoformat()) == target_days:
+                    return candidate.isoformat()
+            raise AssertionError(f"cannot find entry date for D{target_days}")
+
+        hold = json.dumps([
+            {"symbol": "FAILFAST", "sell_signal": "HOLD", "urgency": "LOW", "reason": "", "suggested_action": "hold"},
+            {"symbol": "TOOEARLY", "sell_signal": "HOLD", "urgency": "LOW", "reason": "", "suggested_action": "hold"},
+            {"symbol": "OLDFAIL", "sell_signal": "HOLD", "urgency": "LOW", "reason": "", "suggested_action": "hold"},
+            {"symbol": "DISASTER", "sell_signal": "HOLD", "urgency": "LOW", "reason": "", "suggested_action": "hold"},
+        ])
+        mc = MagicMock(); mc.messages.create.return_value = MagicMock(content=[MagicMock(text=hold)])
+        pos = [
+            {"symbol": "FAILFAST", "qty": 5, "avg_entry_price": 100.0, "current_price": 94.8,
+             "market_value": 474, "unrealized_pl": -26, "unrealized_plpc": -5.2,
+             "side": "long", "entry_created_at": entry_for_trading_age(1)},
+            {"symbol": "TOOEARLY", "qty": 5, "avg_entry_price": 100.0, "current_price": 94.5,
+             "market_value": 472.5, "unrealized_pl": -27.5, "unrealized_plpc": -5.5,
+             "side": "long", "entry_created_at": entry_for_trading_age(0)},
+            {"symbol": "OLDFAIL", "qty": 5, "avg_entry_price": 100.0, "current_price": 94.5,
+             "market_value": 472.5, "unrealized_pl": -27.5, "unrealized_plpc": -5.5,
+             "side": "long", "entry_created_at": entry_for_trading_age(3)},
+            {"symbol": "DISASTER", "qty": 5, "avg_entry_price": 100.0, "current_price": 91.0,
+             "market_value": 455, "unrealized_pl": -45, "unrealized_plpc": -9.0,
+             "side": "long", "entry_created_at": entry_for_trading_age(1)},
+        ]
+        with patch("anthropic.Anthropic", return_value=mc), \
+             patch("src.monitor.holdings_monitor._enrich_with_technicals",
+                   side_effect=lambda ps: [{**p, "_tech": {}} for p in ps]), \
+             patch("src.monitor.holdings_monitor._update_trailing_stops", return_value={}):
+            res = {r["symbol"]: r for r in analyze_sell_signals(pos)}
+
+        ef = res.get("FAILFAST", {})
+        if ef.get("sell_signal") == "SELL" and "Early failure" in ef.get("reason", ""):
+            ok("EF5 D1-D2", "FAILFAST D1 -5.2% → SELL ✓")
+        else:
+            fail("EF5 D1-D2", f"FAILFAST: {ef.get('sell_signal')} / {ef.get('reason')}")
+
+        if res.get("TOOEARLY", {}).get("sell_signal") == "HOLD":
+            ok("EF5 不打 D0", "TOOEARLY D0 -5.5% → HOLD ✓")
+        else:
+            fail("EF5 不打 D0", f"TOOEARLY 意外 {res.get('TOOEARLY', {}).get('sell_signal')}")
+
+        if res.get("OLDFAIL", {}).get("sell_signal") == "HOLD":
+            ok("EF5 不打 D3+", "OLDFAIL D3 -5.5% → HOLD ✓")
+        else:
+            fail("EF5 不打 D3+", f"OLDFAIL 意外 {res.get('OLDFAIL', {}).get('sell_signal')}")
+
+        disaster = res.get("DISASTER", {})
+        if disaster.get("sell_signal") == "SELL" and "Hard stop" in disaster.get("reason", ""):
+            ok("EF5 优先级", "DISASTER -9% → hard stop 优先 ✓")
+        else:
+            fail("EF5 优先级", f"DISASTER: {disaster.get('sell_signal')} / {disaster.get('reason')}")
+    except Exception as e:
+        fail("EF5 新仓失败止损", str(e)); traceback.print_exc()
+
+
 def test_price_drift_gate():
     print("\n[v8] 价格漂移门(防追高)")
     try:
@@ -1019,6 +1087,10 @@ def test_v3_strategy():
             ok("Trail pct v9", "TRAIL_PCT = 5% ✓")
         else:
             fail("Trail pct v9", "TRAIL_PCT 不是 0.05")
+        if _re.search(r"EARLY_FAILURE_STOP_PCT\s*=\s*-5\.0", ta_src):
+            ok("EF5 threshold v12", "EARLY_FAILURE_STOP_PCT = -5% ✓")
+        else:
+            fail("EF5 threshold v12", "EARLY_FAILURE_STOP_PCT 不是 -5.0")
     except Exception as e:
         fail("Trail 参数", str(e))
 
@@ -1332,6 +1404,7 @@ if __name__ == "__main__":
     test_slot_cap()
     test_bracket_gtc()
     test_ma20_exit()
+    test_early_failure_stop()
     test_price_drift_gate()
     test_veto_ttl()
 

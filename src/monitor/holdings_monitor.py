@@ -8,8 +8,9 @@ from pathlib import Path
 
 import anthropic
 from src.config import get_anthropic_key, get_anthropic_client
+from src.trader.holding_period import trading_days_since_entry
 
-# ── Per-position signal cache (avoids re-calling Claude when price barely moved) ─
+# ── Per-position signal cache (kept for compatibility; mechanical exits evaluate live) ─
 _signal_cache: dict[str, dict] = {}   # symbol → {signal, urgency, reason, price, ts}
 _SIGNAL_TTL   = 60 * 60               # 1 hour
 _PRICE_MOVE_THRESHOLD = 1.5           # re-analyse if price moved >1.5%
@@ -19,6 +20,9 @@ _TRAILING_FILE = Path(__file__).parent.parent.parent / "data" / "trailing_stops.
 BREAKEVEN_ACTIVATE_PCT = 5.0  # v9: 浮盈高水位达 +5% 后,回到成本附近就保护退出
 TRAIL_PCT = 5.0               # v9: 高水位回撤 5% 退出(更快锁住短线收益)
 TRAIL_ACTIVATE_PCT = 6.0      # v9: 浮盈高水位达 +6% 才激活追踪
+EARLY_FAILURE_STOP_PCT = -5.0
+EARLY_FAILURE_MIN_DAY = 1
+EARLY_FAILURE_MAX_DAY = 2
 
 
 def _load_trailing_stops() -> dict:
@@ -194,7 +198,6 @@ def analyze_sell_signals(positions: list[dict]) -> list[dict]:
     """
     For each position, produce a sell signal assessment using Claude.
     Enriches positions with live technical indicators before analysis.
-    Skips re-analysis if cached signal is fresh (<1h) and price hasn't moved >1.5%.
     Returns positions with sell_signal, urgency, reason, suggested_action added.
     """
     if not positions:
@@ -217,25 +220,10 @@ def analyze_sell_signals(positions: list[dict]) -> list[dict]:
     # Replace positions list with only non-trail positions for the rest of analysis
     positions = remaining
 
-    # ── Split positions: use cache vs. needs fresh analysis ───────────────────
-    to_analyze: list[dict] = []
+    # Mechanical exits must be evaluated live every refresh; stale HOLD cache can
+    # otherwise mask a fresh stop trigger.
+    to_analyze: list[dict] = list(positions)
     cached_results: list[dict] = []
-
-    for p in positions:
-        sym   = p["symbol"]
-        price = float(p.get("current_price") or 0)
-        cache = _signal_cache.get(sym)
-
-        if cache:
-            age       = now - cache.get("ts", 0)
-            old_price = cache.get("price", 0)
-            price_chg = abs(price - old_price) / old_price * 100 if old_price else 999
-            if age < _SIGNAL_TTL and price_chg < _PRICE_MOVE_THRESHOLD:
-                # Return cached signal merged with fresh position data
-                cached_results.append({**p, **{k: v for k, v in cache.items()
-                                               if k not in ("ts", "price")}})
-                continue
-        to_analyze.append(p)
 
     if cached_results:
         hit = len(cached_results)
@@ -256,7 +244,7 @@ def analyze_sell_signals(positions: list[dict]) -> list[dict]:
     def _rule_based_override(p: dict) -> dict | None:
         """
         Returns a forced sell dict if any rule-based condition is met, else None.
-        Priority: hard stop > trailing stop > breakeven > MA20 break.
+        Priority: hard stop > early failure stop > trailing stop > breakeven > MA20 break.
         """
         sym  = p["symbol"]
         plpc = p.get("unrealized_plpc", 0)
@@ -267,7 +255,18 @@ def analyze_sell_signals(positions: list[dict]) -> list[dict]:
             return {"sell_signal": "SELL", "urgency": "HIGH",
                     "reason": f"Hard stop: position down {plpc:.1f}% (threshold {HARD_STOP_PCT}%)"}
 
-        # 2. Trailing stop (protect profits)
+        # 2. EF5: D1-D2 new positions that fail quickly should be recycled.
+        entry_days = trading_days_since_entry(p.get("entry_created_at") or p.get("created_at"))
+        if (
+            entry_days is not None
+            and EARLY_FAILURE_MIN_DAY <= entry_days <= EARLY_FAILURE_MAX_DAY
+            and plpc <= EARLY_FAILURE_STOP_PCT
+        ):
+            return {"sell_signal": "SELL", "urgency": "HIGH",
+                    "reason": f"Early failure stop: D{entry_days} down {plpc:.1f}% "
+                              f"(threshold {EARLY_FAILURE_STOP_PCT:.1f}%)"}
+
+        # 3. Trailing stop (protect profits)
         ts_data = trailing_stops.get(sym, {})
         ts      = ts_data.get("trailing_stop")
         wm      = ts_data.get("high_watermark")
@@ -277,14 +276,14 @@ def analyze_sell_signals(positions: list[dict]) -> list[dict]:
                     "reason": f"Trailing stop hit: ${price:.2f} ≤ ${ts:.2f} "
                               f"({drawdown:.1f}% from high of ${wm:.2f})"}
 
-        # 3. Breakeven stop: once high watermark reached +5%, do not let it turn into a loser.
+        # 4. Breakeven stop: once high watermark reached +5%, do not let it turn into a loser.
         be = ts_data.get("breakeven_stop")
         if ts_data.get("breakeven_active") and be and price and price <= be:
             return {"sell_signal": "SELL", "urgency": "MEDIUM",
                     "reason": f"Breakeven stop: protected after +{BREAKEVEN_ACTIVATE_PCT:.0f}% run; "
                               f"${price:.2f} ≤ entry ${be:.2f}"}
 
-        # 4. v8/v9 趋势破位:**连续 2 根日线收盘都 < MA20** 才退出(回测验证优于单根:
+        # 5. v8/v9 趋势破位:**连续 2 根日线收盘都 < MA20** 才退出(回测验证优于单根:
         #    收益+7pt、卖出次数-39%、回撤持平 —— 过滤单根假破位/健康回调,避免卖飞)。
         _tech = p.get("_tech", {}) or {}
         if _tech.get("ma20_below_2d") is True:

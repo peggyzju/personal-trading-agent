@@ -3,7 +3,7 @@ Trade Agent (Rex) — v8 纯机械执行 + 持久化待执行队列。
 
 买入:扫描候选(已过趋势门 + 按动量排名)→ 财报门 + 止损门(-8%,+0.5%容差)→
        固定 confidence 0.8 自动执行(无 AI 分门、无 Track1/2、无自选特殊路径)。
-卖出:holdings_monitor 的机械 SELL(-8%止损 / 追踪止盈 +6%/-8% / MA20破位);
+卖出:holdings_monitor 的机械 SELL(-8%止损 / EF5 / 追踪止盈 +6%/-5% / MA20破位);
        主动卖出前先取消保护止损单再平仓。无 REDUCE/AI 软清仓。
 仓位:regime 决定上限 + size_factor 缩放;入场价格漂移门在执行端。
 
@@ -18,6 +18,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+
+from src.trader.holding_period import trading_days_since_entry
 
 # ── Persistence ───────────────────────────────────────────────────────────────
 
@@ -797,6 +799,9 @@ def run_agent(
         # ── 3. Holdings: SELL / REDUCE ────────────────────────────────────────
         # First pass: hard stop-loss + trailing stop from live Alpaca positions
         HARD_STOP_PCT  = -stop_loss_pct * 100   # fallback for untracked positions
+        EARLY_FAILURE_STOP_PCT = -5.0
+        EARLY_FAILURE_MIN_DAY = 1
+        EARLY_FAILURE_MAX_DAY = 2
         BREAKEVEN_TRIGGER = 0.05  # v9: 浮盈 +5% 后启用保本线
         TRAIL_TRIGGER = 0.06      # v9: 浮盈 +6% 激活追踪
         TRAIL_PCT     = 0.05      # v9: 高水位回撤 5% 退出,更快锁住短线收益
@@ -862,6 +867,12 @@ def run_agent(
             trail_stop_px = high_water * (1 - TRAIL_PCT) if trail_active else None
             breakeven_stop_px = float(entry_px) if breakeven_active and entry_px else None
             hard_stop_hit  = (current_px <= float(per_pos_stop)) if per_pos_stop else (plpc <= HARD_STOP_PCT)
+            entry_days = trading_days_since_entry(entry_trade.get("created_at"))
+            early_failure_hit = (
+                entry_days is not None
+                and EARLY_FAILURE_MIN_DAY <= entry_days <= EARLY_FAILURE_MAX_DAY
+                and plpc <= EARLY_FAILURE_STOP_PCT
+            )
             trail_stop_hit = trail_active and trail_stop_px and current_px <= trail_stop_px
             breakeven_hit = breakeven_active and breakeven_stop_px and current_px <= breakeven_stop_px
 
@@ -874,6 +885,25 @@ def run_agent(
                     signal="SELL", confidence=0.9,
                     reason=f"Hard stop: {ap.symbol} @ ${current_px:.2f} hit {stop_desc} (P&L {plpc:.1f}%)",
                     source="hard_stop",
+                    price=current_px,
+                )
+                if _add_trade(trade, owned_symbols):
+                    summary["signals_found"] += 1
+                    summary["trades_queued"] += 1
+                    holdings_added += 1
+                    hard_stop_symbols.add(ap.symbol)
+                    _new_trade_ids.add(trade["id"])
+            elif early_failure_hit:
+                reason_txt = (
+                    f"Early failure stop: {ap.symbol} D{entry_days} down {plpc:.1f}% "
+                    f"(threshold {EARLY_FAILURE_STOP_PCT:.1f}%)"
+                )
+                print(f"[agent] {reason_txt}")
+                trade = _make_trade(
+                    symbol=ap.symbol, side="sell",
+                    notional=None, qty=None,
+                    signal="SELL", confidence=0.88,
+                    reason=reason_txt, source="early_failure_stop",
                     price=current_px,
                 )
                 if _add_trade(trade, owned_symbols):

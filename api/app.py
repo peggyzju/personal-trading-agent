@@ -867,30 +867,32 @@ def get_agents_status_endpoint():
 
 # ── Holdings Monitor ──────────────────────────────────────────────────────────
 
+def _inject_holding_entry_metadata(positions: list[dict]) -> list[dict]:
+    try:
+        from src.trader.trade_agent import _load_from_disk
+        all_trades = _load_from_disk()
+        entry_map: dict[str, dict] = {}
+        for trade in all_trades.values():
+            if trade.get("side") == "buy" and trade.get("symbol"):
+                sym = trade["symbol"]
+                if sym not in entry_map or trade.get("created_at", "") > entry_map[sym].get("created_at", ""):
+                    entry_map[sym] = trade
+        for pos in positions:
+            entry = entry_map.get(pos["symbol"], {})
+            pos["trail_active"] = bool(entry.get("trail_active", False))
+            pos["entry_created_at"] = entry.get("created_at")
+    except Exception as exc:
+        print(f"[holdings] entry metadata inject error: {exc}")
+    return positions
+
+
 def _refresh_holdings():
     """Background task: re-fetch positions + sell signals after any trade action."""
     from src.monitor.holdings_monitor import get_paper_positions, analyze_sell_signals
     from src.trader.trade_agent import reject_trade, get_pending_trades
     positions = get_paper_positions()
 
-    # ── Inject trail_active from trades.json ──────────────────────────────────
-    # When trail_active=True (+10% gain reached), Alpaca manages exit entirely.
-    # holdings_monitor will bypass Claude AI for these positions.
-    try:
-        from src.trader.trade_agent import _load_from_disk
-        _all_trades = _load_from_disk()
-        _trail_map: dict[str, bool] = {}
-        for _t in _all_trades.values():
-            if _t.get("side") == "buy" and _t.get("symbol"):
-                _sym = _t["symbol"]
-                # Keep the most recent buy record per symbol
-                if _sym not in _trail_map or _t.get("created_at", "") > _trail_map.get(_sym + "_at", ""):
-                    _trail_map[_sym] = bool(_t.get("trail_active", False))
-                    _trail_map[_sym + "_at"] = _t.get("created_at", "")
-        for p in positions:
-            p["trail_active"] = _trail_map.get(p["symbol"], False)
-    except Exception as _e:
-        print(f"[holdings] trail_active inject error: {_e}")
+    positions = _inject_holding_entry_metadata(positions)
 
     _holdings_cache["positions"] = positions
     _holdings_cache["analyzed"] = False
@@ -927,6 +929,7 @@ def refresh_holdings(background_tasks: BackgroundTasks):
     def _run():
         from src.monitor.holdings_monitor import get_paper_positions, analyze_sell_signals
         positions = get_paper_positions()
+        positions = _inject_holding_entry_metadata(positions)
         _holdings_cache["positions"] = positions
         _holdings_cache["analyzed"] = False
         try:
