@@ -852,6 +852,47 @@ def test_veto_ttl():
         fail("veto 2h TTL", str(e)); traceback.print_exc()
 
 
+def test_sell_never_opens_short():
+    print("\n[v8] 主动卖出防开空(部分止损成交后只卖剩余long)")
+    try:
+        from unittest.mock import MagicMock
+        from src.trader.trade_agent import _submit_long_close_order
+
+        client = MagicMock()
+        client.get_position.return_value = MagicMock(symbol="AMAT", side="long", qty="1")
+        client.submit_order.return_value = MagicMock(id="sell-remaining")
+        order = _submit_long_close_order(client, "AMAT")
+        kwargs = client.submit_order.call_args.kwargs
+        if kwargs.get("side") == "sell" and kwargs.get("qty") == 1.0 and order.id == "sell-remaining":
+            ok("只卖剩余long", "AMAT stop已卖12/13后,主动SELL只卖剩余1股 ✓")
+        else:
+            fail("只卖剩余long", f"submit_order={kwargs}")
+
+        client = MagicMock()
+        client.get_position.return_value = MagicMock(symbol="AMD", side="short", qty="-14")
+        try:
+            _submit_long_close_order(client, "AMD")
+            fail("拒绝short继续卖", "AMD 已是 short 仍提交 sell")
+        except RuntimeError:
+            if not client.submit_order.called:
+                ok("拒绝short继续卖", "当前仓位为 short → 拒绝 sell,不加空 ✓")
+            else:
+                fail("拒绝short继续卖", "拒绝前仍调用 submit_order")
+
+        client = MagicMock()
+        client.get_position.side_effect = Exception("position not found")
+        try:
+            _submit_long_close_order(client, "SNOW")
+            fail("拒绝无仓位卖出", "无仓位仍提交 sell")
+        except RuntimeError:
+            if not client.submit_order.called:
+                ok("拒绝无仓位卖出", "无当前仓位 → 拒绝 sell,不裸卖 ✓")
+            else:
+                fail("拒绝无仓位卖出", "拒绝前仍调用 submit_order")
+    except Exception as e:
+        fail("主动卖出防开空", str(e)); traceback.print_exc()
+
+
 # ── 11b. v3 策略核心逻辑 ──────────────────────────────────────────────────────
 def test_v3_strategy():
     print("\n[11b] v4 策略 — 双轨选股 / 止损 / 市场时间门 / 价格漂移 / 财报过滤")
@@ -1407,6 +1448,7 @@ if __name__ == "__main__":
     test_early_failure_stop()
     test_price_drift_gate()
     test_veto_ttl()
+    test_sell_never_opens_short()
 
     if not SMOKE_ONLY:
         test_market_regime()

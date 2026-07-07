@@ -253,6 +253,58 @@ def _add_trade(trade: dict, existing_symbols: set[str], allow_add_to_position: b
     return True
 
 
+def _cancel_resting_sell_orders(client, symbol: str) -> list[str]:
+    """Cancel open sell orders for symbol and wait briefly for share release."""
+    import time as _time
+    from src.trader.alpaca_trader import cancel_order as _cancel
+
+    cancelled = []
+    for order in client.list_orders(status="open"):
+        if order.symbol == symbol and order.side == "sell":
+            _cancel(order.id)
+            cancelled.append(order.id)
+            print(f"[agent] cancelled resting sell order {order.id} for {symbol} before close")
+
+    for _ in range(10):
+        if not cancelled:
+            break
+        still_open = set()
+        for order in client.list_orders(status="open"):
+            if order.symbol == symbol and order.side == "sell":
+                still_open.add(order.id)
+        if not (set(cancelled) & still_open):
+            break
+        _time.sleep(0.3)
+    return cancelled
+
+
+def _submit_long_close_order(client, symbol: str):
+    """Close only an existing long position; never submit a sell that can open short."""
+    from src.trader.alpaca_trader import _alpaca_symbol
+
+    alpaca_symbol = _alpaca_symbol(symbol)
+    try:
+        position = client.get_position(alpaca_symbol)
+    except Exception:
+        raise RuntimeError(f"{symbol}: no current long position; refusing sell to avoid short")
+
+    qty = float(position.qty)
+    side = getattr(position, "side", "")
+    if side != "long" or qty <= 0:
+        raise RuntimeError(
+            f"{symbol}: current position is {side or 'unknown'} qty={qty:g}; "
+            "refusing sell to avoid short"
+        )
+
+    return client.submit_order(
+        symbol=alpaca_symbol,
+        side="sell",
+        qty=qty,
+        type="market",
+        time_in_force="day",
+    )
+
+
 # ── Slot & drift helpers(纯函数,便于单测)──────────────────────────────────
 
 def _slots_remaining(max_positions: int, num_open_positions: int, num_pending_buys: int) -> int:
@@ -315,46 +367,24 @@ def approve_trade(trade_id: str) -> dict:
         except Exception as e:
             print(f"[agent] price drift check failed for {trade['symbol']}: {e}")
 
-    from src.trader.alpaca_trader import place_order, close_position
+    from src.trader.alpaca_trader import place_order
 
     try:
         if trade["side"] == "sell":
-            # 主动卖出前,先取消该股挂着的保护止损/任何 sell 单,释放被占用的股数,
-            # 否则 close_position / 卖单会被 Alpaca 拒("insufficient qty available")。
-            # 关键:取消后要等 Alpaca 真正释放股数再卖,否则有竞态(取消未落地→insufficient qty)。
+            # 主动卖出前,先取消该股挂着的保护止损/任何 sell 单,释放被占用的股数。
+            # 取消落地后必须重新读取当前仓位,只卖当前仍存在的 long qty。
+            # 事故根因:服务端 stop 已部分/全部成交后,主动 close 再补一单会被 Alpaca
+            # 计成开空。这里明确拒绝 no-position/short/non-long sell。
             try:
-                import time as _time
-                from src.trader.alpaca_trader import get_client as _gc, cancel_order as _cxl
+                from src.trader.alpaca_trader import get_client as _gc
                 _client = _gc()
-                _cancelled = []
-                for _o in _client.list_orders(status="open"):
-                    if _o.symbol == trade["symbol"] and _o.side == "sell":
-                        _cxl(_o.id)
-                        _cancelled.append(_o.id)
-                        print(f"[agent] cancelled resting sell order {_o.id} for {trade['symbol']} before close")
-                # 轮询确认取消落地(被占股数已释放),最多等 ~3s
-                for _ in range(10):
-                    if not _cancelled:
-                        break
-                    _still = {o.id for o in _client.list_orders(status="open")
-                              if o.symbol == trade["symbol"] and o.side == "sell"}
-                    if not (set(_cancelled) & _still):
-                        break
-                    _time.sleep(0.3)
+                _cancel_resting_sell_orders(_client, trade["symbol"])
             except Exception as _ce:
                 print(f"[agent] cancel-before-sell failed for {trade['symbol']}: {_ce}")
 
         if trade["side"] == "sell" and trade["qty"] is None:
-            # 兜底:若仍偶发 insufficient qty(取消刚落地),短暂重试一次
-            try:
-                order = close_position(trade["symbol"])
-            except Exception as _se:
-                if "insufficient qty" in str(_se).lower():
-                    import time as _time2
-                    _time2.sleep(1.0)
-                    order = close_position(trade["symbol"])
-                else:
-                    raise
+            from src.trader.alpaca_trader import get_client as _gc
+            order = _submit_long_close_order(_gc(), trade["symbol"])
         elif (
             trade["side"] == "buy"
             and trade.get("stop_loss")
