@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { api } from "../api/client";
 import type { StockDebateResult, PostmortemResult, PostmortemTrade, StrategyBacktestResult, TimelinePeriod } from "../api/client";
 import type { Account, PortfolioHistory, GoalProgress, PerformanceStats, Position, PortfolioDay } from "../api/client";
@@ -84,7 +84,12 @@ function monthTradingDates(monthKey: string): Array<string | null> {
   return cells;
 }
 
-function MonthlyPLComparison({ paperDays }: { paperDays: PortfolioDay[] }) {
+function MonthlyPLComparison({
+  paperDays, paperSummary,
+}: {
+  paperDays: PortfolioDay[];
+  paperSummary: ReactNode;
+}) {
   const monthKey = monthKeyET();
   const [date, setDate] = useState(todayET());
   const [pl, setPl] = useState("");
@@ -175,6 +180,7 @@ function MonthlyPLComparison({ paperDays }: { paperDays: PortfolioDay[] }) {
           days={paperMonth}
           mode="percent"
           monthKey={monthKey}
+          summary={paperSummary}
           markTodayLive
           statusText={paperStatus}
           emptyText="本月还没有 paper 收益记录。"
@@ -194,7 +200,7 @@ function MonthlyPLComparison({ paperDays }: { paperDays: PortfolioDay[] }) {
 }
 
 function MonthlyPLCard({
-  title, stats, days, mode, monthKey, emptyText, statusText, markTodayLive = false,
+  title, stats, days, mode, monthKey, emptyText, statusText, summary, markTodayLive = false,
 }: {
   title: string;
   stats: ReturnType<typeof monthStats>;
@@ -203,6 +209,7 @@ function MonthlyPLCard({
   monthKey: string;
   emptyText: string;
   statusText?: string;
+  summary?: ReactNode;
   markTodayLive?: boolean;
 }) {
   const totalClass = stats.total >= 0 ? "pos" : "neg";
@@ -211,6 +218,7 @@ function MonthlyPLCard({
       <div className="monthly-pl-card-head">
         <span>{title}</span>
       </div>
+      {summary && <div className="monthly-pl-paper-summary">{summary}</div>}
       <div className="monthly-pl-meta">
         <span>P/L <b className={totalClass}>{money(stats.total)}</b></span>
         <span><b className="up">{stats.wins}</b>盈 / <b className="down">{stats.losses}</b>亏</span>
@@ -316,32 +324,36 @@ function PerformanceSummary() {
 
   return (
     <div className="pcc-dashboard-top perf-compact" style={{ marginBottom: 16 }}>
-      <DashboardSummary goal={goal} history={history} account={account} />
-
-      <div className="perf-stats-row">
-        {perf && perf.total > 0 && (
-          <span className="perf-stat-group" title={`${perf.total}笔已平仓 · 均盈+${perf.avg_win_pct}% · 均亏${perf.avg_loss_pct}%`}>
-            <span className="perf-stat-tag">历史</span>
-            <b style={{ color: okColor(perf.win_rate >= 50) }}>{perf.win_rate}%</b> 胜率
-            <span className="perf-stat-sep">·</span>
-            <b style={{ color: okColor(perf.profit_factor >= 1) }}>{perf.profit_factor.toFixed(2)}x</b> 盈亏比
-            <span className="perf-stat-sep">·</span>
-            {perf.total} 笔
-          </span>
+      <MonthlyPLComparison
+        paperDays={history?.days ?? []}
+        paperSummary={(
+          <>
+            <DashboardSummary goal={goal} history={history} account={account} />
+            <div className="perf-stats-row">
+              {perf && perf.total > 0 && (
+                <span className="perf-stat-group" title={`${perf.total}笔已平仓 · 均盈+${perf.avg_win_pct}% · 均亏${perf.avg_loss_pct}%`}>
+                  <span className="perf-stat-tag">历史</span>
+                  <b style={{ color: okColor(perf.win_rate >= 50) }}>{perf.win_rate}%</b> 胜率
+                  <span className="perf-stat-sep">·</span>
+                  <b style={{ color: okColor(perf.profit_factor >= 1) }}>{perf.profit_factor.toFixed(2)}x</b> 盈亏比
+                  <span className="perf-stat-sep">·</span>
+                  {perf.total} 笔
+                </span>
+              )}
+              {positions.length > 0 && (
+                <span className="perf-stat-group" title={`${winners.length}盈/${losers.length}亏 · 均浮盈+${avgWin.toFixed(1)}% · 均浮亏-${avgLoss.toFixed(1)}%`}>
+                  <span className="perf-stat-tag">持仓</span>
+                  <b style={{ color: okColor((holdWr ?? 0) >= 50) }}>{holdWr}%</b> 胜率
+                  <span className="perf-stat-sep">·</span>
+                  <b style={{ color: okColor(parseFloat(holdPr) >= 1) }}>{holdPr}x</b> 盈亏比
+                  <span className="perf-stat-sep">·</span>
+                  {winners.length}/{positions.length} 盈/总
+                </span>
+              )}
+            </div>
+          </>
         )}
-        {positions.length > 0 && (
-          <span className="perf-stat-group" title={`${winners.length}盈/${losers.length}亏 · 均浮盈+${avgWin.toFixed(1)}% · 均浮亏-${avgLoss.toFixed(1)}%`}>
-            <span className="perf-stat-tag">持仓</span>
-            <b style={{ color: okColor((holdWr ?? 0) >= 50) }}>{holdWr}%</b> 胜率
-            <span className="perf-stat-sep">·</span>
-            <b style={{ color: okColor(parseFloat(holdPr) >= 1) }}>{holdPr}x</b> 盈亏比
-            <span className="perf-stat-sep">·</span>
-            {winners.length}/{positions.length} 盈/总
-          </span>
-        )}
-      </div>
-
-      <MonthlyPLComparison paperDays={history?.days ?? []} />
+      />
     </div>
   );
 }
