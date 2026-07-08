@@ -530,7 +530,9 @@ def test_hard_stop_logic():
 
         with patch("anthropic.Anthropic", return_value=mock_client), \
              patch("src.monitor.holdings_monitor._enrich_with_technicals",
-                   side_effect=lambda p: [{**x, "_tech": {}} for x in p]):
+                   side_effect=lambda p: [{**x, "_tech": {}} for x in p]), \
+             patch("src.monitor.holdings_monitor._update_trailing_stops",
+                   return_value={}):
             result = analyze_sell_signals(positions_raw)
 
         sig_map = {r["symbol"]: r for r in result}
@@ -626,6 +628,27 @@ def test_hard_stop_logic():
         else:
             fail("Breakeven stop",
                  f"LOCKIT: sell_signal={lockit.get('sell_signal')}, reason={lockit.get('reason')}")
+
+        update_calls = []
+
+        def _record_update_call(positions):
+            update_calls.append([p["symbol"] for p in positions])
+            return {}
+
+        with patch("src.monitor.holdings_monitor._enrich_with_technicals",
+                   side_effect=lambda p: [{**x, "_tech": {}} for x in p]), \
+             patch("src.monitor.holdings_monitor._update_trailing_stops",
+                   side_effect=_record_update_call):
+            analyze_sell_signals([
+                {"symbol": "KEEPWM", "qty": 1, "avg_entry_price": 100.0,
+                 "current_price": 101.0, "market_value": 101.0, "unrealized_pl": 1.0,
+                 "unrealized_plpc": 1.0, "side": "long"},
+            ])
+
+        if update_calls == [["KEEPWM"]]:
+            ok("Trailing state not purged", "普通持仓只更新实际 symbols，不再用空列表清空 high-watermark ✓")
+        else:
+            fail("Trailing state not purged", f"_update_trailing_stops calls={update_calls}")
 
     except Exception as e:
         fail("Trailing stop 逻辑", str(e))

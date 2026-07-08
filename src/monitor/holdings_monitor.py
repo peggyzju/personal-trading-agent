@@ -325,9 +325,11 @@ def analyze_sell_signals(positions: list[dict]) -> list[dict]:
             if cached_hit:
                 ordered.append(cached_hit)
 
-    # Re-append trail_active bypass positions (trail_stop _rule_based_override still applies)
-    # Run them through _rule_based_override so hard stop / trailing_stop.json can still fire
-    trailing_stops.update(_update_trailing_stops(trail_bypass))   # keep high watermarks current
+    # Re-append trail_active bypass positions (trail_stop _rule_based_override still applies).
+    # Only update when the bypass list is non-empty; calling with [] means "no open
+    # positions" to _update_trailing_stops and would purge live high-watermark state.
+    if trail_bypass:
+        trailing_stops.update(_update_trailing_stops(trail_bypass))   # keep high watermarks current
     for p in trail_bypass:
         override = _rule_based_override(p)
         if override:
