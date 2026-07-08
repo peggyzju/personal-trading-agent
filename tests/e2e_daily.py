@@ -1369,6 +1369,17 @@ def test_scheduler_design():
     except Exception as e:
         fail("No symbol closure", str(e))
 
+    # 4c. v13: API 层 AI scoring 后不能把 Scanner 的 quality_momentum 排序改回纯 3M。
+    try:
+        _app = Path(__file__).resolve().parent.parent / "api" / "app.py"
+        _src = _app.read_text()
+        if "quality_momentum_score" in _src and 'key=lambda x: -(x.get("momentum_3m") or 0)' not in _src:
+            ok("v13 API sort", "AI scoring 后仍保留 quality_momentum 排序 ✓")
+        else:
+            fail("v13 API sort", "api.app 可能在 AI scoring 后回退为纯 momentum_3m 排序")
+    except Exception as e:
+        fail("v13 API sort", str(e))
+
     # 4. Scout 函数存在于 main.py
     try:
         import main as main_module

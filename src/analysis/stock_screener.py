@@ -112,9 +112,9 @@ def _build_prompt(
         notes_text = "\n".join(f"- {n}" for n in strategy_notes)
         notes_section = f"\nActive strategy guidelines:\n{notes_text}\n"
 
-    return f"""You are a RISK SCREENER for a momentum/trend trading system (strategy v12).
+    return f"""You are a RISK SCREENER for a momentum/trend trading system (strategy v13).
 The stocks below ALREADY passed a mechanical filter: uptrend (price > MA50, MA50 rising),
-RSI 50-80, positive 3-month momentum, not over-extended. They are RANKED BY MOMENTUM and
+RSI 50-80, positive 3-month momentum, not over-extended. They are RANKED BY QUALITY MOMENTUM and
 will be bought mechanically in that order.
 
 YOUR ONLY JOB — "排雷" (landmine veto): flag stocks to SKIP for reasons the price/volume
@@ -140,7 +140,7 @@ Return a JSON array of {len(candidates)} objects, each EXACTLY:
 - "veto_category": one of the 6 names above, or "" if no veto
 - "veto_reason": ONE short sentence naming the specific risk (or "" if no veto)
 - "ai_score": integer 1-10 — advisory confidence the trend CONTINUES (reference only, NOT
-  used for buying; momentum rank decides buys)
+  used for buying; quality_momentum rank decides buys)
 - "reason": one short sentence on what the company does + the key driver
 
 Be CONSERVATIVE: when unsure, veto=false (a wrong veto kills a good momentum winner).

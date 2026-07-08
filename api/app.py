@@ -395,6 +395,7 @@ def _run_sp500_scan(cascade_agent: bool = False, trigger: str = "auto"):
     from src.monitor.sp500_scanner import (
         get_scan_universe, get_sp500_tickers, get_nasdaq100_tickers,
         LAYER2_TICKERS, quick_screen, enrich_with_fundamentals,
+        _annotate_quality_momentum,
     )
     from src.analysis.stock_screener import ai_score_candidates
     from src.analysis.market_context import load_market_context
@@ -529,9 +530,15 @@ def _run_sp500_scan(cascade_agent: bool = False, trigger: str = "auto"):
             sector_bias=sector_bias,
         ))
 
-        # v8: 按动量排序(选股=机械动量,AI 分数/信号不再决定买入顺序)。
+        # v13: 保留 Scanner 的 quality_momentum 排序；AI 分数/信号不决定买入顺序。
         if top_ai:
-            top_ai = sorted(top_ai, key=lambda x: -(x.get("momentum_3m") or 0))
+            if any(c.get("quality_momentum_score") is None for c in top_ai):
+                top_ai = _annotate_quality_momentum(top_ai)
+            top_ai = sorted(
+                top_ai,
+                key=lambda x: -(x.get("quality_momentum_score") if x.get("quality_momentum_score") is not None
+                                else x.get("rank_momentum_3m", x.get("momentum_3m")) or 0)
+            )
 
         ai_scored = sum(1 for c in top_ai if c.get("ai_score") is not None)
 
