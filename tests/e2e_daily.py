@@ -1380,6 +1380,24 @@ def test_scheduler_design():
     except Exception as e:
         fail("v13 API sort", str(e))
 
+    # 4d. v13: 信号页/summary 不能继续展示旧 v12 或纯 3M 排序口径。
+    try:
+        _root = Path(__file__).resolve().parent.parent
+        _app_src = (_root / "api" / "app.py").read_text()
+        _signals_src = (_root / "frontend" / "src" / "components" / "SignalsView.tsx").read_text()
+        if (
+            "quality_momentum_score" in _app_src
+            and "当前 v13 quality momentum" in _app_src
+            and "Quality Momentum" in _signals_src
+            and "rankScore" in _signals_src
+            and "v12 趋势打法" not in _signals_src
+        ):
+            ok("v13 Signals UI", "信号页和 Summary 已展示 quality momentum 口径 ✓")
+        else:
+            fail("v13 Signals UI", "信号页或 Summary 仍可能展示旧 v12/纯 3M 排序")
+    except Exception as e:
+        fail("v13 Signals UI", str(e))
+
     # 4. Scout 函数存在于 main.py
     try:
         import main as main_module

@@ -117,7 +117,11 @@ export interface ScanCandidate {
   target_price?: number;
   timeframe?: string;
   momentum_5d?: number;
+  momentum_1m?: number;
   momentum_3m?: number;
+  rank_momentum_3m?: number;
+  rank_basis?: string;
+  quality_momentum_score?: number;
   vs_ma50_pct?: number;
   vs_ma20_pct?: number;
   ma50_slope_pct?: number;

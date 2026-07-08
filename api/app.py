@@ -638,6 +638,10 @@ def _run_sp500_scan(cascade_agent: bool = False, trigger: str = "auto"):
 @app.get("/api/scan/sp500")
 def get_scan():
     result = dict(_scan_cache.get("sp500", {"status": "not_run", "candidates": []}))
+    if result.get("candidates"):
+        result["candidates"] = _ensure_quality_momentum_candidates(result["candidates"])
+        _scan_cache["sp500"]["candidates"] = result["candidates"]
+        _save_scan_cache(_scan_cache)
     # Mark owned symbols instead of filtering — user can still see AI analysis for held positions
     try:
         from src.trader.alpaca_trader import get_client
@@ -661,10 +665,13 @@ def enrich_scan():
         return {"status": "no_candidates", "candidates": []}
     # Skip if already enriched
     if any(c.get("company_name") for c in candidates[:5]):
+        _scan_cache["sp500"]["candidates"] = _ensure_quality_momentum_candidates(candidates)
+        _save_scan_cache(_scan_cache)
         return {"status": "already_enriched", **result}
     try:
         from src.monitor.sp500_scanner import enrich_with_fundamentals
         enriched = _sanitize_floats(enrich_with_fundamentals(list(candidates)))
+        enriched = _ensure_quality_momentum_candidates(enriched)
         _scan_cache["sp500"]["candidates"] = enriched
         _save_scan_cache(_scan_cache)
         return {"status": "done", **_scan_cache["sp500"]}
@@ -677,6 +684,28 @@ def _compact_rows(rows: list[dict], fields: list[str], limit: int = 15) -> list[
     for row in rows[:limit]:
         out.append({k: row.get(k) for k in fields if row.get(k) is not None})
     return out
+
+
+def _ensure_quality_momentum_candidates(candidates: list[dict]) -> list[dict]:
+    if not candidates:
+        return candidates
+    if all(c.get("quality_momentum_score") is not None for c in candidates):
+        return sorted(
+            candidates,
+            key=lambda c: c.get("quality_momentum_score", c.get("rank_momentum_3m", c.get("momentum_3m")) or 0),
+            reverse=True,
+        )
+    try:
+        from src.monitor.sp500_scanner import _annotate_quality_momentum
+        annotated = _annotate_quality_momentum(candidates)
+        return sorted(
+            annotated,
+            key=lambda c: c.get("quality_momentum_score", c.get("rank_momentum_3m", c.get("momentum_3m")) or 0),
+            reverse=True,
+        )
+    except Exception as e:
+        print(f"[scan] quality_momentum repair skipped: {e}")
+        return candidates
 
 
 def _load_earnings_calendar() -> dict:
@@ -697,8 +726,10 @@ def _build_signal_summary_context() -> dict:
 
     scan = _scan_cache.get("sp500", {}) if isinstance(_scan_cache.get("sp500"), dict) else {}
     candidates = scan.get("candidates") or []
+    candidates = _ensure_quality_momentum_candidates(candidates)
     candidate_fields = [
-        "symbol", "price", "momentum_3m", "momentum_5d", "momentum_1m", "rsi",
+        "symbol", "price", "rank_basis", "quality_momentum_score",
+        "rank_momentum_3m", "momentum_3m", "momentum_5d", "momentum_1m", "rsi",
         "vs_ma20_pct", "ma20_slope_pct", "volume_ratio", "near_breakout",
         "veto", "veto_category", "veto_reason", "sector", "owned", "stop_loss",
     ]
@@ -755,11 +786,11 @@ def _build_signal_summary_context() -> dict:
 
 
 def _build_signal_summary_prompt(ctx: dict) -> str:
-    return f"""你是 Personal Trading Agent 的盘中信号分析助手。请严格按照 v12 机械动量策略解释当前信号，不要发明新策略，不要用主观预测替代规则。
+    return f"""你是 Personal Trading Agent 的盘中信号分析助手。请严格按照当前 v13 quality momentum 机械策略解释当前信号，不要发明新策略，不要用主观预测替代规则。
 
 当前策略框架：
 - 美股短线波段，持仓 5–10 天，Alpaca paper trading。
-- Scout 选股为纯机械动量：趋势门通过后按 momentum_3m 排名。
+- Scout 选股为纯机械：上日结构门 + 盘中确认门，通过后按 quality_momentum_score 排名；3 月动量仍是主锚，但会结合 1 月/5 日接力、MA50 斜率、MA20 位置、RSI 与量能质量。
 - Rex 买入为机械入场：BULL/NEUTRAL/CAUTION 才能买，BEAR 不买；价格漂移涨超 +1.5% 拒单，跌/阈内放行；财报今/明未公布跳过；veto=true 转人工。
 - 卖出为机械规则：-8% 硬止损、EF5 新仓失败止损(D1-D2 浮亏≤-5%)、BE5 保本、+6% 激活/回撤5%追踪止盈、连续2根收盘跌破 MA20。
 - 默认不鼓励追高加仓；加仓必须同时满足：已有持仓仍强、未触发卖出风险、位置不过热、不是价格漂移失效、不是 veto、不是刚被止损/破位的弱化票。
@@ -778,7 +809,7 @@ def _build_signal_summary_prompt(ctx: dict) -> str:
    - 卖出侧：是否接近 -8% 硬止损、是否破 MA20、是否属于防守持仓、是否已有保护/追踪逻辑。
 3. 如果没有可加的，必须用 1-2 句说明最主要的“不加原因”，例如：已成交不再叠、漂移拒单、RSI/MA20 过热、短线动量转弱、持仓接近止损。
 4. 最多点名 3 个“不要加”的关键票；不要展开完整候选排名。
-5. 必须引用少量关键指标，但不要堆数据：优先使用 momentum_5d、rsi、vs_ma20_pct、订单状态、止损/漂移情况。
+5. 必须引用少量关键指标，但不要堆数据：优先使用 quality_momentum_score、momentum_5d、rsi、vs_ma20_pct、订单状态、止损/漂移情况。
 
 输出风格：
 - 中文，简洁，像盘中交易助手，不写长篇宏观。

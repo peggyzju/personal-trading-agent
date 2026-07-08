@@ -34,6 +34,10 @@ interface TaggedCandidate extends ScanCandidate {
   sourceTags: string[];
 }
 
+function rankScore(c: ScanCandidate): number {
+  return c.quality_momentum_score ?? c.rank_momentum_3m ?? c.momentum_3m ?? -999;
+}
+
 export function SignalsView({ backendOnline }: Props) {
   const [tab, setTab]             = useState<SigTab>("all");
   const [sp500Data, setSp500Data] = useState<ScanResult | null>(null);
@@ -172,7 +176,7 @@ export function SignalsView({ backendOnline }: Props) {
     finally { setWatchlistLoading(prev => ({ ...prev, [sym]: false })); }
   }
 
-  // v8: 合并去重,按 3 月动量排序(选股=机械动量,ai_score 仅参考)
+  // v13: 合并去重,按 quality momentum 排序(AI 只排雷,不参与买入排序)
   const allCandidates: TaggedCandidate[] = useMemo(() => {
     const sp = sp500Data?.candidates ?? [];
     const nq = nasdaqData?.candidates ?? [];
@@ -185,14 +189,14 @@ export function SignalsView({ backendOnline }: Props) {
       const ex = map.get(c.symbol);
       if (ex) {
         if (!ex.sourceTags.includes("NQ")) ex.sourceTags.push("NQ");
-        if ((c.momentum_3m ?? -999) > (ex.momentum_3m ?? -999)) {
+        if (rankScore(c) > rankScore(ex)) {
           map.set(c.symbol, { ...c, sourceTags: ex.sourceTags });
         }
       } else {
         map.set(c.symbol, { ...c, sourceTags: ["NQ"] });
       }
     }
-    return Array.from(map.values()).sort((a, b) => (b.momentum_3m ?? -999) - (a.momentum_3m ?? -999));
+    return Array.from(map.values()).sort((a, b) => rankScore(b) - rankScore(a));
   }, [sp500Data, nasdaqData]);
 
   const isRunning   = sp500Data?.status === "running" || nasdaqData?.status === "running";
@@ -336,7 +340,7 @@ function AllSignalsView({
   return (
     <div className="sc-list">
       <div className="signals-stale-banner" style={{ background: "rgba(34,197,94,.1)", borderColor: "rgba(34,197,94,.3)", color: "#86efac" }}>
-        📈 v12 趋势打法 · 按 <b>3 月动量</b>排名,买动量前 N(机械选股) · AI 评分仅供参考,不参与买入
+        📈 当前线上策略 · 按 <b>Quality Momentum</b> 排名,3 月动量为主锚 + 1 月/5 日接力与质量修正 · AI 只排雷
       </div>
       {isRunning && (
         <div className="signals-stale-banner" style={{ background: "rgba(59,130,246,.1)", borderColor: "rgba(59,130,246,.3)", color: "#93c5fd" }}>
@@ -442,9 +446,13 @@ function SignalListRow({ rank, c, selected, inWatchlist, onClick }: {
         {c.veto && <span className="sig-lrow-veto" title={c.veto_reason || ""}>🚫排雷</span>}
       </div>
       <div className="sig-lrow-metrics">
-        {c.momentum_3m != null && (
+        {c.quality_momentum_score != null ? (
+          <span style={{ color: c.quality_momentum_score >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>
+            Q {c.quality_momentum_score.toFixed(2)}
+          </span>
+        ) : c.momentum_3m != null && (
           <span style={{ color: c.momentum_3m >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>
-            动量 {c.momentum_3m >= 0 ? "+" : ""}{c.momentum_3m.toFixed(0)}%
+            3M {c.momentum_3m >= 0 ? "+" : ""}{c.momentum_3m.toFixed(0)}%
           </span>
         )}
         {c.rsi != null && <span>RSI {c.rsi.toFixed(0)}</span>}
@@ -549,7 +557,7 @@ function SignalCard({
             </span>
           </div>
         ) : (
-          <span title="AI 排雷未发现风险(v12:AI 只排雷,不打分选股)"
+          <span title="AI 排雷未发现风险(当前策略: AI 只排雷,不打分选股)"
                 style={{ fontSize: 11, color: "#22c55e", fontWeight: 600, whiteSpace: "nowrap" }}>
             ✓ AI 放行
           </span>
@@ -567,10 +575,16 @@ function SignalCard({
       {/* ── Row 3: price · change · fundamentals · technicals ── */}
       <div className="sc-data-row">
         <span className="sc-price">${c.price?.toFixed(2)}</span>
-        {c.momentum_3m != null && (
-          <span className="sc-change" style={{ color: c.momentum_3m >= 0 ? "#22c55e" : "#ef4444", fontWeight: 700 }}
-                title="3 月动量(v12 排名依据)">
-            动量 {c.momentum_3m >= 0 ? "+" : ""}{c.momentum_3m.toFixed(0)}%
+        {c.quality_momentum_score != null && (
+          <span className="sc-change" style={{ color: c.quality_momentum_score >= 0 ? "#22c55e" : "#ef4444", fontWeight: 700 }}
+                title="v13 quality momentum 排名分">
+            Q {c.quality_momentum_score.toFixed(2)}
+          </span>
+        )}
+        {c.rank_momentum_3m != null && (
+          <span className="sc-tech-chip" style={{ color: c.rank_momentum_3m >= 0 ? "#22c55e" : "#ef4444" }}
+                title="3 月动量仍是 quality momentum 主锚">
+            3M {c.rank_momentum_3m >= 0 ? "+" : ""}{c.rank_momentum_3m.toFixed(0)}%
           </span>
         )}
         {c.vs_ma50_pct != null && (
