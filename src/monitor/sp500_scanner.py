@@ -80,6 +80,16 @@ AI_SOFTWARE_SYMBOLS: set[str] = {
 ROTATION_SW_MINUS_HW_3D_PCT = 3.0
 ROTATION_HW_1D_PCT = -2.0
 
+QUALITY_MOMENTUM_WEIGHTS = {
+    "rank_momentum_3m": 0.40,
+    "momentum_1m": 0.25,
+    "momentum_5d": 0.15,
+    "ma50_slope": 0.10,
+    "ma20_quality": 0.05,
+    "rsi_quality": 0.03,
+    "volume_quality": 0.02,
+}
+
 
 # ── Stock Universe ────────────────────────────────────────────────────────────
 
@@ -657,10 +667,69 @@ def _momentum_rank_value(row: dict) -> float:
     return row.get("rank_momentum_3m", row.get("momentum_3m")) or 0.0
 
 
+def _zscore(values: list[float | None]) -> list[float]:
+    arr = np.array([float(v) if v is not None else np.nan for v in values], dtype=float)
+    ok = np.isfinite(arr)
+    out = np.zeros(len(values), dtype=float)
+    if ok.sum() < 2:
+        return out.tolist()
+    mu = float(np.nanmean(arr[ok]))
+    sd = float(np.nanstd(arr[ok]))
+    if sd <= 1e-9:
+        return out.tolist()
+    out[ok] = (arr[ok] - mu) / sd
+    return out.tolist()
+
+
+def _quality_momentum_value(row: dict) -> float:
+    return row.get("quality_momentum_score", _momentum_rank_value(row)) or 0.0
+
+
+def _annotate_quality_momentum(candidates: list[dict]) -> list[dict]:
+    """Add v13 quality-momentum ranking score after candidates pass the trend gate."""
+    if not candidates:
+        return candidates
+
+    z60 = _zscore([r.get("rank_momentum_3m", r.get("momentum_3m")) for r in candidates])
+    z20 = _zscore([r.get("momentum_1m") for r in candidates])
+    z5 = _zscore([r.get("momentum_5d") for r in candidates])
+    z_slope = _zscore([r.get("ma50_slope_pct") for r in candidates])
+    w = QUALITY_MOMENTUM_WEIGHTS
+
+    annotated: list[dict] = []
+    for idx, row in enumerate(candidates):
+        vs_ma20 = row.get("vs_ma20_pct")
+        rsi = row.get("rsi")
+        vol_ratio = row.get("volume_ratio")
+        vs_ma20_f = float(vs_ma20) if vs_ma20 is not None else 0.0
+        rsi_f = float(rsi) if rsi is not None else 50.0
+        vol_f = float(vol_ratio) if vol_ratio is not None else 1.0
+
+        ma20_quality = -abs(np.clip(vs_ma20_f, -8, 18) - 5.0) / 5.0
+        rsi_quality = -abs(np.clip(rsi_f, 45, 85) - 62.0) / 18.0
+        vol_quality = float(np.clip(vol_f - 0.8, -1.0, 1.5))
+        score = (
+            w["rank_momentum_3m"] * z60[idx]
+            + w["momentum_1m"] * z20[idx]
+            + w["momentum_5d"] * z5[idx]
+            + w["ma50_slope"] * z_slope[idx]
+            + w["ma20_quality"] * ma20_quality
+            + w["rsi_quality"] * rsi_quality
+            + w["volume_quality"] * vol_quality
+        )
+        annotated.append({
+            **row,
+            "rank_basis": "quality_momentum",
+            "quality_momentum_score": round(float(score), 6),
+            "quality_momentum_weights": QUALITY_MOMENTUM_WEIGHTS,
+        })
+    return annotated
+
+
 def _apply_software_rotation_overlay(candidates: list[dict], top_n: int,
                                      signal: dict) -> list[dict]:
     if not signal.get("active"):
-        return sorted(candidates, key=_momentum_rank_value, reverse=True)
+        return sorted(candidates, key=_quality_momentum_value, reverse=True)
 
     sw_cap = 6 if top_n <= 10 else 12
     hw_cap = 3 if top_n <= 10 else 8
@@ -679,7 +748,7 @@ def _apply_software_rotation_overlay(candidates: list[dict], top_n: int,
         buckets[group].append(annotated)
 
     for group_rows in buckets.values():
-        group_rows.sort(key=_momentum_rank_value, reverse=True)
+        group_rows.sort(key=_quality_momentum_value, reverse=True)
 
     selected: list[dict] = []
     counts = Counter()
@@ -728,8 +797,8 @@ def quick_screen(
     """
     Download 60d OHLCV per-ticker in parallel, compute technicals, return top_n.
 
-    v11 盘中扫描口径:上日完成日线定结构/排名,盘中最新价确认 RSI/价格位置。
-    过门后默认按上日完成日线 rank_momentum_3m 排名;若 AI 链出现软件显著接棒,
+    v13 盘中扫描口径:上日完成日线定结构,盘中最新价确认 RSI/价格位置。
+    过门后默认按 quality_momentum 排名;若 AI 链出现软件显著接棒,
     启用 SOFTWARE_OVER_HARDWARE soft overlay:软件优先、硬件更严确认且做集中度上限。
 
     force_symbols (watchlist): 走同一道趋势门(不搞特殊),仅保证过门后不被
@@ -818,6 +887,8 @@ def quick_screen(
     else:
         print(f"[scanner] rotation overlay inactive ({rotation_signal.get('reason', 'no_trigger')})")
 
+    all_results = _annotate_quality_momentum(all_results)
+
     # Always include force_symbols that passed — don't let top_n cut them
     force_results   = [r for r in all_results if r["symbol"] in _force]
     regular_results = [r for r in all_results if r["symbol"] not in _force]
@@ -828,5 +899,5 @@ def quick_screen(
         force_tracks = {r["symbol"]: r.get("screen_track", "?") for r in force_results}
         print(f"[scanner] force_symbols: {force_tracks}")
     # v8: 自选不搞特殊 —— 仅保证过门后不被 top_n 截断(已进 combined),
-    # 但整体仍按同一 overlay/动量序重排,坐回真实排名、不给买入插队。
+    # 但整体仍按同一 overlay/quality_momentum 序重排,坐回真实排名、不给买入插队。
     return _apply_software_rotation_overlay(combined, top_n, rotation_signal)

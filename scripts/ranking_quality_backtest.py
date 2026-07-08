@@ -42,6 +42,62 @@ EARLY_FAILURE_MIN_DAY = 1
 EARLY_FAILURE_MAX_DAY = 2
 TRAIL_ACTIVATE = 0.06
 TRAIL_GIVEBACK = 0.05
+FIT_HORIZON = 5
+FIT_MIN_SAMPLES = 600
+FIT_TRAIN_DAYS = 504
+FIT_RETRAIN_DAYS = 20
+FIT_ALPHA = 10.0
+
+FIT_FEATURES = [
+    "mom60",
+    "mom20",
+    "mom5",
+    "ret3",
+    "ret1",
+    "rsi",
+    "vs_ma20",
+    "vs_ma50",
+    "ma50_slope_pct",
+    "vol_ratio",
+    "is_sp500",
+    "is_nasdaq100",
+    "is_layer2",
+    "is_software",
+    "is_fintech",
+    "is_biotech",
+    "is_semis",
+]
+
+QUALITY_VARIANTS = {
+    "quality_momentum": {
+        "weights": (0.40, 0.25, 0.15, 0.10, 0.05, 0.03, 0.02),
+        "desc": "3M/1M/5D + MA50 slope + balanced structure quality",
+    },
+    "recent_confirm": {
+        "weights": (0.30, 0.35, 0.25, 0.05, 0.02, 0.02, 0.01),
+        "desc": "higher 1M/5D weight to require recent confirmation",
+    },
+    "anti_chase": {
+        "weights": (0.45, 0.25, 0.10, 0.10, 0.07, 0.03, 0.00),
+        "desc": "keeps 3M anchor, more penalty for stretched MA20/RSI",
+    },
+    "trend_quality": {
+        "weights": (0.35, 0.20, 0.10, 0.20, 0.10, 0.03, 0.02),
+        "desc": "leans into MA50 slope and controlled MA20 structure",
+    },
+    "low_noise": {
+        "weights": (0.45, 0.25, 0.05, 0.15, 0.07, 0.03, 0.00),
+        "desc": "less 5D noise, more trend quality and anti-chase",
+    },
+    "quality_plus": {
+        "weights": (0.35, 0.22, 0.13, 0.15, 0.08, 0.05, 0.02),
+        "desc": "30% quality weight: more structure/RSI, still momentum-led",
+    },
+    "quality_defensive": {
+        "weights": (0.32, 0.20, 0.10, 0.18, 0.10, 0.07, 0.03),
+        "desc": "38% quality weight: strongest anti-chase and structure emphasis",
+    },
+}
 
 
 def fetch_ohlcv(symbols: list[str], start: str, batch_size: int) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -97,6 +153,137 @@ def zscore(values: np.ndarray) -> np.ndarray:
     return out
 
 
+def entry_eligible(arrays: dict, i: int, bench_cols: set[int]) -> np.ndarray:
+    row = arrays["px"][i]
+    elig = (
+        (row > arrays["ma50"][i])
+        & (arrays["slope"][i] > 0)
+        & (arrays["rsi"][i] >= 50)
+        & (arrays["rsi"][i] <= 80)
+        & (arrays["mom60"][i] > 0)
+        & (row <= arrays["ma20"][i] * 1.15)
+        & ~np.isnan(row)
+    )
+    for bc in bench_cols:
+        elig[bc] = False
+    return elig
+
+
+def fitted_features(arrays: dict, i: int, idx: np.ndarray) -> np.ndarray:
+    px_i = arrays["px"][i, idx]
+    ma20_i = arrays["ma20"][i, idx]
+    ma50_i = arrays["ma50"][i, idx]
+    slope_i = arrays["slope"][i, idx]
+
+    feature_cols = [
+        arrays["mom60"][i, idx],
+        arrays["mom20"][i, idx],
+        arrays["mom5"][i, idx],
+        arrays["px"][i, idx] / arrays["px"][i - 3, idx] - 1 if i >= 3 else np.full(len(idx), np.nan),
+        arrays["px"][i, idx] / arrays["px"][i - 1, idx] - 1 if i >= 1 else np.full(len(idx), np.nan),
+        arrays["rsi"][i, idx] / 100.0,
+        px_i / ma20_i - 1,
+        px_i / ma50_i - 1,
+        slope_i / ma50_i,
+        arrays["vol_ratio"][i, idx],
+        arrays["is_sp500"][idx],
+        arrays["is_nasdaq100"][idx],
+        arrays["is_layer2"][idx],
+        arrays["is_software"][idx],
+        arrays["is_fintech"][idx],
+        arrays["is_biotech"][idx],
+        arrays["is_semis"][idx],
+    ]
+    x = np.column_stack(feature_cols).astype(float)
+    x[:, :9] = np.clip(x[:, :9], -1.0, 1.0)
+    x[:, 9] = np.clip(x[:, 9], 0.0, 10.0)
+    x[~np.isfinite(x)] = np.nan
+    return x
+
+
+def fitted_label(arrays: dict, i: int, idx: np.ndarray) -> np.ndarray:
+    entry = arrays["px"][i, idx]
+    future = arrays["px"][i + 1:i + FIT_HORIZON + 1, :][:, idx]
+    future_ret = future[-1] / entry - 1
+    path_ret = future / entry - 1
+    valid = np.isfinite(path_ret).any(axis=0)
+    future_dd = np.full(len(idx), np.nan)
+    future_dd[valid] = np.nanmin(path_ret[:, valid], axis=0)
+    # Reward upside, but punish names that first put the portfolio under pressure.
+    label = future_ret + 0.7 * np.minimum(future_dd, 0)
+    return np.clip(label, -0.35, 0.35)
+
+
+def ridge_predict(train_x: np.ndarray, train_y: np.ndarray, pred_x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    ok = np.isfinite(train_y) & np.isfinite(train_x).all(axis=1)
+    train_x = train_x[ok]
+    train_y = train_y[ok]
+    pred_ok = np.isfinite(pred_x).all(axis=1)
+    preds = np.full(pred_x.shape[0], np.nan)
+    if len(train_y) < FIT_MIN_SAMPLES or pred_ok.sum() == 0:
+        return preds, np.zeros(train_x.shape[1] if train_x.ndim == 2 else len(FIT_FEATURES))
+
+    mu = train_x.mean(axis=0)
+    sd = train_x.std(axis=0)
+    sd[sd < 0.05] = 1.0
+    x = (train_x - mu) / sd
+    y = train_y - train_y.mean()
+    x = np.clip(np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0), -20.0, 20.0)
+    y = np.clip(np.nan_to_num(y, nan=0.0, posinf=0.0, neginf=0.0), -0.5, 0.5)
+    xtx = np.einsum("ni,nj->ij", x, x, optimize=False)
+    xty = np.einsum("ni,n->i", x, y, optimize=False)
+    penalty = np.eye(x.shape[1]) * FIT_ALPHA
+    try:
+        beta = np.linalg.solve(xtx + penalty, xty)
+    except np.linalg.LinAlgError:
+        beta = np.linalg.lstsq(xtx + penalty, xty, rcond=None)[0]
+    pred_scaled = (pred_x[pred_ok] - mu) / sd
+    pred_scaled = np.clip(np.nan_to_num(pred_scaled, nan=0.0, posinf=0.0, neginf=0.0), -20.0, 20.0)
+    preds[pred_ok] = np.einsum("ni,i->n", pred_scaled, beta, optimize=False)
+    return preds, beta / sd
+
+
+def build_fitted_scores(arrays: dict, sim_idx: list[int], bench_cols: set[int]) -> dict:
+    n_days, n_cols = arrays["px"].shape
+    scores = np.full((n_days, n_cols), np.nan)
+    last_fit_i = -10**9
+    train_x = np.empty((0, len(FIT_FEATURES)))
+    train_y = np.empty(0)
+    last_coef = np.zeros(len(FIT_FEATURES))
+    fits = 0
+
+    for i in sim_idx:
+        if i + FIT_HORIZON >= n_days:
+            continue
+        if i - last_fit_i >= FIT_RETRAIN_DAYS:
+            start_i = max(60, i - FIT_TRAIN_DAYS - FIT_HORIZON)
+            end_i = i - FIT_HORIZON
+            xs: list[np.ndarray] = []
+            ys: list[np.ndarray] = []
+            for j in range(start_i, end_i):
+                elig = entry_eligible(arrays, j, bench_cols)
+                idx = np.where(elig)[0]
+                if len(idx) == 0 or j + FIT_HORIZON >= n_days:
+                    continue
+                xs.append(fitted_features(arrays, j, idx))
+                ys.append(fitted_label(arrays, j, idx))
+            train_x = np.vstack(xs) if xs else np.empty((0, len(FIT_FEATURES)))
+            train_y = np.concatenate(ys) if ys else np.empty(0)
+            last_fit_i = i
+            fits += 1
+
+        idx = np.where(entry_eligible(arrays, i, bench_cols))[0]
+        if len(idx) == 0:
+            continue
+        pred_x = fitted_features(arrays, i, idx)
+        preds, coef = ridge_predict(train_x, train_y, pred_x)
+        scores[i, idx] = preds
+        if np.any(coef):
+            last_coef = coef
+
+    return {"scores": scores, "last_coef": last_coef, "fits": fits}
+
+
 def max_dd(eq: np.ndarray) -> float:
     peak = np.maximum.accumulate(eq)
     return float(((eq - peak) / peak).min()) if len(eq) else 0.0
@@ -134,6 +321,9 @@ def ranking_scores(
     if name == "balanced_momentum":
         return 0.50 * z60 + 0.30 * z20 + 0.20 * z5
 
+    if name not in QUALITY_VARIANTS:
+        raise ValueError(f"unknown ranking variant: {name}")
+
     price = px_a[i]
     vs_ma20 = (price / ma20_a[i] - 1) * 100
     ma50_slope_pct = (slope_a[i] / ma50_a[i]) * 100
@@ -143,15 +333,16 @@ def ranking_scores(
     ma20_quality = -np.abs(np.clip(vs_ma20, -8, 18) - 5.0) / 5.0
     rsi_quality = -np.abs(np.clip(rsi_a[i], 45, 85) - 62.0) / 18.0
     vol_quality = np.clip(vol_ratio - 0.8, -1.0, 1.5)
+    w60, w20, w5, w_slope, w_ma20, w_rsi, w_vol = QUALITY_VARIANTS[name]["weights"]
 
     return (
-        0.40 * z60
-        + 0.25 * z20
-        + 0.15 * z5
-        + 0.10 * zscore(ma50_slope_pct)
-        + 0.05 * ma20_quality
-        + 0.03 * rsi_quality
-        + 0.02 * vol_quality
+        w60 * z60
+        + w20 * z20
+        + w5 * z5
+        + w_slope * zscore(ma50_slope_pct)
+        + w_ma20 * ma20_quality
+        + w_rsi * rsi_quality
+        + w_vol * vol_quality
     )
 
 
@@ -201,24 +392,18 @@ def run_sim(name: str, arrays: dict, sim_idx: list[int], bench_cols: set[int]) -
 
         free = MAX_POS - len(pos)
         if free > 0 and cash > each * 0.5:
-            elig = (
-                (row > ma50_a[i])
-                & (slope_a[i] > 0)
-                & (rsi_a[i] >= 50)
-                & (rsi_a[i] <= 80)
-                & (mom60_a[i] > 0)
-                & (row <= ma20_a[i] * 1.15)
-                & ~np.isnan(row)
-            )
-            for bc in bench_cols:
-                elig[bc] = False
+            elig = entry_eligible(arrays, i, bench_cols)
             for ci in pos:
                 elig[ci] = False
 
             idx = np.where(elig)[0]
             if len(idx):
-                scores = ranking_scores(name, i, px_a, mom5_a, mom20_a, mom60_a,
-                                        ma20_a, ma50_a, slope_a, rsi_a, vol_ratio_a)
+                if name == "fitted_ridge_5d":
+                    scores = arrays["fit_score"][i]
+                else:
+                    scores = ranking_scores(name, i, px_a, mom5_a, mom20_a, mom60_a,
+                                            ma20_a, ma50_a, slope_a, rsi_a, vol_ratio_a)
+                idx = idx[np.isfinite(scores[idx])]
                 ranked = idx[np.argsort(-scores[idx])][:free]
                 for ci in ranked:
                     if cash < each * 0.5:
@@ -245,6 +430,40 @@ def summarize(name: str, dates: pd.Index, eq: np.ndarray, spy_ret: float) -> Non
     print(f"{name:<20} total {total * 100:+7.1f}%  mdd {dd * 100:6.1f}%  vs SPY {(total - spy_ret) * 100:+7.1f}%  {yr_txt}")
 
 
+def print_top_candidates(name: str, arrays: dict, cols: list[str], sim_idx: list[int], bench_cols: set[int], limit: int = 15) -> None:
+    px_a = arrays["px"]
+    i = sim_idx[-1]
+    elig = entry_eligible(arrays, i, bench_cols)
+    idx = np.where(elig)[0]
+    if len(idx) == 0:
+        print(f"  {name:<20} top: none")
+        return
+    if name == "fitted_ridge_5d":
+        scores = arrays["fit_score"][i]
+    else:
+        scores = ranking_scores(
+            name,
+            i,
+            px_a,
+            arrays["mom5"],
+            arrays["mom20"],
+            arrays["mom60"],
+            arrays["ma20"],
+            arrays["ma50"],
+            arrays["slope"],
+            arrays["rsi"],
+            arrays["vol_ratio"],
+        )
+    idx = idx[np.isfinite(scores[idx])]
+    ranked = idx[np.argsort(-scores[idx])][:limit]
+    names = []
+    for ci in ranked:
+        sym = cols[ci]
+        sector = SECTOR_MAP.get(sym, "OTHER")
+        names.append(f"{sym}({sector})")
+    print(f"  {name:<20} top{limit}: " + ", ".join(names))
+
+
 def build_universe(kind: str) -> list[str]:
     uf = Path(__file__).resolve().parent.parent / "data" / "sp500_constituents.txt"
     if kind == "full":
@@ -256,10 +475,17 @@ def build_universe(kind: str) -> list[str]:
     return sorted(set(get_nasdaq100_tickers() + LAYER2_TICKERS + list(SECTOR_MAP.keys())))
 
 
+def local_sp500_set() -> set[str]:
+    uf = Path(__file__).resolve().parent.parent / "data" / "sp500_constituents.txt"
+    return set(uf.read_text().split()) if uf.exists() else set()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--universe", choices=["growth", "sp500", "full"], default="growth")
     ap.add_argument("--batch-size", type=int, default=20)
+    ap.add_argument("--skip-fit", action="store_true", help="skip fitted_ridge_5d to focus on mechanical weight sweeps")
+    ap.add_argument("--top", type=int, default=15, help="number of latest eligible candidates to print per ranking variant")
     args = ap.parse_args()
 
     symbols = build_universe(args.universe)
@@ -290,6 +516,19 @@ def main() -> None:
         "vol_ratio": vol_ratio.values,
     }
     cols = list(px.columns)
+    sp500_set = local_sp500_set()
+    nasdaq_set = set(get_nasdaq100_tickers())
+    layer2_set = set(LAYER2_TICKERS)
+    sector_vals = [SECTOR_MAP.get(sym, "OTHER") for sym in cols]
+    arrays.update({
+        "is_sp500": np.array([sym in sp500_set for sym in cols], dtype=float),
+        "is_nasdaq100": np.array([sym in nasdaq_set for sym in cols], dtype=float),
+        "is_layer2": np.array([sym in layer2_set for sym in cols], dtype=float),
+        "is_software": np.array([v == "SOFTWARE" for v in sector_vals], dtype=float),
+        "is_fintech": np.array([v == "FINTECH" for v in sector_vals], dtype=float),
+        "is_biotech": np.array([v == "BIOTECH" for v in sector_vals], dtype=float),
+        "is_semis": np.array([v == "SEMIS" for v in sector_vals], dtype=float),
+    })
     spy_col = cols.index("SPY")
     qqq_col = cols.index("QQQ") if "QQQ" in cols else -1
     bench_cols = {c for c in (spy_col, qqq_col) if c >= 0}
@@ -305,16 +544,40 @@ def main() -> None:
         qqq_eq = qqq / qqq[0]
         print(f"QQQ                 total {(qqq_eq[-1] - 1) * 100:+7.1f}%  mdd {max_dd(qqq_eq) * 100:6.1f}%")
 
+    fit = None
+    if not args.skip_fit:
+        print("\n训练 fitted_ridge_5d 排序分数...", flush=True)
+        fit = build_fitted_scores(arrays, sim_idx, bench_cols)
+        arrays["fit_score"] = fit["scores"]
+        print(f"  walk-forward refits: {fit['fits']} | horizon={FIT_HORIZON}d | train_days={FIT_TRAIN_DAYS}")
+
     print("\nRanking variants:")
-    for name in ("legacy_3m", "balanced_momentum", "quality_momentum"):
+    variants = ["legacy_3m", "balanced_momentum", *QUALITY_VARIANTS.keys()]
+    if not args.skip_fit:
+        variants.append("fitted_ridge_5d")
+    for name in variants:
         eq, exits = run_sim(name, arrays, sim_idx, bench_cols)
         summarize(name, sim_dates, eq, spy_ret)
         print(f"  exits: {exits}")
 
+    print(f"\nLatest eligible top lists ({sim_dates[-1].date()}):")
+    for name in variants:
+        print_top_candidates(name, arrays, cols, sim_idx, bench_cols, args.top)
+
+    coef = fit["last_coef"] if fit else np.zeros(len(FIT_FEATURES))
+    if np.any(coef):
+        order = np.argsort(-np.abs(coef))[:8]
+        print("\nFitted last-model feature weights:")
+        for j in order:
+            print(f"  {FIT_FEATURES[j]:<15} {coef[j]:+9.4f}")
+
     print("\n说明:")
     print("  legacy_3m = 当前排序锚，只按 60d/约3个月动量排序。")
     print("  balanced_momentum = 3M/1M/5D 组合排序。")
-    print("  quality_momentum = 3M/1M/5D + MA50斜率 + MA20位置 + RSI + 量能质量。")
+    for name, cfg in QUALITY_VARIANTS.items():
+        weights = "/".join(f"{w:.2f}" for w in cfg["weights"])
+        print(f"  {name} = {cfg['desc']} | weights={weights}")
+    print("  fitted_ridge_5d = 机械入池后，用过去约2年样本拟合未来5日收益-回撤惩罚，只改变排序。")
 
 
 if __name__ == "__main__":

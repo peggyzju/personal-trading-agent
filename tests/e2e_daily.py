@@ -978,7 +978,7 @@ def test_v3_strategy():
 
     # ── 3. v8 趋势统一选股(替代 v7 双轨)──────────────────────────────────────
     try:
-        from src.monitor.sp500_scanner import quick_screen
+        from src.monitor.sp500_scanner import quick_screen, _annotate_quality_momentum
 
         mock_raws = [
             # 过 v8: 价在MA50上(+10%)、MA50升、RSI62、3月动量+20%、不过高(vs_ma20=5%)
@@ -1041,11 +1041,25 @@ def test_v3_strategy():
         else:
             fail("v10 盘中确认门", "INTRADAYFAIL 不应通过")
 
-        # 动量排名:按上日 rank_momentum_3m 排名,V8TOP(+40%) 应排在 V8OK(+20%) 前
+        # quality_momentum 排名:3M 动量仍是主锚,V8TOP(+40%) 应排在 V8OK(+20%) 前
         if syms and syms[0] == "V8TOP":
-            ok("v8 动量排名", "高动量 V8TOP 排第一 ✓")
+            ok("v13 quality_momentum 排名", "高质量动量 V8TOP 排第一 ✓")
         else:
-            fail("v8 动量排名", f"应按动量排序, 实际首位 {syms[0] if syms else '无'}")
+            fail("v13 quality_momentum 排名", f"应按 quality_momentum 排序, 实际首位 {syms[0] if syms else '无'}")
+
+        quality_rows = _annotate_quality_momentum([
+            {"symbol": "OLDSTRONG", "rank_momentum_3m": 80.0, "momentum_3m": 80.0,
+             "momentum_1m": -20.0, "momentum_5d": -10.0, "ma50_slope_pct": 0.1,
+             "vs_ma20_pct": 14.0, "rsi": 79.0, "volume_ratio": 0.7},
+            {"symbol": "QUALITY", "rank_momentum_3m": 60.0, "momentum_3m": 60.0,
+             "momentum_1m": 12.0, "momentum_5d": 4.0, "ma50_slope_pct": 4.0,
+             "vs_ma20_pct": 5.0, "rsi": 62.0, "volume_ratio": 1.2},
+        ])
+        quality_ranked = sorted(quality_rows, key=lambda r: r["quality_momentum_score"], reverse=True)
+        if quality_ranked[0]["symbol"] == "QUALITY" and quality_ranked[0].get("rank_basis") == "quality_momentum":
+            ok("v13 质量修正排序", "近期接力+结构更好的 QUALITY 可排在老强势股前 ✓")
+        else:
+            fail("v13 质量修正排序", f"quality_momentum 未生效: {quality_ranked}")
 
     except Exception as e:
         fail("v8 选股", str(e))

@@ -262,5 +262,35 @@
       "ma20_exit": "2d_confirm",
       "note": "EF5 只处理新仓失败;不改变新增候选排序/截断,不替代 -8% 灾难硬止损"
     }
+  },
+  {
+    "version": "v13",
+    "label": "v13 — Quality Momentum 排序",
+    "created_at": "2026-07-08",
+    "description": "保持 v12 EF5/BE5/trail5/MA20 卖出和 v11 AI链软件接棒 soft overlay 不变,将 Scout 过门后的默认排序从纯 3M 动量升级为 quality_momentum。3M 动量仍为主锚,同时加入 1M/5D 接力、MA50 斜率、MA20 位置质量、RSI 质量和量能质量,目标是减少老强势但已走弱或过热的候选排到最前。",
+    "changes": [
+      "候选入池门不变:上日结构 + 盘中确认仍沿用 v10/v11 口径",
+      "默认排序从 rank_momentum_3m 改为 quality_momentum_score",
+      "quality_momentum 权重:3M 40%、1M 25%、5D 15%、MA50斜率 10%、MA20位置质量 5%、RSI质量 3%、量能质量 2%",
+      "SOFTWARE_OVER_HARDWARE overlay 触发逻辑和集中度上限不变;overlay 桶内排序改用 quality_momentum_score",
+      "watchlist 仍走同一道趋势门,只保证过门后不被 top_n 截断,不给买入优先权",
+      "研究回测 scripts/ranking_quality_backtest.py full universe:quality_momentum +177.5% vs legacy_3m +117.0%,2025 +2% vs -12%"
+    ],
+    "backtest_params": {
+      "entry_mode": "v13_quality_momentum_ranking",
+      "inherits_entry_gate": "v10_daily_structure_intraday_confirmation",
+      "inherits_overlay": "v11_ai_chain_soft_rotation_overlay",
+      "inherits_exit": "v12_EF5_BE5_trail5_ma20_2d",
+      "ranking_weights": {
+        "rank_momentum_3m": 0.40,
+        "momentum_1m": 0.25,
+        "momentum_5d": 0.15,
+        "ma50_slope": 0.10,
+        "ma20_quality": 0.05,
+        "rsi_quality": 0.03,
+        "volume_quality": 0.02
+      },
+      "note": "只改变过门后新增候选排序;不改变买入门、仓位、止损或卖出逻辑"
+    }
   }
 ]
