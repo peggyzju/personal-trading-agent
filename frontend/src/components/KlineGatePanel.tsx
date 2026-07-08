@@ -52,7 +52,7 @@ function RsiSpark({ rsi }: { rsi: (number | null)[] }) {
   );
 }
 
-/** v12 核心指标解读面板：AI 点评 + RSI 迷你图 + 4 门控 + 量能参考 + 综合。
+/** 核心指标解读面板：AI 点评 + RSI 迷你图 + 4 门控 + 量能参考 + 综合。
  *  自取 /api/analyze/kline/{symbol}，放在 K 线图下方复用（信号 / 持仓）。 */
 export function KlineGatePanel({ symbol }: { symbol: string }) {
   const [data, setData] = useState<KlineAnalysis | null>(null);
@@ -155,7 +155,7 @@ export function KlineGatePanel({ symbol }: { symbol: string }) {
         }}>
           <span style={{ color: elig ? "#22c55e" : "#ef4444", fontSize: 14 }}>{elig ? "✓" : "✕"}</span>
           <span style={{ fontSize: 12, fontWeight: 600, color: elig ? "#22c55e" : "#ef4444" }}>
-            {data.summary.passed} / {data.summary.total} 通过 → {elig ? "符合 v12 买入" : "不符合"}
+            {data.summary.passed} / {data.summary.total} 通过 → {elig ? "符合当前买入门" : "不符合"}
           </span>
         </div>
       </div>

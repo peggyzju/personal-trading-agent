@@ -359,7 +359,7 @@ function AllSignalsView({
         onRefresh={refreshSummary}
       />
       <div className="sig-md">
-        {/* 左列：按动量排名的紧凑列表 */}
+        {/* 左列：按 quality momentum 排名的紧凑列表 */}
         <div className="sig-md-list">
           {candidates.map((c, i) => (
             <SignalListRow

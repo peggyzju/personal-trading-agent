@@ -1188,7 +1188,7 @@ const AGENT_EMOJI: Record<string, string> = { maya: "🦉", scout: "🦊", rex: 
 const AGENT_COLOR: Record<string, string> = { maya: "#6366f1", scout: "#06b6d4", rex: "#f59e0b", vera: "#10b981" };
 const AGENT_INTRO: Record<string, [string, string]> = {
   maya: ["读市场环境", "牛熊判断 → 定仓位上限"],
-  scout: ["选股排名", "趋势门 → 按动量排序"],
+  scout: ["选股排名", "趋势门 → Quality Momentum"],
   rex: ["下单执行", "买入 + 机械卖出"],
   vera: ["收盘复盘", "提取教训反哺策略"],
 };
