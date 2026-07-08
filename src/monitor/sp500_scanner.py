@@ -4,6 +4,7 @@ import yfinance as yf
 import numpy as np
 import requests
 from collections import Counter
+from pathlib import Path
 from src.analysis.technical_indicators import compute_all
 
 # ── Shared HTTP session — reuse connections to prevent FD leaks ───────────────
@@ -82,7 +83,16 @@ ROTATION_HW_1D_PCT = -2.0
 
 # ── Stock Universe ────────────────────────────────────────────────────────────
 
+_ROOT = Path(__file__).resolve().parents[2]
+_SP500_FILE = _ROOT / "data" / "sp500_constituents.txt"
+
+
 def get_sp500_tickers() -> list[str]:
+    if _SP500_FILE.exists():
+        symbols = _SP500_FILE.read_text().split()
+        if symbols:
+            return sorted(set(symbols))
+
     try:
         table = pd.read_html("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")[0]
         return table["Symbol"].str.replace(".", "-", regex=False).tolist()

@@ -829,6 +829,26 @@ def test_price_drift_gate():
         fail("价格漂移门", str(e)); traceback.print_exc()
 
 
+def test_scan_universe_expanded():
+    print("\n[v12] 扫描池扩展(完整 S&P500 + Nasdaq100 + Layer2)")
+    try:
+        from src.monitor.sp500_scanner import get_sp500_tickers, get_scan_universe
+
+        sp500 = get_sp500_tickers()
+        universe = get_scan_universe(include_dynamic=False)
+        if len(sp500) >= 450:
+            ok("S&P500 local universe", f"读取 {len(sp500)} 只，未退回 55 只 fallback ✓")
+        else:
+            fail("S&P500 local universe", f"只读取 {len(sp500)} 只，疑似退回 fallback")
+
+        if len(universe) > 500:
+            ok("Expanded scan universe", f"静态扫描池 {len(universe)} 只，已超过旧 169 池 ✓")
+        else:
+            fail("Expanded scan universe", f"静态扫描池只有 {len(universe)} 只，未完成扩池")
+    except Exception as e:
+        fail("扫描池扩展", str(e)); traceback.print_exc()
+
+
 def test_veto_ttl():
     print("\n[v8] veto 待审 2h TTL + 普通单收盘过期")
     try:
@@ -1447,6 +1467,7 @@ if __name__ == "__main__":
     test_ma20_exit()
     test_early_failure_stop()
     test_price_drift_gate()
+    test_scan_universe_expanded()
     test_veto_ttl()
     test_sell_never_opens_short()
 
