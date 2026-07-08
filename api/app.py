@@ -391,7 +391,7 @@ def _run_sp500_scan(cascade_agent: bool = False, trigger: str = "auto"):
 
     import threading
     import time as _time
-    from datetime import datetime
+    from datetime import datetime, timezone
     from src.monitor.sp500_scanner import (
         get_scan_universe, get_sp500_tickers, get_nasdaq100_tickers,
         LAYER2_TICKERS, quick_screen, enrich_with_fundamentals,
@@ -560,7 +560,7 @@ def _run_sp500_scan(cascade_agent: bool = False, trigger: str = "auto"):
             "status":        "done",
             "progress":      "done",
             "candidates":    top_ai,
-            "scanned_at":    datetime.utcnow().isoformat(),
+            "scanned_at":    datetime.now(timezone.utc).isoformat(),
             "total_screened": len(tickers),
             "downloaded_ok": _downloaded_ok,
             "tech_passed":   len(top_tech),

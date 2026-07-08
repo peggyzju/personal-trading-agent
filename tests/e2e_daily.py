@@ -872,6 +872,31 @@ def test_veto_ttl():
         fail("veto 2h TTL", str(e)); traceback.print_exc()
 
 
+def test_scan_timestamp_freshness():
+    print("\n[v13] 扫描时间戳 UTC freshness guard")
+    try:
+        from zoneinfo import ZoneInfo
+        from src.trader.trade_agent import _parse_scan_timestamp
+
+        et = ZoneInfo("America/New_York")
+        cases = [
+            ("2026-07-08T09:46:36.884289", "legacy naive UTC"),
+            ("2026-07-08T09:46:36.884289+00:00", "aware UTC"),
+            ("2026-07-08T09:46:36.884289Z", "Z UTC"),
+        ]
+        bad = []
+        for raw, label in cases:
+            dt = _parse_scan_timestamp(raw)
+            if dt.tzinfo is None or dt.astimezone(et).date().isoformat() != "2026-07-08":
+                bad.append(f"{label}: {raw} -> {dt} -> {dt.astimezone(et).date() if dt.tzinfo else 'naive'}")
+        if bad:
+            fail("Scan timestamp freshness", " | ".join(bad))
+        else:
+            ok("Scan timestamp freshness", "naive/aware UTC 扫描时间均不会被误判成前一日 ✓")
+    except Exception as e:
+        fail("Scan timestamp freshness", str(e)); traceback.print_exc()
+
+
 def test_sell_never_opens_short():
     print("\n[v8] 主动卖出防开空(部分止损成交后只卖剩余long)")
     try:
@@ -1512,6 +1537,7 @@ if __name__ == "__main__":
     test_price_drift_gate()
     test_scan_universe_expanded()
     test_veto_ttl()
+    test_scan_timestamp_freshness()
     test_sell_never_opens_short()
 
     if not SMOKE_ONLY:

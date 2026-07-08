@@ -96,6 +96,14 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _parse_scan_timestamp(value: str) -> datetime:
+    """Parse scan timestamps. Legacy naive values were written as UTC."""
+    dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def _next_session_close() -> datetime:
     """Return the next trading session's 4:30 PM ET as UTC datetime.
 
@@ -690,7 +698,7 @@ def run_agent(
 
         HARD_STOP_PCT_T1 = 0.08  # v8 固定 -8% 止损上限(+容差,见下)
 
-        # ── v8 选股:扫描候选(已过趋势门 + 按动量排名)→ 机械买入 ──────────────
+        # ── 选股:扫描候选(已过趋势门 + 按 quality momentum 排名)→ 机械买入 ───────
         scan = scan_cache.get("sp500", {})
 
         # Stale-signal guard: reject scan from a previous trading day
@@ -700,7 +708,7 @@ def run_agent(
             try:
                 import zoneinfo as _zi
                 _et = _zi.ZoneInfo("America/New_York")
-                _scan_date = datetime.fromisoformat(_scanned_at).astimezone(_et).date()
+                _scan_date = _parse_scan_timestamp(_scanned_at).astimezone(_et).date()
                 _today_et  = _now().astimezone(_et).date()
                 _scan_fresh_today = (_scan_date == _today_et)
                 if not _scan_fresh_today:
@@ -717,7 +725,7 @@ def run_agent(
                 if scanner_added >= slots_remaining:
                     print(f"[agent] 槽位已满(本轮已 queue {scanner_added}/{slots_remaining})— 停止 queue 买单")
                     break
-                # v8: 选股=机械动量(scanner 已过趋势门 + 按动量排名)。AI 信号/分数仅作参考、
+                # 选股=机械 quality momentum(scanner 已过趋势门 + 排名完成)。AI 信号/分数仅作参考、
                 # 不挡买入。入场门 = 财报门 + 止损门(+价格漂移门在执行端)。
                 if not _earnings_safe(c["symbol"]):
                     summary["signals_found"] += 1   # found but skipped
