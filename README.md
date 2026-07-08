@@ -1,8 +1,8 @@
 # Personal Trading Agent
 
-An autonomous AI-assisted trading system that scans the US market, ranks stocks by momentum, and executes trades on Alpaca — with a React dashboard for monitoring and control. Currently runs in **paper trading** mode.
+An autonomous AI-assisted trading system that scans the US market, ranks stocks by quality momentum, and executes trades on Alpaca — with a React dashboard for monitoring and control. Currently runs in **paper trading** mode.
 
-> **Strategy v12 (2026-07-07):** keeps v10 completed-daily structure + intraday confirmation, v11 software-over-hardware soft rotation overlay, and v9 BE5/trail5 exits. Rex adds EF5 early-failure exits: D1-D2 positions with floating loss at or below -5% are recycled before they hard-stop. Entry/exit remain rule-based; AI is advisory only — landmine veto (→ manual review), post-earnings judgment, and end-of-day review.
+> **Strategy v13 (2026-07-08):** keeps completed-daily structure + intraday confirmation, v11 software-over-hardware soft rotation overlay, and v12 EF5/BE5/trail5 exits. Scout now ranks passing stocks by `quality_momentum_score` instead of pure 3-month momentum: 3M remains the anchor, with 1M, 5D, MA50 slope, MA20 quality, RSI quality, and volume quality added to reduce one-window bias. Entry/exit remain rule-based; AI is advisory only — landmine veto (→ manual review), post-earnings judgment, and end-of-day review.
 
 ## Agents
 
@@ -11,8 +11,8 @@ Four AI agents coordinated by a single APScheduler (America/New_York):
 | Agent | Role | Schedule (ET) |
 |-------|------|---------------|
 | **Maya** | Reads market regime (BULL/NEUTRAL/CAUTION/BEAR/CRASH) → sets position cap, size factor, buy block | 8:00 AM |
-| **Scout** | Pre-market dynamic discovery (Finviz) + full-universe scan + mechanical momentum ranking (+ AI landmine veto) | 8:45 (discovery) · 9:31 / 11:00 / 12:30 / 14:30 (scan) |
-| **Rex** | Reads scan candidates → executes buys (momentum order); monitors holdings → executes mechanical sells | After each scan (buy) · every 30 min (sell) |
+| **Scout** | Pre-market dynamic discovery (Finviz) + full-universe scan + quality momentum ranking (+ AI landmine veto) | 8:45 (discovery) · 9:31 / 11:00 / 12:30 / 14:30 (scan) |
+| **Rex** | Reads scan candidates → executes buys (quality momentum order); monitors holdings → executes mechanical sells | After each scan (buy) · every 30 min (sell) |
 | **Vera** | End-of-day strategy review, extracts lessons | Manual trigger (`POST /api/strategy/review`) |
 
 ## Architecture
@@ -30,23 +30,32 @@ api/app.py (FastAPI :8000)        frontend/ (React + Vite)
   └── REST endpoints   ←→         └── Portfolio Command Center
 ```
 
-## Strategy (v12 — daily structure + intraday confirmation + rotation overlay + EF5)
+## Strategy (v13 — daily structure + intraday confirmation + quality momentum + rotation overlay + EF5)
 
 ### 1. Selection (Scout) — completed structure, intraday confirmation
 A stock passes only if the completed-daily structure and current intraday confirmation both hold (no dual-track, no AI score gate, no sector boost):
 - completed daily structure: previous close **> MA50**, **MA50 rising** (5-day slope > 0), previous **3-month momentum > 0**
 - intraday confirmation: current price **> previous MA50**, current **RSI 50–80**, current **3-month momentum > 0**, current **vs previous MA20 ≤ 15%**
 
-Passing stocks are ranked by **previous completed-day 3-month momentum**; the candidate price is updated to the current intraday price for sizing/stops. Watchlist symbols go through the same gate (no special treatment).
+Passing stocks are ranked by **`quality_momentum_score`**; the candidate price is updated to the current intraday price for sizing/stops. Watchlist symbols go through the same gate (no special treatment).
+
+Quality momentum weights:
+- **3M momentum 40%**: primary trend anchor
+- **1M momentum 25%**: medium-term continuation
+- **5D momentum 15%**: short-term confirmation
+- **MA50 slope 10%**: trend quality
+- **MA20 position quality 5%**: avoids overly extended names
+- **RSI quality 3%**: favors healthy momentum over exhaustion
+- **Volume quality 2%**: light confirmation, not a dominant driver
 
 When the AI-chain software group clearly leads hardware, Scout enables a **soft rotation overlay** before top-N truncation:
 - trigger: software 3-day median return minus hardware 3-day median return **> 3%**, hardware 1-day median return **< -2%**, and software MA20 breadth **>** hardware MA20 breadth
-- order: **software → other → hardware**, while each bucket still sorts by previous completed-day 3-month momentum
+- order: **software → other → hardware**, while each bucket still sorts by `quality_momentum_score`
 - hardware is not banned, but must have **RSI ≥ 52** and current price **≥ MA20**
 - caps: top10 max **6 software / 3 hardware**; top25 max **12 software / 8 hardware**
 
-### 2. Buy (Rex) — momentum order, auto by default
-- Candidates in momentum order → entry gate: market hours · fresh signal · price drift ≤ 1.5% · no earnings today/tomorrow
+### 2. Buy (Rex) — quality momentum order, auto by default
+- Candidates in quality momentum order → entry gate: market hours · fresh signal · price drift ≤ 1.5% · no earnings today/tomorrow
 - **Fixed −8% stop** (`price × 0.92`)
 - Position sizing: risk 2% / trade, ≤ 8% per position, scaled by regime `size_factor`
 - **Auto-executes by default** (no AI score gate). The only thing routing a buy to **manual review** is an **AI landmine veto** (`veto=true` — a concrete, named risk).
@@ -102,14 +111,14 @@ Dashboard: `http://localhost:5173` (dev) — production build is served by the b
 
 | File | Purpose |
 |------|---------|
-| `scan_cache.json` | Latest Scout scan (momentum-ranked candidates + AI veto) |
+| `scan_cache.json` | Latest Scout scan (quality-momentum-ranked candidates + AI veto) |
 | `dynamic_tickers.json` | Today's Scout-discovered tickers (TTL: 1 trading day) |
 | `auto_approve.json` | Autonomous execution config (pure enabled switch; fail-closed if missing) |
 | `market_context.json` | Current regime, size factor, position cap |
 | `trailing_stops.json` | Per-position high-watermarks + trailing stop prices |
 | `earnings_calendar.json` / `earnings_analysis.json` | Earnings radar (upcoming + post-report AI judgment) |
 | `scheduler_heartbeat.json` | Scheduler liveness (watched by the watchdog) |
-| `versions.json` | Strategy version history (v1–v12) |
+| `versions.json` | Strategy version history (v1–v13) |
 
 ## Testing & self-check
 

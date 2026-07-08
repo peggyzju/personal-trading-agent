@@ -1,6 +1,6 @@
 # Personal Trading Agent — Claude Code 指南
 
-> 当前策略版本 **v12（EF5 新仓失败止损 + v11 soft overlay + v9 BE5/trail5，2026-07-07）**。历史版本见 `data/versions.json`。
+> 当前策略版本 **v13（Quality Momentum 排序 + v12 EF5 + v11 soft overlay，2026-07-08）**。历史版本见 `data/versions.json`。
 
 ---
 
@@ -8,7 +8,7 @@
 
 用**机械动量**策略在美股做**短线波段**（持仓 5–10 天），Alpaca **paper trading**。全自动执行，人在环监督/否决。
 
-- **选股**：机械动量（趋势门 → 按动量排名），无 AI；AI 链板块轮动只做 soft overlay 排序
+- **选股**：机械动量（趋势门 → quality_momentum 排序），无 AI；AI 链板块轮动只做 soft overlay 排序
 - **买入**：机械入场门 + 默认自动执行；唯一 AI 参与 = 买入侧**排雷**层，把高风险票转人工审核
 - **卖出**：纯机械退出（−8% 硬止损 + EF5 新仓失败止损 + BE5 保本 + 追踪止盈 + MA20 破位）
 
@@ -40,20 +40,21 @@
   | CAUTION | 破 MA5 或日内跌 >1.5% | 5 | 0.5 | 否 |
   | BEAR | 破 MA20 | 3 | 0.0 | 是（只管止损） |
 
-### Scout — 选股（机械动量 + AI链 soft rotation overlay，无 AI 个股选择）
-- **数据**：~169 只 universe（S&P500 + 纳指100 + Layer2）的 **Alpaca 批量日线 bars**：完成日线算结构/排名，盘中未完成日线算当前确认
+### Scout — 选股（机械动量 + Quality Momentum 排序 + AI链 soft rotation overlay，无 AI 个股选择）
+- **数据**：~572 只 universe（S&P500 + 纳指100 + Layer2）的 **Alpaca 批量日线 bars**：完成日线算结构/排名，盘中未完成日线算当前确认
 - **时间**：8:45 盘前发现（Finviz）+ 9:31 / 11:00 / 12:30 / 14:30 扫描
-- **策略**：**上日结构门 + 盘中确认门 → 按上日 `rank_momentum_3m` 排名；必要时启用 AI链软件接棒 soft overlay**
+- **策略**：**上日结构门 + 盘中确认门 → 按 `quality_momentum_score` 排名；必要时启用 AI链软件接棒 soft overlay**
   - 上日结构：上日收盘 > MA50 · MA50 上升（5日斜率>0）· 上日 3月动量>0
   - 盘中确认：当前价 > 上日 MA50 · 当前 RSI 50–80 · 当前 3月动量>0 · 当前 vs 上日 MA20 ≤ 15%
-  - 默认过门后按上日 `rank_momentum_3m`（63 交易日涨幅%）降序取 top N；候选 `price` 用盘中当前价供 Rex 仓位/止损；自选（force_symbols）**走同一道门、不特殊、无买入优先权**
-  - **AI链软件接棒 soft overlay（v12）**：触发条件 = 软件 3日中位回报 − 硬件 3日中位回报 > 3% · 硬件 1日中位回报 < −2% · 软件站上 MA20 breadth > 硬件 breadth
-  - overlay 触发后：排序桶为 software → other → hardware；桶内仍按上日 `rank_momentum_3m`；硬件需 RSI ≥ 52 且当前价 ≥ MA20；top10 软件最多 6、硬件最多 3（top25 软件最多 12、硬件最多 8）
+  - 默认过门后按 `quality_momentum_score` 降序取 top N：3M 40% · 1M 25% · 5D 15% · MA50斜率 10% · MA20位置质量 5% · RSI质量 3% · 量能质量 2%
+  - 候选 `price` 用盘中当前价供 Rex 仓位/止损；自选（force_symbols）**走同一道门、不特殊、无买入优先权**
+  - **AI链软件接棒 soft overlay（v13 继承 v11）**：触发条件 = 软件 3日中位回报 − 硬件 3日中位回报 > 3% · 硬件 1日中位回报 < −2% · 软件站上 MA20 breadth > 硬件 breadth
+  - overlay 触发后：排序桶为 software → other → hardware；桶内仍按 `quality_momentum_score`；硬件需 RSI ≥ 52 且当前价 ≥ MA20；top10 软件最多 6、硬件最多 3（top25 软件最多 12、硬件最多 8）
   - overlay 不是硬件禁买，也不影响已有持仓卖出；只影响新增候选的排序/截断
   - **动量窗口 = 3mo 的决策**：稳健性 9/9 赢 SPY；120d 纯回测更高但仍选 3mo（匹配 5–10 天持仓 + 防幸存者偏差）。**要换先做去幸存者偏差重测**
   - 个股过门仍全机械；AI 不做个股选择（AI 仅在买入侧做排雷 veto，见下）
 
-### Rex — 买入（v12 沿用机械买入）
+### Rex — 买入（v13 沿用机械买入）
 - **数据**：Scout 候选（含扫描价）· Alpaca 实时价（漂移/执行）· Finnhub 财报 · regime · 熔断状态 · 当前持仓 + pending
 - **时间**：每次扫描后 cascade
 - **策略**：候选 = 扫描 top-N ∪ 自选（同门）→ 逐个过入场门 → 自动执行
@@ -65,7 +66,7 @@
   - **自动/人工**：`auto_approve.enabled=true` 时自动（confidence 固定 0.8；自动审批**纯开关**无阈值；配置缺失/损坏时 fail-closed=关闭）；`veto=True` → 人工队列，**2h 未处理自动作废、释放槽位补位**（`expires_at=created+2h`）
   - **下单**：Alpaca bracket（市价入场 + −8% 止损），时效 **GTC**
 
-### Rex — 卖出（v12 纯机械退出，无 AI，每 30 分钟）
+### Rex — 卖出（v13 继承 v12 纯机械退出，无 AI，每 30 分钟）
 - **数据**：持仓（Alpaca）· 实时价 · 最近一次 buy 入场时间 · 日线（算 MA20/RSI）· `trailing_stops.json` 高水位
 - **时间**：≥9:31 起每 30 分钟
 - **策略**：`_rule_based_override` 优先级 **硬止损 > EF5 新仓失败止损 > 追踪止盈 > 保本退出 > MA20 破位**
